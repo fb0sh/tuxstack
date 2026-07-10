@@ -1,4 +1,6 @@
-import { VerticalBox, HorizontalBox, Button, ListView, TabWidget, StandardListView } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, Button, ListView, LineEdit } from "std-widgets.slint";
+
+// ── Data structs ──────────────────────────────────────────────────
 
 export struct ContainerData {
     id: string,
@@ -7,150 +9,392 @@ export struct ContainerData {
     status: string,
     cpu: string,
     memory: string,
+    ports: string,
 }
 
-export struct SystemStatus {
-    docker_available: bool,
-    incus_available: bool,
-    containers_running: int,
-    containers_total: int,
+export struct SidebarItem {
+    icon: string,
+    label: string,
+    group: string,
 }
+
+// ── App State ─────────────────────────────────────────────────────
 
 export global AppState {
+    in-out property <int> selected_sidebar: 0;
+    in-out property <[SidebarItem]> sidebar_items: [
+        { icon: "□", label: "Containers", group: "Docker" },
+        { icon: "▤", label: "Images", group: "Docker" },
+        { icon: "▯", label: "Volumes", group: "Docker" },
+        { icon: "◎", label: "Networks", group: "Docker" },
+        { icon: "◇", label: "Instances", group: "Incus" },
+        { icon: "○", label: "Activity", group: "General" },
+        { icon: "⚡", label: "Commands", group: "General" },
+    ];
+    in-out property <string> current_module_name: "Containers";
     in-out property <[ContainerData]> containers: [];
-    in-out property <SystemStatus> sys_status: { docker_available: false, incus_available: false, containers_running: 0, containers_total: 0 };
-    in-out property <bool> show_welcome: true;
-    in-out property <string> docker_status_text: "检测中...";
-    in-out property <string> incus_status_text: "检测中...";
-    in-out property <bool> docker_installed: false;
-    in-out property <bool> incus_installed: false;
-    callback request_refresh();
+    in-out property <int> selected_container: -1;
+    in-out property <bool> list_empty: true;
+    in-out property <int> detail_tab: 0;
+    in-out property <string> detail_name: "";
+    in-out property <string> detail_status: "";
+    in-out property <string> detail_image: "";
+    in-out property <string> detail_created: "";
+    in-out property <string> detail_ip: "";
+    in-out property <string> detail_ports: "";
+    in-out property <string> detail_cpu: "";
+    in-out property <string> detail_memory: "";
+    in-out property <string> search_text: "";
+
+    callback sidebar_selected(int);
+    callback container_selected(int);
+    callback tab_selected(int);
+    callback refresh_requested();
 }
 
-component WelcomePage {
-    VerticalBox {
-        padding: 40px;
-        spacing: 20px;
+// ── Segmented Control ─────────────────────────────────────────────
 
-        Text {
-            text: "欢迎使用 tuxstack";
-            font-size: 28px;
-            font-weight: 700;
-        }
-        Text {
-            text: "Docker + Incus 容器管理工具";
-            font-size: 16px;
-            color: #888;
-        }
-
-        HorizontalBox {
-            spacing: 16px;
-
-            VerticalBox {
-                spacing: 8px;
-                Text { text: "Docker"; font-weight: 600; }
-                Text { text: AppState.docker_status_text; }
-                if (!AppState.docker_installed) : Button {
-                    text: "安装 Docker";
-                    clicked => {
-                        // TODO: trigger daemon install
-                    }
-                }
-            }
-
-            VerticalBox {
-                spacing: 8px;
-                Text { text: "Incus"; font-weight: 600; }
-                Text { text: AppState.incus_status_text; }
-                if (!AppState.incus_installed) : Button {
-                    text: "安装 Incus";
-                    clicked => {
-                        // TODO: trigger daemon install
-                    }
-                }
-            }
-        }
-
-        Button {
-            text: "开始使用";
-            enabled: AppState.docker_installed || AppState.incus_installed;
-            clicked => {
-                AppState.show_welcome = false;
-            }
-        }
-    }
-}
-
-component ContainerRow {
-    in-out property <ContainerData> data: { id: "", name: "", image: "", status: "", cpu: "", memory: "" };
-    height: 40px;
+component SegmentedControl {
+    in property <string> tab1: "";
+    in property <string> tab2: "";
+    in property <string> tab3: "";
+    in property <string> tab4: "";
+    in property <string> tab5: "";
+    in property <int> selected: 0;
+    callback toggled(int);
+    height: 28px;
 
     HorizontalBox {
-        padding: 4px;
-        Text { text: data.name; width: 200px; }
-        Text { text: data.image; width: 200px; }
-        Text { text: data.status; width: 100px; color: data.status == "running" ? green : red; }
-        Text { text: data.cpu; width: 80px; }
-        Text { text: data.memory; width: 100px; }
+        spacing: 0px;
+        Rectangle {
+            width: 80px; border-radius: 6px;
+            background: selected == 0 ? #A13BDA : transparent;
+            Text { text: tab1; color: selected == 0 ? #FFFFFF : #8A8A8A;
+                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { clicked => { toggled(0); } }
+        }
+        Rectangle {
+            width: 80px; border-radius: 6px;
+            background: selected == 1 ? #A13BDA : transparent;
+            Text { text: tab2; color: selected == 1 ? #FFFFFF : #8A8A8A;
+                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { clicked => { toggled(1); } }
+        }
+        Rectangle {
+            width: 80px; border-radius: 6px;
+            background: selected == 2 ? #A13BDA : transparent;
+            Text { text: tab3; color: selected == 2 ? #FFFFFF : #8A8A8A;
+                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { clicked => { toggled(2); } }
+        }
+        Rectangle {
+            width: 80px; border-radius: 6px;
+            background: selected == 3 ? #A13BDA : transparent;
+            Text { text: tab4; color: selected == 3 ? #FFFFFF : #8A8A8A;
+                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { clicked => { toggled(3); } }
+        }
+        Rectangle {
+            width: 80px; border-radius: 6px;
+            background: selected == 4 ? #A13BDA : transparent;
+            Text { text: tab5; color: selected == 4 ? #FFFFFF : #8A8A8A;
+                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { clicked => { toggled(4); } }
+        }
     }
 }
 
-component MainPanel {
-    VerticalBox {
-        // Header toolbar
-        HorizontalBox {
-            padding: 8px;
-            spacing: 8px;
+// ── Detail Row ────────────────────────────────────────────────────
 
-            TabWidget {
-                Tab { title: "容器"; }
-                Tab { title: "镜像"; }
-                Tab { title: "Compose"; }
-                Tab { title: "Incus"; }
+component DetailRow {
+    in property <string> label;
+    in property <string> value;
+    height: 24px;
+
+    HorizontalBox {
+        spacing: 16px;
+        Text { text: label; font-size: 12px; color: #8A8A8A; min-width: 80px; }
+        Text { text: value; font-size: 13px; color: #2B2B2B; }
+    }
+}
+
+// ── No Selection placeholder ──────────────────────────────────────
+
+component NoSelection {
+    VerticalBox {
+        alignment: center;
+        spacing: 0px;
+        Rectangle { height: 0px; width: 0px; }
+        Text { text: "No Selection"; font-size: 32px; color: #8A8A8A;
+            horizontal-alignment: center; }
+    }
+}
+
+// ── Detail Content ────────────────────────────────────────────────
+
+component DetailContent {
+    VerticalBox {
+        padding: 24px;
+        spacing: 16px;
+
+        Text { text: AppState.detail_name; font-size: 20px; font-weight: 700; color: #2B2B2B; }
+
+        VerticalBox {
+            spacing: 12px;
+            DetailRow { label: "Status"; value: AppState.detail_status; }
+            DetailRow { label: "Image"; value: AppState.detail_image; }
+            DetailRow { label: "Created"; value: AppState.detail_created; }
+            DetailRow { label: "IP"; value: AppState.detail_ip; }
+            DetailRow { label: "Ports"; value: AppState.detail_ports; }
+            DetailRow { label: "CPU"; value: AppState.detail_cpu; }
+            DetailRow { label: "Memory"; value: AppState.detail_memory; }
+        }
+    }
+}
+
+// ── Empty State ───────────────────────────────────────────────────
+
+component EmptyState {
+    VerticalBox {
+        alignment: center;
+        spacing: 8px;
+        Rectangle { height: 0px; width: 0px; }
+        Text { text: "📦"; font-size: 48px; horizontal-alignment: center; }
+        Text { text: "No Containers"; font-size: 16px; color: #8A8A8A;
+            horizontal-alignment: center; }
+        Rectangle { height: 12px; width: 0px; }
+        Rectangle {
+            border-radius: 10px;
+            background: #F6F6F7;
+            height: 60px;
+            width: 240px;
+            Text {
+                text: "Get started with an example\ndocker run -it -p 80:80 docker/getting-started";
+                font-size: 12px; color: #8A8A8A; wrap: word-wrap;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// ── Container List ────────────────────────────────────────────────
+
+component ContainerListView {
+    ListView {
+        for container[idx] in AppState.containers: VerticalBox {
+            spacing: 0px;
+            Rectangle {
+                height: 52px;
+                background: idx == AppState.selected_container ? #F0EEF5 : transparent;
+
+                VerticalBox {
+                    padding-left: 12px; padding-right: 12px;
+                    padding-top: 8px;
+                    spacing: 2px;
+
+                    HorizontalBox {
+                        spacing: 8px; alignment: start;
+                        Rectangle {
+                            width: 8px; height: 8px;
+                            border-radius: 4px;
+                            background: container.status == "running" ? #22C55E : #EF4444;
+                        }
+                        Text { text: container.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
+                    }
+
+                    HorizontalBox {
+                        padding-left: 16px; spacing: 12px;
+                        Text { text: container.status; font-size: 11px; color: #8A8A8A; }
+                        Text { text: container.image; font-size: 11px; color: #8A8A8A; }
+                        Text { text: container.ports; font-size: 11px; color: #8A8A8A; }
+                    }
+                }
+
+                TouchArea {
+                    clicked => {
+                        AppState.selected_container = idx;
+                        AppState.container_selected(idx);
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: #F0F0F1; }
+        }
+    }
+}
+
+// ── Resource List ─────────────────────────────────────────────────
+
+component ResourceList {
+    Rectangle {
+        width: 300px;
+        background: #FFFFFF;
+
+        VerticalBox {
+            spacing: 0px;
+
+            // Toolbar
+            Rectangle {
+                height: 44px;
+                VerticalBox {
+                    spacing: 0px;
+                    HorizontalBox {
+                        padding-left: 12px; padding-right: 12px;
+                        spacing: 6px;
+                        alignment: start;
+                        height: 43px;
+
+                        Text { text: "↕"; color: #8A8A8A; font-size: 16px; }
+                        Text { text: "⊞"; color: #8A8A8A; font-size: 14px; }
+
+                        LineEdit {
+                            placeholder-text: "搜索...";
+                            font-size: 13px;
+                            width: 120px;
+                            text <=> AppState.search_text;
+                        }
+
+                        // Round "+" button as custom element
+                        Rectangle {
+                            width: 28px; height: 28px;
+                            border-radius: 14px;
+                            background: #A13BDA;
+                            Text { text: "+"; color: #FFFFFF; font-size: 18px;
+                                horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { } }
+                        }
+                    }
+                    Rectangle { height: 1px; background: #E6E6E8; }
+                }
             }
 
-            Rectangle { width: 0px; }
+            if (AppState.list_empty) : EmptyState { }
+            if (!AppState.list_empty) : ContainerListView { }
+        }
+    }
+}
 
-            Button {
-                text: "刷新";
-                clicked => {
-                    AppState.request_refresh();
+// ── Detail Panel ──────────────────────────────────────────────────
+
+component DetailPanel {
+    Rectangle {
+        background: #FFFFFF;
+
+        VerticalBox {
+            spacing: 0px;
+
+            // Segmented Control bar
+            Rectangle {
+                height: 44px;
+                VerticalBox {
+                    spacing: 0px;
+                    HorizontalBox {
+                        padding: 8px;
+                        alignment: center;
+                        height: 43px;
+
+                        SegmentedControl {
+                            tab1: "Info";
+                            tab2: "Stats";
+                            tab3: "Logs";
+                            tab4: "Terminal";
+                            tab5: "Files";
+                            selected: AppState.detail_tab;
+                            toggled(idx) => {
+                                AppState.detail_tab = idx;
+                                AppState.tab_selected(idx);
+                            }
+                        }
+                    }
+                    Rectangle { height: 1px; background: #E6E6E8; }
+                }
+            }
+
+            if (AppState.selected_container == -1) : NoSelection { }
+            if (AppState.selected_container >= 0) : DetailContent { }
+        }
+    }
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────
+
+component Sidebar {
+    Rectangle {
+        width: 200px;
+        background: #F0F0F1;
+
+        VerticalBox {
+            padding: 12px;
+            spacing: 2px;
+
+            for item[idx] in AppState.sidebar_items: Rectangle {
+                height: 32px;
+                border-radius: 8px;
+                background: idx == AppState.selected_sidebar ? #A13BDA : transparent;
+
+                HorizontalBox {
+                    padding-left: 12px; padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+
+                    Text {
+                        text: item.icon;
+                        color: idx == AppState.selected_sidebar ? #FFFFFF : #8A8A8A;
+                        font-size: 16px;
+                        min-width: 20px;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: item.label;
+                        color: idx == AppState.selected_sidebar ? #FFFFFF : #2B2B2B;
+                        font-size: 13px;
+                        font-weight: idx == AppState.selected_sidebar ? 600 : 400;
+                    }
+                }
+
+                TouchArea {
+                    clicked => {
+                        AppState.selected_sidebar = idx;
+                        AppState.sidebar_selected(idx);
+                    }
+                }
+            }
+
+            Rectangle { height: 0px; }
+
+            Rectangle {
+                height: 40px;
+                border-radius: 8px;
+                HorizontalBox {
+                    padding-left: 12px; spacing: 8px; alignment: start;
+                    Rectangle {
+                        width: 24px; height: 24px;
+                        border-radius: 12px;
+                        background: #A13BDA;
+                        Text { text: "U"; color: #FFFFFF; font-size: 12px; font-weight: 700;
+                            horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Text { text: "fb0sh"; color: #8A8A8A; font-size: 13px; }
                 }
             }
         }
-
-        // Container list header row using Rectangle for background
-        Rectangle {
-            height: 28px;
-            background: #f0f0f0;
-            HorizontalBox {
-                padding-left: 8px;
-                padding-right: 8px;
-                padding-top: 4px;
-                padding-bottom: 4px;
-                Text { text: "名称"; font-weight: 600; width: 200px; }
-                Text { text: "镜像"; font-weight: 600; width: 200px; }
-                Text { text: "状态"; font-weight: 600; width: 100px; }
-                Text { text: "CPU"; font-weight: 600; width: 80px; }
-                Text { text: "内存"; font-weight: 600; width: 100px; }
-            }
-        }
-
-        ListView {
-            for container in AppState.containers: ContainerRow {
-                data: container;
-            }
-        }
     }
 }
+
+// ── Main Window ───────────────────────────────────────────────────
 
 export component MainWindow inherits Window {
     title: "tuxstack";
-    preferred-width: 900px;
-    preferred-height: 600px;
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    background: #F6F6F7;
 
-    VerticalBox {
-        if (AppState.show_welcome) : WelcomePage { }
-        if (!AppState.show_welcome) : MainPanel { }
+    HorizontalBox {
+        spacing: 0px;
+
+        Sidebar { }
+        Rectangle { width: 1px; background: #E6E6E8; }
+        ResourceList { }
+        Rectangle { width: 1px; background: #E6E6E8; }
+        DetailPanel { }
     }
 }
