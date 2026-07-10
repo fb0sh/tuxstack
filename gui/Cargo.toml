@@ -3,6 +3,9 @@ name = "tuxstack-gui"
 version.workspace = true
 edition.workspace = true
 
+[features]
+prototype-ui = []
+
 [dependencies]
 tuxstack-common = { path = "../common" }
 slint = "1.10"
