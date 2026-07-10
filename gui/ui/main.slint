@@ -1,0 +1,156 @@
+import { VerticalBox, HorizontalBox, Button, ListView, TabWidget, StandardListView } from "std-widgets.slint";
+
+export struct ContainerData {
+    id: string,
+    name: string,
+    image: string,
+    status: string,
+    cpu: string,
+    memory: string,
+}
+
+export struct SystemStatus {
+    docker_available: bool,
+    incus_available: bool,
+    containers_running: int,
+    containers_total: int,
+}
+
+export global AppState {
+    in-out property <[ContainerData]> containers: [];
+    in-out property <SystemStatus> sys_status: { docker_available: false, incus_available: false, containers_running: 0, containers_total: 0 };
+    in-out property <bool> show_welcome: true;
+    in-out property <string> docker_status_text: "检测中...";
+    in-out property <string> incus_status_text: "检测中...";
+    in-out property <bool> docker_installed: false;
+    in-out property <bool> incus_installed: false;
+    callback request_refresh();
+}
+
+component WelcomePage {
+    VerticalBox {
+        padding: 40px;
+        spacing: 20px;
+
+        Text {
+            text: "欢迎使用 tuxstack";
+            font-size: 28px;
+            font-weight: 700;
+        }
+        Text {
+            text: "Docker + Incus 容器管理工具";
+            font-size: 16px;
+            color: #888;
+        }
+
+        HorizontalBox {
+            spacing: 16px;
+
+            VerticalBox {
+                spacing: 8px;
+                Text { text: "Docker"; font-weight: 600; }
+                Text { text: AppState.docker_status_text; }
+                if (!AppState.docker_installed) : Button {
+                    text: "安装 Docker";
+                    clicked => {
+                        // TODO: trigger daemon install
+                    }
+                }
+            }
+
+            VerticalBox {
+                spacing: 8px;
+                Text { text: "Incus"; font-weight: 600; }
+                Text { text: AppState.incus_status_text; }
+                if (!AppState.incus_installed) : Button {
+                    text: "安装 Incus";
+                    clicked => {
+                        // TODO: trigger daemon install
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: "开始使用";
+            enabled: AppState.docker_installed || AppState.incus_installed;
+            clicked => {
+                AppState.show_welcome = false;
+            }
+        }
+    }
+}
+
+component ContainerRow {
+    in-out property <ContainerData> data: { id: "", name: "", image: "", status: "", cpu: "", memory: "" };
+    height: 40px;
+
+    HorizontalBox {
+        padding: 4px;
+        Text { text: data.name; width: 200px; }
+        Text { text: data.image; width: 200px; }
+        Text { text: data.status; width: 100px; color: data.status == "running" ? green : red; }
+        Text { text: data.cpu; width: 80px; }
+        Text { text: data.memory; width: 100px; }
+    }
+}
+
+component MainPanel {
+    VerticalBox {
+        // Header toolbar
+        HorizontalBox {
+            padding: 8px;
+            spacing: 8px;
+
+            TabWidget {
+                Tab { title: "容器"; }
+                Tab { title: "镜像"; }
+                Tab { title: "Compose"; }
+                Tab { title: "Incus"; }
+            }
+
+            Rectangle { width: 0px; }
+
+            Button {
+                text: "刷新";
+                clicked => {
+                    AppState.request_refresh();
+                }
+            }
+        }
+
+        // Container list header row using Rectangle for background
+        Rectangle {
+            height: 28px;
+            background: #f0f0f0;
+            HorizontalBox {
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                Text { text: "名称"; font-weight: 600; width: 200px; }
+                Text { text: "镜像"; font-weight: 600; width: 200px; }
+                Text { text: "状态"; font-weight: 600; width: 100px; }
+                Text { text: "CPU"; font-weight: 600; width: 80px; }
+                Text { text: "内存"; font-weight: 600; width: 100px; }
+            }
+        }
+
+        ListView {
+            for container in AppState.containers: ContainerRow {
+                data: container;
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "tuxstack";
+    preferred-width: 900px;
+    preferred-height: 600px;
+
+    VerticalBox {
+        if (AppState.show_welcome) : WelcomePage { }
+        if (!AppState.show_welcome) : MainPanel { }
+    }
+}
