@@ -1,6 +1,8 @@
-import { VerticalBox, HorizontalBox, Button, ListView, LineEdit, ScrollView } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, ListView, ScrollView, LineEdit } from "std-widgets.slint";
 
-// ── Data structs ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Data structs
+// ═══════════════════════════════════════════════════════════════════
 
 export struct ContainerData {
     id: string,
@@ -33,13 +35,33 @@ export struct SidebarItem {
     group: string,
 }
 
-// ── App State ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Colors
+// ═══════════════════════════════════════════════════════════════════
+
+global TuxColors {
+    in-out property <color> bg: #F6F6F7;
+    in-out property <color> panel: #FFFFFF;
+    in-out property <color> sidebar: #F0F0F1;
+    in-out property <color> sidebar_hover: #E8E8E9;
+    in-out property <color> border: #E6E6E8;
+    in-out property <color> text: #2B2B2B;
+    in-out property <color> text_secondary: #8A8A8A;
+    in-out property <color> accent: #A13BDA;
+    in-out property <color> accent_hover: #8C2EC0;
+    in-out property <color> green: #22C55E;
+    in-out property <color> red: #EF4444;
+    in-out property <color> yellow: #F59E0B;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  App State
+// ═══════════════════════════════════════════════════════════════════
 
 export global AppState {
-    // 导航
+    // Navigation
     in-out property <int> selected_sidebar: 0;
     in-out property <int> current_module: 0;
-    in-out property <string> module_title: "Containers";
     in-out property <[SidebarItem]> sidebar_items: [
         { icon: "□", label: "Containers", group: "Docker" },
         { icon: "▤", label: "Images", group: "Docker" },
@@ -50,7 +72,7 @@ export global AppState {
         { icon: "⚡", label: "Commands", group: "General" },
     ];
 
-    // 列表数据
+    // Container data
     in-out property <[ContainerData]> containers: [];
     in-out property <int> selected_container: -1;
     in-out property <bool> containers_empty: true;
@@ -58,15 +80,10 @@ export global AppState {
     in-out property <int> selected_image: -1;
     in-out property <bool> images_empty: true;
 
-    // 详情面板标签
+    // Detail tabs
     in-out property <int> detail_tab: 0;
-    in-out property <string> detail_tab1: "Info";
-    in-out property <string> detail_tab2: "Stats";
-    in-out property <string> detail_tab3: "Logs";
-    in-out property <string> detail_tab4: "Terminal";
-    in-out property <string> detail_tab5: "Files";
 
-    // 详情数据
+    // Detail info
     in-out property <string> detail_name: "";
     in-out property <string> detail_status: "";
     in-out property <string> detail_image: "";
@@ -76,26 +93,21 @@ export global AppState {
     in-out property <string> detail_cpu: "";
     in-out property <string> detail_memory: "";
 
-    // Stats 数据
+    // Stats
     in-out property <string> stats_cpu_percent: "";
     in-out property <string> stats_memory_usage: "";
     in-out property <string> stats_memory_limit: "";
-    in-out property <string> stats_memory_percent: "";
+    in-out property <float> stats_cpu_value: 0.0;
+    in-out property <float> stats_memory_value: 0.0;
     in-out property <string> stats_network_rx: "";
     in-out property <string> stats_network_tx: "";
     in-out property <string> stats_pids: "";
 
-    // Stats 进度值 (0.0~1.0, 从 Rust 计算)
-    in-out property <float> stats_cpu_value: 0.0;
-    in-out property <float> stats_memory_value: 0.0;
-
-    // Logs 数据
+    // Logs
     in-out property <[LogEntry]> logs: [];
-
-    // 搜索
     in-out property <string> search_text: "";
 
-    // 回调
+    // Callbacks
     callback sidebar_selected(int);
     callback container_selected(int);
     callback tab_selected(int);
@@ -106,535 +118,210 @@ export global AppState {
     callback search_changed(string);
 }
 
-// ── Segmented Control ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Reusable: macOS-style small pill button
+// ═══════════════════════════════════════════════════════════════════
 
-component SegmentedControl {
-    in property <string> tab1: "";
-    in property <string> tab2: "";
-    in property <string> tab3: "";
-    in property <string> tab4: "";
-    in property <string> tab5: "";
-    in property <int> selected: 0;
-    callback toggled(int);
-    height: 28px;
+component PillButton {
+    in property <string> text_content;
+    in property <bool> primary;
+    in property <length> min_w: 0px;
+    callback pressed;
+    height: 24px;
 
-    HorizontalBox {
-        spacing: 0px;
-        Rectangle {
-            width: 76px; border-radius: 6px;
-            background: selected == 0 ? #A13BDA : transparent;
-            Text { text: tab1; color: selected == 0 ? #FFFFFF : #8A8A8A;
-                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { toggled(0); } }
+    Rectangle {
+        min-width: min_w;
+        border-radius: 6px;
+        background: primary ? TuxColors.accent : transparent;
+        border-width: primary ? 0px : 1px;
+        border-color: primary ? TuxColors.accent : TuxColors.border;
+
+        Text {
+            text: text_content;
+            color: primary ? #FFFFFF : TuxColors.text_secondary;
+            font-size: 12px;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
-        Rectangle {
-            width: 76px; border-radius: 6px;
-            background: selected == 1 ? #A13BDA : transparent;
-            Text { text: tab2; color: selected == 1 ? #FFFFFF : #8A8A8A;
-                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { toggled(1); } }
-        }
-        Rectangle {
-            width: 76px; border-radius: 6px;
-            background: selected == 2 ? #A13BDA : transparent;
-            Text { text: tab3; color: selected == 2 ? #FFFFFF : #8A8A8A;
-                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { toggled(2); } }
-        }
-        Rectangle {
-            width: 76px; border-radius: 6px;
-            background: selected == 3 ? #A13BDA : transparent;
-            Text { text: tab4; color: selected == 3 ? #FFFFFF : #8A8A8A;
-                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { toggled(3); } }
-        }
-        Rectangle {
-            width: 76px; border-radius: 6px;
-            background: selected == 4 ? #A13BDA : transparent;
-            Text { text: tab5; color: selected == 4 ? #FFFFFF : #8A8A8A;
-                font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { toggled(4); } }
+        TouchArea {
+            clicked => { pressed(); }
         }
     }
 }
 
-// ── Detail Row ────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Reusable: toolbar icon button
+// ═══════════════════════════════════════════════════════════════════
 
-component DetailRow {
+component ToolbarButton {
+    in property <string> icon_text;
+    callback pressed;
+    width: 28px; height: 28px;
+
+    Rectangle {
+        border-radius: 6px;
+        background: #F6F6F7;
+        Text {
+            text: icon_text;
+            color: TuxColors.text_secondary;
+            font-size: 15px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            clicked => { pressed(); }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Reusable: inline badge
+// ═══════════════════════════════════════════════════════════════════
+
+component StatusBadge {
+    in property <string> status_text;
+    height: 20px;
+
+    Rectangle {
+        border-radius: 4px;
+        background: status_text == "running" ? #ECFDF5 :
+                   status_text == "paused" ? #FFFBEB : #FEF2F2;
+        HorizontalBox {
+            padding-left: 6px; padding-right: 6px;
+            spacing: 4px;
+            alignment: center;
+
+            Rectangle {
+                width: 6px; height: 6px;
+                border-radius: 3px;
+                background: status_text == "running" ? TuxColors.green :
+                           status_text == "paused" ? TuxColors.yellow : TuxColors.red;
+            }
+            Text {
+                text: status_text;
+                font-size: 11px;
+                color: status_text == "running" ? #065F46 :
+                       status_text == "paused" ? #92400E : #991B1B;
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Reusable: field row
+// ═══════════════════════════════════════════════════════════════════
+
+component FieldRow {
     in property <string> label;
     in property <string> value;
     height: 24px;
 
     HorizontalBox {
-        spacing: 16px;
-        Text { text: label; font-size: 12px; color: #8A8A8A; min-width: 80px; }
-        Text { text: value; font-size: 13px; color: #2B2B2B; }
+        spacing: 12px;
+        Text { text: label; font-size: 12px; color: TuxColors.text_secondary;
+            min-width: 80px; }
+        Text { text: value; font-size: 13px; color: TuxColors.text; }
     }
 }
 
-// ── Progress Bar ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Progress bar (stats)
+// ═══════════════════════════════════════════════════════════════════
 
-component ProgressBar {
+component StatBar {
     in property <string> label_text;
     in property <float> percent;
-    height: 36px;
+    height: 40px;
 
     VerticalBox {
         spacing: 4px;
-        Text { text: label_text; font-size: 12px; color: #2B2B2B; }
+        Text { text: label_text; font-size: 12px; color: TuxColors.text; }
         Rectangle {
-            height: 8px; border-radius: 4px;
-            background: #E6E6E8;
+            height: 6px; border-radius: 3px;
+            background: TuxColors.border;
             Rectangle {
                 width: parent.width * Math.min(percent, 1.0);
-                height: 8px; border-radius: 4px;
-                background: percent > 0.8 ? #EF4444 : #22C55E;
+                height: 6px; border-radius: 3px;
+                background: percent > 0.8 ? TuxColors.red : TuxColors.green;
             }
         }
     }
 }
 
-// ── Stats Tab ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Segmented Control (macOS style)
+// ═══════════════════════════════════════════════════════════════════
 
-component StatsContent {
-    VerticalBox {
-        padding: 16px;
-        spacing: 16px;
+component SegmentedControl {
+    in property <[string]> tabs: ["Info", "Stats", "Logs", "Terminal", "Files"];
+    in-out property <int> selected: 0;
+    callback toggled(int);
+    height: 28px;
 
-        Text { text: "资源使用"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
+    HorizontalBox {
+        spacing: 2px;
+        for tab[idx] in tabs: Rectangle {
+            min-width: 68px;
+            height: 28px;
+            border-radius: 6px;
+            background: idx == selected ? TuxColors.accent : transparent;
 
-        ProgressBar {
-            label_text: "CPU  " + AppState.stats_cpu_percent;
-            percent: AppState.stats_cpu_value;
-        }
-        ProgressBar {
-            label_text: "内存  " + AppState.stats_memory_usage + " / " + AppState.stats_memory_limit;
-            percent: AppState.stats_memory_value;
-        }
-
-        Rectangle { height: 1px; background: #E6E6E8; }
-
-        Text { text: "网络 I/O"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
-        DetailRow { label: "接收"; value: AppState.stats_network_rx; }
-        DetailRow { label: "发送"; value: AppState.stats_network_tx; }
-
-        Rectangle { height: 1px; background: #E6E6E8; }
-
-        Text { text: "进程"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
-        DetailRow { label: "PID 数"; value: AppState.stats_pids; }
-    }
-}
-
-// ── Logs Tab ──────────────────────────────────────────────────────
-
-component LogsContent {
-    Rectangle {
-        border-radius: 8px;
-        background: #1E1E1E;
-
-        ScrollView {
-            VerticalBox {
-                padding: 12px;
-                spacing: 2px;
-
-                for log in AppState.logs: HorizontalBox {
-                    spacing: 8px;
-                    Text {
-                        text: log.timestamp;
-                        color: #6B7280;
-                        font-size: 11px;
-                        font-family: "monospace";
-                        min-width: 60px;
-                    }
-                    Text {
-                        text: log.stream == "stderr" ? "⚠" : " ";
-                        color: #EF4444;
-                        font-size: 11px;
-                        min-width: 14px;
-                    }
-                    Text {
-                        text: log.message;
-                        color: log.stream == "stderr" ? #FCA5A5 : #D1D5DB;
-                        font-size: 12px;
-                        font-family: "monospace";
-                        wrap: word-wrap;
-                    }
-                }
-
-                if (AppState.logs.length == 0) : Text {
-                    text: "没有日志";
-                    color: #6B7280;
-                    font-size: 12px;
-                }
-            }
-        }
-    }
-}
-
-// ── Terminal Tab ──────────────────────────────────────────────────
-
-component TerminalContent {
-    Rectangle {
-        border-radius: 8px;
-        background: #1E1E1E;
-        Text { text: "终端将在后续版本中支持"; color: #6B7280; font-size: 14px;
-            horizontal-alignment: center; vertical-alignment: center; }
-    }
-}
-
-// ── Files Tab ─────────────────────────────────────────────────────
-
-component FilesContent {
-    Rectangle {
-        border-radius: 8px;
-        background: #F9FAFB;
-        Text { text: "文件浏览将在后续版本中支持"; color: #8A8A8A; font-size: 14px;
-            horizontal-alignment: center; vertical-alignment: center; }
-    }
-}
-
-// ── Image Row ─────────────────────────────────────────────────────
-
-component ImageRow {
-    in property <ImageData> data;
-    in property <bool> selected;
-    callback clicked();
-
-    Rectangle {
-        height: 48px;
-        background: selected ? #F0EEF5 : transparent;
-        VerticalBox {
-            spacing: 0px;
-            Rectangle {
-                height: 47px;
-                VerticalBox {
-                    padding-left: 12px; padding-right: 12px;
-                    spacing: 2px; padding-top: 8px;
-                    Text { text: data.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
-                    HorizontalBox {
-                        spacing: 12px;
-                        Text { text: data.tag; font-size: 11px; color: #8A8A8A; }
-                        Text { text: data.size; font-size: 11px; color: #8A8A8A; }
-                    }
-                }
-                TouchArea { clicked => { clicked(); } }
-            }
-            Rectangle { height: 1px; background: #F0F0F1; }
-        }
-    }
-}
-
-component ImageSimpleList {
-    ListView {
-        for image[idx] in AppState.images: ImageRow {
-            data: image;
-            selected: idx == AppState.selected_image;
-            clicked => {
-                AppState.selected_image = idx;
-            }
-        }
-    }
-}
-
-// ── No Selection ──────────────────────────────────────────────────
-
-component NoSelection {
-    VerticalBox {
-        alignment: center;
-        Text { text: "No Selection"; font-size: 32px; color: #8A8A8A;
-            horizontal-alignment: center; }
-    }
-}
-
-// ── Detail Info Content ───────────────────────────────────────────
-
-component DetailInfoContent {
-    VerticalBox {
-        padding: 24px;
-        spacing: 16px;
-
-        Text { text: AppState.detail_name; font-size: 20px; font-weight: 700; color: #2B2B2B; }
-
-        Rectangle { height: 1px; background: #E6E6E8; }
-
-        VerticalBox {
-            spacing: 12px;
-            DetailRow { label: "Status"; value: AppState.detail_status; }
-            DetailRow { label: "Image"; value: AppState.detail_image; }
-            DetailRow { label: "Created"; value: AppState.detail_created; }
-            DetailRow { label: "IP"; value: AppState.detail_ip; }
-            DetailRow { label: "Ports"; value: AppState.detail_ports; }
-            DetailRow { label: "CPU"; value: AppState.detail_cpu; }
-            DetailRow { label: "Memory"; value: AppState.detail_memory; }
-        }
-    }
-}
-
-// ── Detail Panel ──────────────────────────────────────────────────
-
-component DetailPanel {
-    Rectangle {
-        background: #FFFFFF;
-
-        VerticalBox {
-            spacing: 0px;
-
-            // Segmented control bar
-            Rectangle {
-                height: 44px;
-                VerticalBox {
-                    spacing: 0px;
-                    HorizontalBox {
-                        padding: 8px;
-                        alignment: center;
-                        height: 43px;
-
-                        SegmentedControl {
-                            tab1: AppState.detail_tab1;
-                            tab2: AppState.detail_tab2;
-                            tab3: AppState.detail_tab3;
-                            tab4: AppState.detail_tab4;
-                            tab5: AppState.detail_tab5;
-                            selected: AppState.detail_tab;
-                            toggled(idx) => {
-                                AppState.detail_tab = idx;
-                                AppState.tab_selected(idx);
-                            }
-                        }
-                    }
-                    Rectangle { height: 1px; background: #E6E6E8; }
-                }
-            }
-
-            if (AppState.selected_container == -1) : NoSelection { }
-            if (AppState.selected_container >= 0 && AppState.detail_tab == 0) : DetailInfoContent { }
-            if (AppState.selected_container >= 0 && AppState.detail_tab == 1) : StatsContent { }
-            if (AppState.selected_container >= 0 && AppState.detail_tab == 2) : LogsContent { }
-            if (AppState.selected_container >= 0 && AppState.detail_tab == 3) : TerminalContent { }
-            if (AppState.selected_container >= 0 && AppState.detail_tab == 4) : FilesContent { }
-        }
-    }
-}
-
-// ── Container Row ─────────────────────────────────────────────────
-
-component ContainerRow {
-    in property <ContainerData> data;
-    in property <bool> selected;
-    callback clicked();
-    callback action(string);
-
-    Rectangle {
-        height: 64px;
-        background: selected ? #F0EEF5 : transparent;
-
-        VerticalBox {
-            spacing: 0px;
-
-            Rectangle {
-                height: 63px;
-                VerticalBox {
-                    padding-left: 12px; padding-right: 12px;
-                    padding-top: 8px;
-                    spacing: 4px;
-
-                    HorizontalBox {
-                        spacing: 8px; alignment: start;
-                        Rectangle {
-                            width: 8px; height: 8px;
-                            border-radius: 4px;
-                            background: data.status == "running" ? #22C55E :
-                                       data.status == "paused" ? #F59E0B : #EF4444;
-                        }
-                        Text { text: data.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
-                        Rectangle { width: 0px; }
-                        Text { text: data.image; font-size: 11px; color: #8A8A8A; }
-                    }
-
-                    HorizontalBox {
-                        padding-left: 16px; spacing: 12px;
-                        Text { text: data.status; font-size: 11px;
-                            color: data.status == "running" ? #16A34A :
-                                   data.status == "paused" ? #D97706 : #DC2626; }
-                        Text { text: data.cpu; font-size: 11px; color: #8A8A8A; }
-                        Text { text: data.memory; font-size: 11px; color: #8A8A8A; }
-                    }
-
-                    // Action buttons
-                    HorizontalBox {
-                        padding-left: 16px; spacing: 4px;
-                        if (data.status != "running") : Button {
-                            text: "启动"; height: 22px; width: 48px;
-                            clicked => { action("start"); }
-                        }
-                        if (data.status == "running") : Button {
-                            text: "停止"; height: 22px; width: 48px;
-                            clicked => { action("stop"); }
-                        }
-                        if (data.status == "running") : Button {
-                            text: "重启"; height: 22px; width: 48px;
-                            clicked => { action("restart"); }
-                        }
-                        Button {
-                            text: "删除"; height: 22px; width: 48px;
-                            clicked => { action("remove"); }
-                        }
-                    }
-                }
-
-                TouchArea {
-                    clicked => { clicked(); }
-                }
-            }
-            Rectangle { height: 1px; background: #F0F0F1; }
-        }
-    }
-}
-
-// ── Empty State ───────────────────────────────────────────────────
-
-component EmptyState {
-    VerticalBox {
-        alignment: center;
-        spacing: 8px;
-        Rectangle { height: 0px; width: 0px; }
-        Text { text: "📦"; font-size: 48px; horizontal-alignment: center; }
-        Text { text: "No Containers"; font-size: 16px; color: #8A8A8A;
-            horizontal-alignment: center; }
-        Rectangle { height: 12px; width: 0px; }
-        Rectangle {
-            border-radius: 10px;
-            background: #F6F6F7;
-            height: 60px;
-            width: 260px;
             Text {
-                text: "Get started with an example\n  docker run -it -p 80:80 docker/getting-started";
-                font-size: 12px; color: #8A8A8A; wrap: word-wrap;
-                horizontal-alignment: center; vertical-alignment: center;
+                text: tab;
+                color: idx == selected ? #FFFFFF : TuxColors.text_secondary;
+                font-size: 12px;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
             }
-        }
-    }
-}
-
-// ── Container List ────────────────────────────────────────────────
-
-component ContainerListView {
-    ListView {
-        for container[idx] in AppState.containers: ContainerRow {
-            data: container;
-            selected: idx == AppState.selected_container;
-            clicked => {
-                AppState.selected_container = idx;
-                AppState.container_selected(idx);
-            }
-            action(a) => {
-                AppState.container_action(container.id, a);
-            }
-        }
-    }
-}
-
-// ── Resource List ─────────────────────────────────────────────────
-
-component ResourceList {
-    Rectangle {
-        width: 320px;
-        background: #FFFFFF;
-
-        VerticalBox {
-            spacing: 0px;
-
-            Rectangle {
-                height: 44px;
-                VerticalBox {
-                    spacing: 0px;
-                    HorizontalBox {
-                        padding-left: 12px; padding-right: 12px;
-                        spacing: 6px;
-                        alignment: start;
-                        height: 43px;
-
-                        Text { text: "↕"; color: #8A8A8A; font-size: 16px;
-                            TouchArea { clicked => { } } }
-
-                        LineEdit {
-                            placeholder-text: "搜索...";
-                            font-size: 13px;
-                            width: 160px;
-                            text <=> AppState.search_text;
-                        }
-
-                        Rectangle { width: 0px; }
-
-                        Rectangle {
-                            width: 28px; height: 28px;
-                            border-radius: 14px;
-                            background: #A13BDA;
-                            Text { text: "+"; color: #FFFFFF; font-size: 18px;
-                                horizontal-alignment: center; vertical-alignment: center; }
-                            TouchArea { clicked => { } }
-                        }
-                    }
-                    Rectangle { height: 1px; background: #E6E6E8; }
+            TouchArea {
+                clicked => {
+                    selected = idx;
+                    toggled(idx);
                 }
             }
-
-            if (AppState.current_module == 0 && AppState.containers_empty) : EmptyState { }
-            if (AppState.current_module == 0 && !AppState.containers_empty) : ContainerListView { }
-
-            if (AppState.current_module == 1) : ImageSimpleList { }
-            if (AppState.current_module == 2) : Rectangle {
-                VerticalBox { padding: 24px;
-                    Text { text: "Volumes (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
-                }}
-            if (AppState.current_module == 3) : Rectangle {
-                VerticalBox { padding: 24px;
-                    Text { text: "Networks (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
-                }}
-            if (AppState.current_module == 4) : Rectangle {
-                VerticalBox { padding: 24px;
-                    Text { text: "Incus Instances (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
-                }}
         }
     }
 }
 
-// ── Sidebar ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Sidebar
+// ═══════════════════════════════════════════════════════════════════
 
 component Sidebar {
     Rectangle {
         width: 200px;
-        background: #F0F0F1;
+        background: TuxColors.sidebar;
 
         VerticalBox {
-            padding: 12px;
-            spacing: 2px;
+            padding-top: 8px;
+            spacing: 1px;
 
+            // Navigation items
             for item[idx] in AppState.sidebar_items: Rectangle {
-                height: 32px;
-                border-radius: 8px;
-                background: idx == AppState.selected_sidebar ? #A13BDA : transparent;
-
+                height: 30px;
+                border-radius: 6px;
+                background: idx == AppState.selected_sidebar ? TuxColors.accent : transparent;
                 HorizontalBox {
                     padding-left: 12px; padding-right: 12px;
-                    spacing: 10px;
+                    spacing: 8px;
                     alignment: start;
 
                     Text {
                         text: item.icon;
-                        color: idx == AppState.selected_sidebar ? #FFFFFF : #8A8A8A;
-                        font-size: 16px;
-                        min-width: 20px;
+                        color: idx == AppState.selected_sidebar ? #FFFFFF : TuxColors.text_secondary;
+                        font-size: 14px;
+                        min-width: 18px;
                         horizontal-alignment: center;
                     }
                     Text {
                         text: item.label;
-                        color: idx == AppState.selected_sidebar ? #FFFFFF : #2B2B2B;
-                        font-size: 13px;
+                        color: idx == AppState.selected_sidebar ? #FFFFFF : TuxColors.text;
+                        font-size: 12px;
                         font-weight: idx == AppState.selected_sidebar ? 600 : 400;
                     }
                 }
-
                 TouchArea {
                     clicked => {
                         AppState.selected_sidebar = idx;
@@ -643,42 +330,363 @@ component Sidebar {
                 }
             }
 
-            Rectangle { height: 0px; }
+            Rectangle { height: 0px; } // spacer
 
+            // User
             Rectangle {
-                height: 40px;
-                border-radius: 8px;
+                height: 36px;
+                border-radius: 6px;
                 HorizontalBox {
                     padding-left: 12px; spacing: 8px; alignment: start;
                     Rectangle {
-                        width: 24px; height: 24px;
-                        border-radius: 12px;
-                        background: #A13BDA;
-                        Text { text: "U"; color: #FFFFFF; font-size: 12px; font-weight: 700;
+                        width: 20px; height: 20px;
+                        border-radius: 10px;
+                        background: TuxColors.accent;
+                        Text { text: "U"; color: #FFFFFF; font-size: 10px; font-weight: 700;
                             horizontal-alignment: center; vertical-alignment: center; }
                     }
-                    Text { text: "fb0sh"; color: #8A8A8A; font-size: 13px; }
+                    Text { text: "fb0sh"; color: TuxColors.text_secondary; font-size: 12px; }
                 }
             }
         }
     }
 }
 
-// ── Main Window ───────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  Container List
+// ═══════════════════════════════════════════════════════════════════
+
+component ContainerListItem {
+    in property <ContainerData> data;
+    in property <bool> active;
+    callback clicked;
+    callback action(string);
+    height: 56px;
+
+    Rectangle {
+        background: active ? #F5F3F7 : transparent;
+        VerticalBox {
+            spacing: 0px;
+            Rectangle {
+                height: 55px;
+                VerticalBox {
+                    padding-left: 12px; padding-right: 8px;
+                    padding-top: 8px;
+                    spacing: 4px;
+
+                    // Row 1: name + status badge
+                    HorizontalBox {
+                        spacing: 8px; alignment: start;
+                        Text { text: data.name; font-size: 13px; font-weight: 600; color: TuxColors.text; }
+                        StatusBadge { status_text: data.status; }
+                    }
+
+                    // Row 2: image + cpu + memory
+                    HorizontalBox {
+                        padding-left: 0px; spacing: 12px;
+                        Text { text: data.image; font-size: 11px; color: TuxColors.text_secondary; }
+                        Text { text: data.cpu; font-size: 11px; color: TuxColors.text_secondary; }
+                        Text { text: data.memory; font-size: 11px; color: TuxColors.text_secondary; }
+                        Rectangle { width: 0px; }
+                        // Action pill buttons
+                        if (data.status != "running") : PillButton {
+                            text_content: "启动"; primary: true; min_w: 40px;
+                            pressed => { action("start"); }
+                        }
+                        if (data.status == "running") : PillButton {
+                            text_content: "停止"; primary: false; min_w: 40px;
+                            pressed => { action("stop"); }
+                        }
+                        if (data.status == "running") : PillButton {
+                            text_content: "重启"; primary: false; min_w: 40px;
+                            pressed => { action("restart"); }
+                        }
+                        PillButton {
+                            text_content: "删除"; primary: false; min_w: 40px;
+                            pressed => { action("remove"); }
+                        }
+                    }
+                }
+                TouchArea { clicked => { clicked(); } }
+            }
+            Rectangle { height: 1px; background: TuxColors.border; }
+        }
+    }
+}
+
+component ImageListItem {
+    in property <ImageData> data;
+    in property <bool> active;
+    callback clicked;
+    height: 44px;
+
+    Rectangle {
+        background: active ? #F5F3F7 : transparent;
+        VerticalBox {
+            spacing: 0px;
+            Rectangle {
+                height: 43px;
+                VerticalBox {
+                    padding-left: 12px; padding-right: 12px;
+                    spacing: 2px; padding-top: 7px;
+                    Text { text: data.name; font-size: 13px; font-weight: 600; color: TuxColors.text; }
+                    HorizontalBox {
+                        spacing: 12px;
+                        Text { text: data.tag; font-size: 11px; color: TuxColors.text_secondary; }
+                        Text { text: data.size; font-size: 11px; color: TuxColors.text_secondary; }
+                    }
+                }
+                TouchArea { clicked => { clicked(); } }
+            }
+            Rectangle { height: 1px; background: TuxColors.border; }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Empty State
+// ═══════════════════════════════════════════════════════════════════
+
+component EmptyState {
+    VerticalBox {
+        alignment: center;
+        spacing: 8px;
+        Rectangle { height: 0px; }
+        Text { text: "📦"; font-size: 40px; horizontal-alignment: center; }
+        Text { text: "No Containers"; font-size: 15px; color: TuxColors.text_secondary;
+            horizontal-alignment: center; }
+        Rectangle { height: 8px; }
+        Rectangle {
+            border-radius: 8px;
+            background: TuxColors.bg;
+            height: 52px;
+            width: 250px;
+            Text {
+                text: "docker run -it -p 80:80 docker/getting-started";
+                font-size: 11px; color: TuxColors.text_secondary; wrap: word-wrap;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Detail Panel Content
+// ═══════════════════════════════════════════════════════════════════
+
+component NoSelection {
+    VerticalBox {
+        alignment: center;
+        Text { text: "No Selection"; font-size: 28px; color: #C8C8C8;
+            horizontal-alignment: center; }
+    }
+}
+
+component DetailInfoContent {
+    VerticalBox {
+        padding: 24px; spacing: 20px;
+
+        Text { text: AppState.detail_name; font-size: 18px; font-weight: 700; color: TuxColors.text; }
+        Rectangle { height: 1px; background: TuxColors.border; }
+
+        VerticalBox { spacing: 10px;
+            FieldRow { label: "Status"; value: AppState.detail_status; }
+            FieldRow { label: "Image"; value: AppState.detail_image; }
+            FieldRow { label: "Created"; value: AppState.detail_created; }
+            FieldRow { label: "IP"; value: AppState.detail_ip; }
+            FieldRow { label: "Ports"; value: AppState.detail_ports; }
+            FieldRow { label: "CPU"; value: AppState.detail_cpu; }
+            FieldRow { label: "Memory"; value: AppState.detail_memory; }
+        }
+    }
+}
+
+component DetailStatsContent {
+    VerticalBox { padding: 24px; spacing: 20px;
+        Text { text: "Resource Usage"; font-size: 14px; font-weight: 600; color: TuxColors.text; }
+        StatBar { label_text: "CPU  " + AppState.stats_cpu_percent; percent: AppState.stats_cpu_value; }
+        StatBar { label_text: "Memory  " + AppState.stats_memory_usage + " / " + AppState.stats_memory_limit;
+            percent: AppState.stats_memory_value; }
+        Rectangle { height: 1px; background: TuxColors.border; }
+        Text { text: "Network I/O"; font-size: 14px; font-weight: 600; color: TuxColors.text; }
+        FieldRow { label: "Received"; value: AppState.stats_network_rx; }
+        FieldRow { label: "Sent"; value: AppState.stats_network_tx; }
+        Rectangle { height: 1px; background: TuxColors.border; }
+        FieldRow { label: "PIDs"; value: AppState.stats_pids; }
+    }
+}
+
+component DetailLogsContent {
+    Rectangle { border-radius: 8px; background: #1A1A1A; clip: true;
+        ScrollView {
+            VerticalBox { padding: 12px; spacing: 1px;
+                for log in AppState.logs: HorizontalBox { spacing: 6px;
+                    Text { text: log.timestamp; color: #6B7280; font-size: 10px;
+                        font-family: "monospace"; min-width: 56px; }
+                    Text { text: log.stream == "stderr" ? "⚠" : " "; color: #EF4444;
+                        font-size: 10px; min-width: 12px; }
+                    Text { text: log.message; color: log.stream == "stderr" ? #FCA5A5 : #D1D5DB;
+                        font-size: 11px; font-family: "monospace"; wrap: word-wrap; }
+                }
+                if (AppState.logs.length == 0) : VerticalBox { padding: 8px;
+                    Text { text: "No logs"; color: #6B7280; font-size: 12px; } }
+            }
+        }
+    }
+}
+
+component DetailTerminalContent {
+    Rectangle { border-radius: 8px; background: #1A1A1A;
+        Text { text: "Terminal coming soon"; color: #6B7280; font-size: 13px;
+            horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
+component DetailFilesContent {
+    Rectangle { border-radius: 8px; background: TuxColors.bg;
+        Text { text: "File browser coming soon"; color: TuxColors.text_secondary; font-size: 13px;
+            horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Detail Panel
+// ═══════════════════════════════════════════════════════════════════
+
+component DetailPanel {
+    Rectangle { background: TuxColors.panel;
+        VerticalBox { spacing: 0px;
+
+            // Segmented control
+            Rectangle {
+                height: 44px;
+                VerticalBox { spacing: 0px;
+                    HorizontalBox { padding: 8px; alignment: center; height: 43px;
+                        SegmentedControl {
+                            tabs: ["Info", "Stats", "Logs", "Terminal", "Files"];
+                            selected: AppState.detail_tab;
+                            toggled(idx) => { AppState.detail_tab = idx; AppState.tab_selected(idx); }
+                        }
+                    }
+                    Rectangle { height: 1px; background: TuxColors.border; }
+                }
+            }
+
+            // Tab content
+            if (AppState.selected_container == -1) : NoSelection { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 0) : DetailInfoContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 1) : DetailStatsContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 2) : DetailLogsContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 3) : DetailTerminalContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 4) : DetailFilesContent { }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  List views (must come before ResourceList)
+// ═══════════════════════════════════════════════════════════════════
+
+component ContainerListView {
+    ListView {
+        for container[idx] in AppState.containers: ContainerListItem {
+            data: container;
+            active: idx == AppState.selected_container;
+            clicked => { AppState.selected_container = idx; AppState.container_selected(idx); }
+            action(a) => { AppState.container_action(container.id, a); }
+        }
+    }
+}
+
+component ImageListView {
+    ListView {
+        for image[idx] in AppState.images: ImageListItem {
+            data: image;
+            active: idx == AppState.selected_image;
+            clicked => { AppState.selected_image = idx; }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Toolbar + Resource List
+// ═══════════════════════════════════════════════════════════════════
+
+component ResourceList {
+    Rectangle { width: 320px; background: TuxColors.panel;
+        VerticalBox { spacing: 0px;
+
+            // Toolbar
+            Rectangle {
+                height: 40px;
+                VerticalBox { spacing: 0px;
+                    HorizontalBox {
+                        padding-left: 8px; padding-right: 8px;
+                        spacing: 4px; alignment: start; height: 39px;
+
+                        ToolbarButton { icon_text: "↕"; pressed => { } }
+
+                        // Search field
+                        Rectangle {
+                            width: 160px; height: 26px;
+                            border-radius: 6px;
+                            background: TuxColors.bg;
+                            border-width: 1px; border-color: TuxColors.border;
+                            LineEdit {
+                                placeholder-text: "Search...";
+                                font-size: 12px;
+                                text <=> AppState.search_text;
+                                height: 24px; width: 150px;
+                            }
+                        }
+
+                        Rectangle { width: 0px; }
+
+                        Rectangle {
+                            width: 26px; height: 26px;
+                            border-radius: 13px;
+                            background: TuxColors.accent;
+                            Text { text: "+"; color: #FFFFFF; font-size: 16px; font-weight: 300;
+                                horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { } }
+                        }
+                    }
+                    Rectangle { height: 1px; background: TuxColors.border; }
+                }
+            }
+
+            // Content
+            if (AppState.current_module == 0 && AppState.containers_empty) : EmptyState { }
+            if (AppState.current_module == 0 && !AppState.containers_empty) : ContainerListView { }
+            if (AppState.current_module == 1) : ImageListView { }
+            if (AppState.current_module == 2) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Volumes"; color: TuxColors.text_secondary; font-size: 13px; } } }
+            if (AppState.current_module == 3) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Networks"; color: TuxColors.text_secondary; font-size: 13px; } } }
+            if (AppState.current_module == 4) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Incus Instances"; color: TuxColors.text_secondary; font-size: 13px; } } }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Main Window
+// ═══════════════════════════════════════════════════════════════════
 
 export component MainWindow inherits Window {
     title: "tuxstack";
-    preferred-width: 1100px;
-    preferred-height: 700px;
-    background: #F6F6F7;
+    preferred-width: 1050px;
+    preferred-height: 660px;
+    background: TuxColors.bg;
 
-    HorizontalBox {
-        spacing: 0px;
-
+    HorizontalBox { spacing: 0px;
         Sidebar { }
-        Rectangle { width: 1px; background: #E6E6E8; }
+        Rectangle { width: 1px; background: TuxColors.border; }
         ResourceList { }
-        Rectangle { width: 1px; background: #E6E6E8; }
+        Rectangle { width: 1px; background: TuxColors.border; }
         DetailPanel { }
     }
 }
