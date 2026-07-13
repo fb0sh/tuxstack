@@ -1,4 +1,4 @@
-import { VerticalBox, HorizontalBox, Button, ListView, LineEdit } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, Button, ListView, LineEdit, ScrollView } from "std-widgets.slint";
 
 // ── Data structs ──────────────────────────────────────────────────
 
@@ -7,9 +7,24 @@ export struct ContainerData {
     name: string,
     image: string,
     status: string,
+    created: string,
+    ports: string,
     cpu: string,
     memory: string,
-    ports: string,
+}
+
+export struct ImageData {
+    id: string,
+    name: string,
+    tag: string,
+    size: string,
+    created: string,
+}
+
+export struct LogEntry {
+    timestamp: string,
+    stream: string,
+    message: string,
 }
 
 export struct SidebarItem {
@@ -21,7 +36,10 @@ export struct SidebarItem {
 // ── App State ─────────────────────────────────────────────────────
 
 export global AppState {
+    // 导航
     in-out property <int> selected_sidebar: 0;
+    in-out property <int> current_module: 0;
+    in-out property <string> module_title: "Containers";
     in-out property <[SidebarItem]> sidebar_items: [
         { icon: "□", label: "Containers", group: "Docker" },
         { icon: "▤", label: "Images", group: "Docker" },
@@ -31,11 +49,24 @@ export global AppState {
         { icon: "○", label: "Activity", group: "General" },
         { icon: "⚡", label: "Commands", group: "General" },
     ];
-    in-out property <string> current_module_name: "Containers";
+
+    // 列表数据
     in-out property <[ContainerData]> containers: [];
     in-out property <int> selected_container: -1;
-    in-out property <bool> list_empty: true;
+    in-out property <bool> containers_empty: true;
+    in-out property <[ImageData]> images: [];
+    in-out property <int> selected_image: -1;
+    in-out property <bool> images_empty: true;
+
+    // 详情面板标签
     in-out property <int> detail_tab: 0;
+    in-out property <string> detail_tab1: "Info";
+    in-out property <string> detail_tab2: "Stats";
+    in-out property <string> detail_tab3: "Logs";
+    in-out property <string> detail_tab4: "Terminal";
+    in-out property <string> detail_tab5: "Files";
+
+    // 详情数据
     in-out property <string> detail_name: "";
     in-out property <string> detail_status: "";
     in-out property <string> detail_image: "";
@@ -44,12 +75,35 @@ export global AppState {
     in-out property <string> detail_ports: "";
     in-out property <string> detail_cpu: "";
     in-out property <string> detail_memory: "";
+
+    // Stats 数据
+    in-out property <string> stats_cpu_percent: "";
+    in-out property <string> stats_memory_usage: "";
+    in-out property <string> stats_memory_limit: "";
+    in-out property <string> stats_memory_percent: "";
+    in-out property <string> stats_network_rx: "";
+    in-out property <string> stats_network_tx: "";
+    in-out property <string> stats_pids: "";
+
+    // Stats 进度值 (0.0~1.0, 从 Rust 计算)
+    in-out property <float> stats_cpu_value: 0.0;
+    in-out property <float> stats_memory_value: 0.0;
+
+    // Logs 数据
+    in-out property <[LogEntry]> logs: [];
+
+    // 搜索
     in-out property <string> search_text: "";
 
+    // 回调
     callback sidebar_selected(int);
     callback container_selected(int);
     callback tab_selected(int);
     callback refresh_requested();
+    callback container_action(string, string);
+    callback image_pull(string);
+    callback image_remove(string);
+    callback search_changed(string);
 }
 
 // ── Segmented Control ─────────────────────────────────────────────
@@ -67,35 +121,35 @@ component SegmentedControl {
     HorizontalBox {
         spacing: 0px;
         Rectangle {
-            width: 80px; border-radius: 6px;
+            width: 76px; border-radius: 6px;
             background: selected == 0 ? #A13BDA : transparent;
             Text { text: tab1; color: selected == 0 ? #FFFFFF : #8A8A8A;
                 font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
             TouchArea { clicked => { toggled(0); } }
         }
         Rectangle {
-            width: 80px; border-radius: 6px;
+            width: 76px; border-radius: 6px;
             background: selected == 1 ? #A13BDA : transparent;
             Text { text: tab2; color: selected == 1 ? #FFFFFF : #8A8A8A;
                 font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
             TouchArea { clicked => { toggled(1); } }
         }
         Rectangle {
-            width: 80px; border-radius: 6px;
+            width: 76px; border-radius: 6px;
             background: selected == 2 ? #A13BDA : transparent;
             Text { text: tab3; color: selected == 2 ? #FFFFFF : #8A8A8A;
                 font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
             TouchArea { clicked => { toggled(2); } }
         }
         Rectangle {
-            width: 80px; border-radius: 6px;
+            width: 76px; border-radius: 6px;
             background: selected == 3 ? #A13BDA : transparent;
             Text { text: tab4; color: selected == 3 ? #FFFFFF : #8A8A8A;
                 font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
             TouchArea { clicked => { toggled(3); } }
         }
         Rectangle {
-            width: 80px; border-radius: 6px;
+            width: 76px; border-radius: 6px;
             background: selected == 4 ? #A13BDA : transparent;
             Text { text: tab5; color: selected == 4 ? #FFFFFF : #8A8A8A;
                 font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
@@ -118,26 +172,190 @@ component DetailRow {
     }
 }
 
-// ── No Selection placeholder ──────────────────────────────────────
+// ── Progress Bar ──────────────────────────────────────────────────
+
+component ProgressBar {
+    in property <string> label_text;
+    in property <float> percent;
+    height: 36px;
+
+    VerticalBox {
+        spacing: 4px;
+        Text { text: label_text; font-size: 12px; color: #2B2B2B; }
+        Rectangle {
+            height: 8px; border-radius: 4px;
+            background: #E6E6E8;
+            Rectangle {
+                width: parent.width * Math.min(percent, 1.0);
+                height: 8px; border-radius: 4px;
+                background: percent > 0.8 ? #EF4444 : #22C55E;
+            }
+        }
+    }
+}
+
+// ── Stats Tab ─────────────────────────────────────────────────────
+
+component StatsContent {
+    VerticalBox {
+        padding: 16px;
+        spacing: 16px;
+
+        Text { text: "资源使用"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
+
+        ProgressBar {
+            label_text: "CPU  " + AppState.stats_cpu_percent;
+            percent: AppState.stats_cpu_value;
+        }
+        ProgressBar {
+            label_text: "内存  " + AppState.stats_memory_usage + " / " + AppState.stats_memory_limit;
+            percent: AppState.stats_memory_value;
+        }
+
+        Rectangle { height: 1px; background: #E6E6E8; }
+
+        Text { text: "网络 I/O"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
+        DetailRow { label: "接收"; value: AppState.stats_network_rx; }
+        DetailRow { label: "发送"; value: AppState.stats_network_tx; }
+
+        Rectangle { height: 1px; background: #E6E6E8; }
+
+        Text { text: "进程"; font-size: 14px; font-weight: 600; color: #2B2B2B; }
+        DetailRow { label: "PID 数"; value: AppState.stats_pids; }
+    }
+}
+
+// ── Logs Tab ──────────────────────────────────────────────────────
+
+component LogsContent {
+    Rectangle {
+        border-radius: 8px;
+        background: #1E1E1E;
+
+        ScrollView {
+            VerticalBox {
+                padding: 12px;
+                spacing: 2px;
+
+                for log in AppState.logs: HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: log.timestamp;
+                        color: #6B7280;
+                        font-size: 11px;
+                        font-family: "monospace";
+                        min-width: 60px;
+                    }
+                    Text {
+                        text: log.stream == "stderr" ? "⚠" : " ";
+                        color: #EF4444;
+                        font-size: 11px;
+                        min-width: 14px;
+                    }
+                    Text {
+                        text: log.message;
+                        color: log.stream == "stderr" ? #FCA5A5 : #D1D5DB;
+                        font-size: 12px;
+                        font-family: "monospace";
+                        wrap: word-wrap;
+                    }
+                }
+
+                if (AppState.logs.length == 0) : Text {
+                    text: "没有日志";
+                    color: #6B7280;
+                    font-size: 12px;
+                }
+            }
+        }
+    }
+}
+
+// ── Terminal Tab ──────────────────────────────────────────────────
+
+component TerminalContent {
+    Rectangle {
+        border-radius: 8px;
+        background: #1E1E1E;
+        Text { text: "终端将在后续版本中支持"; color: #6B7280; font-size: 14px;
+            horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
+// ── Files Tab ─────────────────────────────────────────────────────
+
+component FilesContent {
+    Rectangle {
+        border-radius: 8px;
+        background: #F9FAFB;
+        Text { text: "文件浏览将在后续版本中支持"; color: #8A8A8A; font-size: 14px;
+            horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
+// ── Image Row ─────────────────────────────────────────────────────
+
+component ImageRow {
+    in property <ImageData> data;
+    in property <bool> selected;
+    callback clicked();
+
+    Rectangle {
+        height: 48px;
+        background: selected ? #F0EEF5 : transparent;
+        VerticalBox {
+            spacing: 0px;
+            Rectangle {
+                height: 47px;
+                VerticalBox {
+                    padding-left: 12px; padding-right: 12px;
+                    spacing: 2px; padding-top: 8px;
+                    Text { text: data.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
+                    HorizontalBox {
+                        spacing: 12px;
+                        Text { text: data.tag; font-size: 11px; color: #8A8A8A; }
+                        Text { text: data.size; font-size: 11px; color: #8A8A8A; }
+                    }
+                }
+                TouchArea { clicked => { clicked(); } }
+            }
+            Rectangle { height: 1px; background: #F0F0F1; }
+        }
+    }
+}
+
+component ImageSimpleList {
+    ListView {
+        for image[idx] in AppState.images: ImageRow {
+            data: image;
+            selected: idx == AppState.selected_image;
+            clicked => {
+                AppState.selected_image = idx;
+            }
+        }
+    }
+}
+
+// ── No Selection ──────────────────────────────────────────────────
 
 component NoSelection {
     VerticalBox {
         alignment: center;
-        spacing: 0px;
-        Rectangle { height: 0px; width: 0px; }
         Text { text: "No Selection"; font-size: 32px; color: #8A8A8A;
             horizontal-alignment: center; }
     }
 }
 
-// ── Detail Content ────────────────────────────────────────────────
+// ── Detail Info Content ───────────────────────────────────────────
 
-component DetailContent {
+component DetailInfoContent {
     VerticalBox {
         padding: 24px;
         spacing: 16px;
 
         Text { text: AppState.detail_name; font-size: 20px; font-weight: 700; color: #2B2B2B; }
+
+        Rectangle { height: 1px; background: #E6E6E8; }
 
         VerticalBox {
             spacing: 12px;
@@ -148,6 +366,127 @@ component DetailContent {
             DetailRow { label: "Ports"; value: AppState.detail_ports; }
             DetailRow { label: "CPU"; value: AppState.detail_cpu; }
             DetailRow { label: "Memory"; value: AppState.detail_memory; }
+        }
+    }
+}
+
+// ── Detail Panel ──────────────────────────────────────────────────
+
+component DetailPanel {
+    Rectangle {
+        background: #FFFFFF;
+
+        VerticalBox {
+            spacing: 0px;
+
+            // Segmented control bar
+            Rectangle {
+                height: 44px;
+                VerticalBox {
+                    spacing: 0px;
+                    HorizontalBox {
+                        padding: 8px;
+                        alignment: center;
+                        height: 43px;
+
+                        SegmentedControl {
+                            tab1: AppState.detail_tab1;
+                            tab2: AppState.detail_tab2;
+                            tab3: AppState.detail_tab3;
+                            tab4: AppState.detail_tab4;
+                            tab5: AppState.detail_tab5;
+                            selected: AppState.detail_tab;
+                            toggled(idx) => {
+                                AppState.detail_tab = idx;
+                                AppState.tab_selected(idx);
+                            }
+                        }
+                    }
+                    Rectangle { height: 1px; background: #E6E6E8; }
+                }
+            }
+
+            if (AppState.selected_container == -1) : NoSelection { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 0) : DetailInfoContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 1) : StatsContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 2) : LogsContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 3) : TerminalContent { }
+            if (AppState.selected_container >= 0 && AppState.detail_tab == 4) : FilesContent { }
+        }
+    }
+}
+
+// ── Container Row ─────────────────────────────────────────────────
+
+component ContainerRow {
+    in property <ContainerData> data;
+    in property <bool> selected;
+    callback clicked();
+    callback action(string);
+
+    Rectangle {
+        height: 64px;
+        background: selected ? #F0EEF5 : transparent;
+
+        VerticalBox {
+            spacing: 0px;
+
+            Rectangle {
+                height: 63px;
+                VerticalBox {
+                    padding-left: 12px; padding-right: 12px;
+                    padding-top: 8px;
+                    spacing: 4px;
+
+                    HorizontalBox {
+                        spacing: 8px; alignment: start;
+                        Rectangle {
+                            width: 8px; height: 8px;
+                            border-radius: 4px;
+                            background: data.status == "running" ? #22C55E :
+                                       data.status == "paused" ? #F59E0B : #EF4444;
+                        }
+                        Text { text: data.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
+                        Rectangle { width: 0px; }
+                        Text { text: data.image; font-size: 11px; color: #8A8A8A; }
+                    }
+
+                    HorizontalBox {
+                        padding-left: 16px; spacing: 12px;
+                        Text { text: data.status; font-size: 11px;
+                            color: data.status == "running" ? #16A34A :
+                                   data.status == "paused" ? #D97706 : #DC2626; }
+                        Text { text: data.cpu; font-size: 11px; color: #8A8A8A; }
+                        Text { text: data.memory; font-size: 11px; color: #8A8A8A; }
+                    }
+
+                    // Action buttons
+                    HorizontalBox {
+                        padding-left: 16px; spacing: 4px;
+                        if (data.status != "running") : Button {
+                            text: "启动"; height: 22px; width: 48px;
+                            clicked => { action("start"); }
+                        }
+                        if (data.status == "running") : Button {
+                            text: "停止"; height: 22px; width: 48px;
+                            clicked => { action("stop"); }
+                        }
+                        if (data.status == "running") : Button {
+                            text: "重启"; height: 22px; width: 48px;
+                            clicked => { action("restart"); }
+                        }
+                        Button {
+                            text: "删除"; height: 22px; width: 48px;
+                            clicked => { action("remove"); }
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { clicked(); }
+                }
+            }
+            Rectangle { height: 1px; background: #F0F0F1; }
         }
     }
 }
@@ -167,9 +506,9 @@ component EmptyState {
             border-radius: 10px;
             background: #F6F6F7;
             height: 60px;
-            width: 240px;
+            width: 260px;
             Text {
-                text: "Get started with an example\ndocker run -it -p 80:80 docker/getting-started";
+                text: "Get started with an example\n  docker run -it -p 80:80 docker/getting-started";
                 font-size: 12px; color: #8A8A8A; wrap: word-wrap;
                 horizontal-alignment: center; vertical-alignment: center;
             }
@@ -181,43 +520,16 @@ component EmptyState {
 
 component ContainerListView {
     ListView {
-        for container[idx] in AppState.containers: VerticalBox {
-            spacing: 0px;
-            Rectangle {
-                height: 52px;
-                background: idx == AppState.selected_container ? #F0EEF5 : transparent;
-
-                VerticalBox {
-                    padding-left: 12px; padding-right: 12px;
-                    padding-top: 8px;
-                    spacing: 2px;
-
-                    HorizontalBox {
-                        spacing: 8px; alignment: start;
-                        Rectangle {
-                            width: 8px; height: 8px;
-                            border-radius: 4px;
-                            background: container.status == "running" ? #22C55E : #EF4444;
-                        }
-                        Text { text: container.name; font-size: 13px; font-weight: 600; color: #2B2B2B; }
-                    }
-
-                    HorizontalBox {
-                        padding-left: 16px; spacing: 12px;
-                        Text { text: container.status; font-size: 11px; color: #8A8A8A; }
-                        Text { text: container.image; font-size: 11px; color: #8A8A8A; }
-                        Text { text: container.ports; font-size: 11px; color: #8A8A8A; }
-                    }
-                }
-
-                TouchArea {
-                    clicked => {
-                        AppState.selected_container = idx;
-                        AppState.container_selected(idx);
-                    }
-                }
+        for container[idx] in AppState.containers: ContainerRow {
+            data: container;
+            selected: idx == AppState.selected_container;
+            clicked => {
+                AppState.selected_container = idx;
+                AppState.container_selected(idx);
             }
-            Rectangle { height: 1px; background: #F0F0F1; }
+            action(a) => {
+                AppState.container_action(container.id, a);
+            }
         }
     }
 }
@@ -226,13 +538,12 @@ component ContainerListView {
 
 component ResourceList {
     Rectangle {
-        width: 300px;
+        width: 320px;
         background: #FFFFFF;
 
         VerticalBox {
             spacing: 0px;
 
-            // Toolbar
             Rectangle {
                 height: 44px;
                 VerticalBox {
@@ -243,17 +554,18 @@ component ResourceList {
                         alignment: start;
                         height: 43px;
 
-                        Text { text: "↕"; color: #8A8A8A; font-size: 16px; }
-                        Text { text: "⊞"; color: #8A8A8A; font-size: 14px; }
+                        Text { text: "↕"; color: #8A8A8A; font-size: 16px;
+                            TouchArea { clicked => { } } }
 
                         LineEdit {
                             placeholder-text: "搜索...";
                             font-size: 13px;
-                            width: 120px;
+                            width: 160px;
                             text <=> AppState.search_text;
                         }
 
-                        // Round "+" button as custom element
+                        Rectangle { width: 0px; }
+
                         Rectangle {
                             width: 28px; height: 28px;
                             border-radius: 14px;
@@ -267,50 +579,22 @@ component ResourceList {
                 }
             }
 
-            if (AppState.list_empty) : EmptyState { }
-            if (!AppState.list_empty) : ContainerListView { }
-        }
-    }
-}
+            if (AppState.current_module == 0 && AppState.containers_empty) : EmptyState { }
+            if (AppState.current_module == 0 && !AppState.containers_empty) : ContainerListView { }
 
-// ── Detail Panel ──────────────────────────────────────────────────
-
-component DetailPanel {
-    Rectangle {
-        background: #FFFFFF;
-
-        VerticalBox {
-            spacing: 0px;
-
-            // Segmented Control bar
-            Rectangle {
-                height: 44px;
-                VerticalBox {
-                    spacing: 0px;
-                    HorizontalBox {
-                        padding: 8px;
-                        alignment: center;
-                        height: 43px;
-
-                        SegmentedControl {
-                            tab1: "Info";
-                            tab2: "Stats";
-                            tab3: "Logs";
-                            tab4: "Terminal";
-                            tab5: "Files";
-                            selected: AppState.detail_tab;
-                            toggled(idx) => {
-                                AppState.detail_tab = idx;
-                                AppState.tab_selected(idx);
-                            }
-                        }
-                    }
-                    Rectangle { height: 1px; background: #E6E6E8; }
-                }
-            }
-
-            if (AppState.selected_container == -1) : NoSelection { }
-            if (AppState.selected_container >= 0) : DetailContent { }
+            if (AppState.current_module == 1) : ImageSimpleList { }
+            if (AppState.current_module == 2) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Volumes (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
+                }}
+            if (AppState.current_module == 3) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Networks (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
+                }}
+            if (AppState.current_module == 4) : Rectangle {
+                VerticalBox { padding: 24px;
+                    Text { text: "Incus Instances (mock data)"; color: #8A8A8A; horizontal-alignment: center; }
+                }}
         }
     }
 }
