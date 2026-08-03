@@ -52,6 +52,18 @@ pub enum DockerError {
     Internal(String),
 }
 
+/// Collect the full error chain text (self + sources) for classification.
+fn chain_text(err: &bollard::errors::Error) -> String {
+    use std::error::Error as _;
+    let mut parts = vec![err.to_string()];
+    let mut next: Option<&dyn std::error::Error> = err.source();
+    while let Some(e) = next {
+        parts.push(e.to_string());
+        next = e.source();
+    }
+    parts.join(" | ").to_lowercase()
+}
+
 /// Classify a bollard connection error into a precise [`DockerError`].
 pub(crate) fn classify_connect_error(
     err: &bollard::errors::Error,
@@ -67,18 +79,18 @@ pub(crate) fn classify_connect_error(
         }
         bollard::errors::Error::RequestTimeoutError => DockerError::ConnectionTimeout,
         _ => {
-            let text = err.to_string().to_lowercase();
-            if text.contains("permission denied") || text.contains("operation not permitted") {
+            let text = chain_text(err);
+            if text.contains("permission denied") || text.contains("os error 13") {
                 DockerError::PermissionDenied
-            } else if text.contains("no such file") || text.contains("no such file or directory") {
+            } else if text.contains("no such file") || text.contains("os error 2") {
                 DockerError::SocketNotFound(
                     socket
                         .cloned()
                         .unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")),
                 )
             } else if text.contains("connection refused")
-                || text.contains("connect refused")
                 || text.contains("no route to host")
+                || text.contains("os error 111")
             {
                 DockerError::EngineUnavailable
             } else if text.contains("timed out") || text.contains("timeout") {
@@ -107,11 +119,13 @@ pub(crate) fn classify_api_error(err: &bollard::errors::Error, resource: &str) -
         },
         bollard::errors::Error::RequestTimeoutError => DockerError::OperationTimeout,
         _ => {
-            let text = err.to_string().to_lowercase();
+            let text = chain_text(err);
             if text.contains("timed out") || text.contains("timeout") {
                 DockerError::OperationTimeout
-            } else if text.contains("permission denied") {
+            } else if text.contains("permission denied") || text.contains("os error 13") {
                 DockerError::PermissionDenied
+            } else if text.contains("connection refused") || text.contains("os error 111") {
+                DockerError::EngineUnavailable
             } else {
                 DockerError::Api(err.to_string())
             }
