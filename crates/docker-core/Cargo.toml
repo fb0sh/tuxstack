@@ -1,0 +1,32 @@
+[package]
+name = "tuxstack-docker-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared Docker core library for the tuxstack desktop application"
+rust-version.workspace = true
+
+[dependencies]
+bollard = { workspace = true, features = ["chrono"] }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+toml = "0.8"
+
+[dev-dependencies]
+bollard = { workspace = true, features = ["chrono"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+uuid = { workspace = true }
+
+[[test]]
+name = "docker"
+path = "../../tests/integration/docker.rs"
+
+[[test]]
+name = "containers"
+path = "../../tests/integration/containers.rs"
