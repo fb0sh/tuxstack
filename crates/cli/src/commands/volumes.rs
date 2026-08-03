@@ -8,9 +8,7 @@ use crate::output;
 use super::CommandContext;
 
 pub async fn run(ctx: &CommandContext, filter: Option<String>) -> Result<(), CliError> {
-    let options = ListVolumesOptions {
-        search: filter,
-    };
+    let options = ListVolumesOptions { search: filter };
     let volumes = ctx.services.volumes.list_volumes(&options).await?;
 
     if ctx.json {
@@ -27,8 +25,6 @@ pub async fn run(ctx: &CommandContext, filter: Option<String>) -> Result<(), Cli
             v.scope.clone(),
         ]);
     }
-    table
-        .render(&mut std::io::stdout())
-        .map_err(CliError::Io)?;
+    table.render(&mut std::io::stdout()).map_err(CliError::Io)?;
     Ok(())
 }

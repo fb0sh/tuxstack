@@ -14,15 +14,18 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tuxstack_docker_core::services::containers::ListContainersOptions;
 use tuxstack_docker_core::{
     ContainerLogsOptions, ContainerState, DockerClient, DockerServices, RemoveContainerOptions,
     StopContainerOptions,
 };
-use tuxstack_docker_core::services::containers::ListContainersOptions;
 
 /// Unique name prefix for this test run.
 fn prefix() -> String {
-    format!("tuxstack-test-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
+    format!(
+        "tuxstack-test-{}",
+        uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+    )
 }
 
 async fn setup() -> (DockerServices, String) {
@@ -81,7 +84,10 @@ async fn start_test_container(
 
     let created = docker
         .create_container(
-            Some(CreateContainerOptions { name: Some(name.to_string()), platform: String::new() }),
+            Some(CreateContainerOptions {
+                name: Some(name.to_string()),
+                platform: String::new(),
+            }),
             config,
         )
         .await
@@ -90,7 +96,10 @@ async fn start_test_container(
     // list to confirm and return the domain summary
     let list = services
         .containers
-        .list_containers(&ListContainersOptions { all: true, ..Default::default() })
+        .list_containers(&ListContainersOptions {
+            all: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
     list.into_iter()
@@ -117,7 +126,10 @@ async fn container_lifecycle() {
     // list empty check
     let all = services
         .containers
-        .list_containers(&ListContainersOptions { all: true, ..Default::default() })
+        .list_containers(&ListContainersOptions {
+            all: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
     assert!(!all.iter().any(|c| c.name == name));
@@ -126,7 +138,11 @@ async fn container_lifecycle() {
     let summary = start_test_container(&services, &name).await;
     let id = summary.id.clone();
 
-    services.containers.start_container(&id).await.expect("start");
+    services
+        .containers
+        .start_container(&id)
+        .await
+        .expect("start");
     let detail = services
         .containers
         .inspect_container(&id)
@@ -136,13 +152,25 @@ async fn container_lifecycle() {
 
     services
         .containers
-        .stop_container(&id, Some(&StopContainerOptions { timeout_seconds: Some(5) }))
+        .stop_container(
+            &id,
+            Some(&StopContainerOptions {
+                timeout_seconds: Some(5),
+            }),
+        )
         .await
         .expect("stop");
 
     services
         .containers
-        .remove_container(&id, &RemoveContainerOptions { force: true, remove_volumes: false, remove_links: false })
+        .remove_container(
+            &id,
+            &RemoveContainerOptions {
+                force: true,
+                remove_volumes: false,
+                remove_links: false,
+            },
+        )
         .await
         .expect("remove");
 

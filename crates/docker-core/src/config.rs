@@ -29,7 +29,7 @@ pub enum ConfigError {
 }
 
 /// Raw values that come out of the TOML file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct FileConfig {
     #[serde(rename = "docker")]
@@ -61,16 +61,6 @@ pub struct UiSection {
 #[serde(default, deny_unknown_fields)]
 pub struct LoggingSection {
     pub level: String,
-}
-
-impl Default for FileConfig {
-    fn default() -> Self {
-        Self {
-            docker: DockerSection::default(),
-            ui: UiSection::default(),
-            logging: LoggingSection::default(),
-        }
-    }
 }
 
 impl Default for DockerSection {
@@ -137,7 +127,9 @@ pub fn config_path() -> Result<PathBuf, ConfigError> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .ok_or_else(|| ConfigError::NoConfigDir("neither XDG_CONFIG_HOME nor HOME are set".into()))?;
+        .ok_or_else(|| {
+            ConfigError::NoConfigDir("neither XDG_CONFIG_HOME nor HOME are set".into())
+        })?;
     Ok(base.join("tuxstack").join("config.toml"))
 }
 

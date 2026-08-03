@@ -22,9 +22,7 @@ pub fn map_network_summary(network: BollardNetwork) -> NetworkSummary {
 /// Map a bollard network inspect response into the domain detail model.
 pub fn map_network_detail(inspect: BollardNetworkInspect) -> NetworkDetail {
     let ipam = inspect.ipam.as_ref();
-    let config = ipam
-        .and_then(|i| i.config.as_ref())
-        .and_then(|c| c.first());
+    let config = ipam.and_then(|i| i.config.as_ref()).and_then(|c| c.first());
 
     NetworkDetail {
         summary: NetworkSummary {
@@ -36,7 +34,12 @@ pub fn map_network_detail(inspect: BollardNetworkInspect) -> NetworkDetail {
             attachable: inspect.attachable.unwrap_or(false),
             ingress: inspect.ingress.unwrap_or(false),
             ipv6: inspect.enable_ipv6.unwrap_or(false),
-            labels: inspect.labels.clone().unwrap_or_default().into_iter().collect(),
+            labels: inspect
+                .labels
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
         },
         subnet: config.and_then(|c| c.subnet.clone()),
         gateway: config.and_then(|c| c.gateway.clone()),
@@ -52,7 +55,12 @@ pub fn map_network_detail(inspect: BollardNetworkInspect) -> NetworkDetail {
                 mac: endpoint.mac_address.clone(),
             })
             .collect(),
-        options: inspect.options.clone().unwrap_or_default().into_iter().collect(),
+        options: inspect
+            .options
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -121,9 +129,6 @@ mod tests {
         assert_eq!(mapped.gateway.as_deref(), Some("172.20.0.1"));
         assert_eq!(mapped.containers.len(), 1);
         assert_eq!(mapped.containers[0].name, "web");
-        assert_eq!(
-            mapped.containers[0].ipv4.as_deref(),
-            Some("172.20.0.2")
-        );
+        assert_eq!(mapped.containers[0].ipv4.as_deref(), Some("172.20.0.2"));
     }
 }

@@ -8,7 +8,7 @@ use bollard::query_parameters::{
 };
 
 use crate::client::DockerClient;
-use crate::error::{classify_api_error, DockerError};
+use crate::error::{DockerError, classify_api_error};
 use crate::mapping::images::map_image_summary;
 use crate::models::ImageSummary;
 
@@ -38,7 +38,11 @@ impl ImageService {
         let filters: HashMap<String, Vec<String>> = HashMap::new();
         let bollard_opts = BollardListImagesOptions {
             all: true,
-            filters: if filters.is_empty() { None } else { Some(filters) },
+            filters: if filters.is_empty() {
+                None
+            } else {
+                Some(filters)
+            },
             ..Default::default()
         };
 
@@ -55,23 +59,22 @@ impl ImageService {
 
         if let Some(search) = options.search.as_deref().map(str::to_lowercase) {
             mapped.retain(|i| {
-                i.repository_tags.iter().any(|t| t.to_lowercase().contains(&search))
+                i.repository_tags
+                    .iter()
+                    .any(|t| t.to_lowercase().contains(&search))
                     || i.id.contains(&search)
                     || i.short_id.contains(&search)
             });
         }
 
         // Sort by most recent first for a stable, useful order.
-        mapped.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        mapped.sort_by_key(|i| std::cmp::Reverse(i.created_at));
 
         Ok(mapped)
     }
 
     /// Inspect a single image.
-    pub async fn inspect_image(
-        &self,
-        id_or_name: &str,
-    ) -> Result<serde_json::Value, DockerError> {
+    pub async fn inspect_image(&self, id_or_name: &str) -> Result<serde_json::Value, DockerError> {
         let docker = self.client.inner().clone();
         let inspect = tokio::time::timeout(
             self.client.config().request_timeout,

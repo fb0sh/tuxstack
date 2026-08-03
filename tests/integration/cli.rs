@@ -21,7 +21,10 @@ fn info_prints_engine_details() {
     let out = run(&["info"]);
     assert!(out.status.success(), "info must succeed");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("Docker version"), "info must show version: {stdout}");
+    assert!(
+        stdout.contains("Docker version"),
+        "info must show version: {stdout}"
+    );
 }
 
 #[test]
@@ -39,7 +42,10 @@ fn ps_lists_containers() {
     let out = run(&["ps", "--all"]);
     assert!(out.status.success(), "ps must succeed");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("CONTAINER ID"), "ps must have a header: {stdout}");
+    assert!(
+        stdout.contains("CONTAINER ID"),
+        "ps must have a header: {stdout}"
+    );
 }
 
 #[test]
@@ -56,7 +62,14 @@ fn images_and_networks_and_volumes() {
 fn missing_docker_uses_exit_code_3() {
     // Point at a non-existent socket.
     let out = run(&["--host", "unix:///tmp/tuxstack-does-not-exist.sock", "info"]);
-    assert_eq!(out.status.code(), Some(3), "exit code must be 3 (docker unavailable)");
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "exit code must be 3 (docker unavailable)"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("socket"), "stderr must explain the failure: {stderr}");
+    assert!(
+        stderr.contains("socket"),
+        "stderr must explain the failure: {stderr}"
+    );
 }

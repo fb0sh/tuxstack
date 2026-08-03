@@ -1,12 +1,11 @@
 //! Mapping for container DTOs.
 
-use bollard::models::{
-    ContainerInspectResponse, ContainerState as BollardInspectState,
-    ContainerStateStatusEnum, ContainerSummary as BollardSummary,
-    ContainerSummaryStateEnum, Health as BollardHealth, HostConfig, MountPoint,
-    NetworkSettings, PortSummary,
-};
 use bollard::container::LogOutput;
+use bollard::models::{
+    ContainerInspectResponse, ContainerState as BollardInspectState, ContainerStateStatusEnum,
+    ContainerSummary as BollardSummary, ContainerSummaryStateEnum, Health as BollardHealth,
+    HostConfig, MountPoint, NetworkSettings, PortSummary,
+};
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::error::DockerError;
@@ -29,9 +28,7 @@ pub fn short_id(id: &str) -> String {
 
 /// Convert a unix timestamp (seconds) into a UTC datetime.
 pub fn from_unix_seconds(secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(secs, 0)
-        .single()
-        .unwrap_or_else(Utc::now)
+    Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now)
 }
 
 /// Map a bollard list-entry container summary.
@@ -190,11 +187,7 @@ pub fn map_container_detail(
             destination: m.destination.clone().unwrap_or_default(),
             mode: m.mode.clone(),
             rw: m.rw.unwrap_or(false),
-            mount_type: m
-                .typ
-                .clone()
-                .map(|t| t.to_string())
-                .unwrap_or_default(),
+            mount_type: m.typ.clone().map(|t| t.to_string()).unwrap_or_default(),
         })
         .collect();
 
@@ -217,12 +210,12 @@ pub fn map_container_detail(
         .state
         .as_ref()
         .and_then(|s| s.health.clone())
-        .map(|h| map_health(h));
+        .map(map_health);
 
     let resource_limits = inspect
         .host_config
         .as_ref()
-        .map(|h| map_resource_limits(h))
+        .map(map_resource_limits)
         .unwrap_or_default();
 
     Ok(ContainerDetail {
@@ -235,14 +228,8 @@ pub fn map_container_detail(
         restart_policy,
         health,
         platform: inspect.platform.clone(),
-        hostname: inspect
-            .config
-            .as_ref()
-            .and_then(|c| c.hostname.clone()),
-        working_dir: inspect
-            .config
-            .as_ref()
-            .and_then(|c| c.working_dir.clone()),
+        hostname: inspect.config.as_ref().and_then(|c| c.hostname.clone()),
+        working_dir: inspect.config.as_ref().and_then(|c| c.working_dir.clone()),
         resource_limits,
     })
 }
@@ -302,10 +289,7 @@ fn map_network_attachments(settings: Option<&NetworkSettings>) -> Vec<NetworkAtt
 
 fn map_health(health: BollardHealth) -> HealthStatus {
     HealthStatus {
-        status: health
-            .status
-            .map(|s| s.to_string())
-            .unwrap_or_default(),
+        status: health.status.map(|s| s.to_string()).unwrap_or_default(),
         failing_streak: health.failing_streak.map(|c| c as u64),
         log: health
             .log
@@ -369,11 +353,7 @@ pub fn map_mount_point(m: MountPoint) -> MountInfo {
         destination: m.destination.clone().unwrap_or_default(),
         mode: m.mode.clone(),
         rw: m.rw.unwrap_or(false),
-        mount_type: m
-            .typ
-            .clone()
-            .map(|t| t.to_string())
-            .unwrap_or_default(),
+        mount_type: m.typ.clone().map(|t| t.to_string()).unwrap_or_default(),
     }
 }
 
@@ -381,7 +361,7 @@ pub fn map_mount_point(m: MountPoint) -> MountInfo {
 mod tests {
     use super::*;
     use bollard::models::{
-        ContainerSummaryStateEnum, ContainerSummary as BS, PortSummary, PortSummaryTypeEnum,
+        ContainerSummary as BS, ContainerSummaryStateEnum, PortSummary, PortSummaryTypeEnum,
     };
 
     #[test]
@@ -447,18 +427,30 @@ mod tests {
 
     #[test]
     fn state_from_str() {
-        assert_eq!(ContainerState::from_str_opt("running"), ContainerState::Running);
-        assert_eq!(ContainerState::from_str_opt("exited"), ContainerState::Exited);
-        assert_eq!(ContainerState::from_str_opt("weird"), ContainerState::Unknown);
+        assert_eq!(
+            ContainerState::from_str_opt("running"),
+            ContainerState::Running
+        );
+        assert_eq!(
+            ContainerState::from_str_opt("exited"),
+            ContainerState::Exited
+        );
+        assert_eq!(
+            ContainerState::from_str_opt("weird"),
+            ContainerState::Unknown
+        );
         assert!(ContainerState::Running.is_active());
         assert!(!ContainerState::Exited.is_active());
     }
 
     #[test]
     fn log_output_mapping_without_timestamps() {
-        let line = map_log_output(LogOutput::StdOut {
-            message: "hello".into(),
-        }, false);
+        let line = map_log_output(
+            LogOutput::StdOut {
+                message: "hello".into(),
+            },
+            false,
+        );
         assert_eq!(line.stream, LogStream::Stdout);
         assert_eq!(line.message, "hello");
         assert!(line.timestamp.is_none());

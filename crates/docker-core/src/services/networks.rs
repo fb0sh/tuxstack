@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bollard::query_parameters::ListNetworksOptions as BollardListNetworksOptions;
 
 use crate::client::DockerClient;
-use crate::error::{classify_api_error, DockerError};
+use crate::error::{DockerError, classify_api_error};
 use crate::mapping::networks::{map_network_detail, map_network_summary};
 use crate::models::{NetworkDetail, NetworkSummary};
 

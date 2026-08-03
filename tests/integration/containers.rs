@@ -10,11 +10,10 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tuxstack_docker_core::{
-    ContainerState, DockerClient, DockerServices, RemoveContainerOptions,
-    StopContainerOptions,
-};
 use tuxstack_docker_core::services::containers::ListContainersOptions;
+use tuxstack_docker_core::{
+    ContainerState, DockerClient, DockerServices, RemoveContainerOptions, StopContainerOptions,
+};
 
 fn prefix() -> String {
     format!(
@@ -39,7 +38,7 @@ async fn cleanup(services: &DockerServices, name: &str) {
     let _ = services.containers.remove_container(name, &opts).await;
 }
 
-async fn create_test_container(services: &DockerServices, name: &str) -> String {
+async fn create_test_container(_services: &DockerServices, name: &str) -> String {
     use bollard::models::{ContainerCreateBody, HostConfig};
     use bollard::query_parameters::CreateContainerOptions;
 
@@ -58,7 +57,10 @@ async fn create_test_container(services: &DockerServices, name: &str) -> String 
 
     let created = docker
         .create_container(
-            Some(CreateContainerOptions { name: Some(name.to_string()), platform: String::new() }),
+            Some(CreateContainerOptions {
+                name: Some(name.to_string()),
+                platform: String::new(),
+            }),
             ContainerCreateBody {
                 image: Some("busybox:latest".to_string()),
                 cmd: Some(vec![
@@ -86,7 +88,11 @@ async fn full_lifecycle_start_stop_restart_remove() {
 
     let id = create_test_container(&services, &name).await;
 
-    services.containers.start_container(&id).await.expect("start");
+    services
+        .containers
+        .start_container(&id)
+        .await
+        .expect("start");
     let detail = services.containers.inspect_container(&id).await.unwrap();
     assert_eq!(detail.summary.state, ContainerState::Running);
 
@@ -100,7 +106,12 @@ async fn full_lifecycle_start_stop_restart_remove() {
 
     services
         .containers
-        .stop_container(&id, Some(&StopContainerOptions { timeout_seconds: Some(5) }))
+        .stop_container(
+            &id,
+            Some(&StopContainerOptions {
+                timeout_seconds: Some(5),
+            }),
+        )
         .await
         .expect("stop");
     let detail = services.containers.inspect_container(&id).await.unwrap();
@@ -109,7 +120,10 @@ async fn full_lifecycle_start_stop_restart_remove() {
     // list must show it with all=true and hide it with all=false
     let all = services
         .containers
-        .list_containers(&ListContainersOptions { all: true, ..Default::default() })
+        .list_containers(&ListContainersOptions {
+            all: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
     assert!(all.iter().any(|c| c.id == id));
@@ -146,11 +160,22 @@ async fn full_lifecycle_start_stop_restart_remove() {
 
     services
         .containers
-        .remove_container(&id, &RemoveContainerOptions { force: true, remove_volumes: false, remove_links: false })
+        .remove_container(
+            &id,
+            &RemoveContainerOptions {
+                force: true,
+                remove_volumes: false,
+                remove_links: false,
+            },
+        )
         .await
         .expect("remove");
 
-    let err = services.containers.inspect_container(&id).await.unwrap_err();
+    let err = services
+        .containers
+        .inspect_container(&id)
+        .await
+        .unwrap_err();
     assert!(matches!(
         err,
         tuxstack_docker_core::DockerError::ContainerNotFound(_)
@@ -167,11 +192,19 @@ async fn pause_unpause_roundtrip() {
     let id = create_test_container(&services, &name).await;
     services.containers.start_container(&id).await.unwrap();
 
-    services.containers.pause_container(&id).await.expect("pause");
+    services
+        .containers
+        .pause_container(&id)
+        .await
+        .expect("pause");
     let detail = services.containers.inspect_container(&id).await.unwrap();
     assert_eq!(detail.summary.state, ContainerState::Paused);
 
-    services.containers.unpause_container(&id).await.expect("unpause");
+    services
+        .containers
+        .unpause_container(&id)
+        .await
+        .expect("unpause");
     let detail = services.containers.inspect_container(&id).await.unwrap();
     assert_eq!(detail.summary.state, ContainerState::Running);
 
@@ -229,7 +262,11 @@ async fn rename_container_works() {
         .await
         .expect("rename");
 
-    let detail = services.containers.inspect_container(&new_name).await.unwrap();
+    let detail = services
+        .containers
+        .inspect_container(&new_name)
+        .await
+        .unwrap();
     assert_eq!(detail.summary.name, new_name);
 
     cleanup(&services, &new_name).await;

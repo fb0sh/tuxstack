@@ -9,9 +9,7 @@ use crate::output;
 use super::CommandContext;
 
 pub async fn run(ctx: &CommandContext, filter: Option<String>) -> Result<(), CliError> {
-    let options = ListImagesOptions {
-        search: filter,
-    };
+    let options = ListImagesOptions { search: filter };
     let images = ctx.services.images.list_images(&options).await?;
 
     if ctx.json {
@@ -28,9 +26,7 @@ pub async fn run(ctx: &CommandContext, filter: Option<String>) -> Result<(), Cli
             output::size_cell(i.size_bytes),
         ]);
     }
-    table
-        .render(&mut std::io::stdout())
-        .map_err(CliError::Io)?;
+    table.render(&mut std::io::stdout()).map_err(CliError::Io)?;
     Ok(())
 }
 

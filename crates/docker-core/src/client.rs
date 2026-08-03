@@ -6,7 +6,7 @@ use std::time::Duration;
 use bollard::Docker;
 
 use crate::config::ResolvedDockerConfig;
-use crate::error::{classify_api_error, classify_connect_error, DockerError};
+use crate::error::{DockerError, classify_api_error, classify_connect_error};
 use crate::mapping::system::map_system_info;
 use crate::models::DockerSystemInfo;
 

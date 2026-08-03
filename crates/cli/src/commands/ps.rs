@@ -1,7 +1,7 @@
 //! `tuxstack ps` — list containers.
 
-use tuxstack_docker_core::services::containers::ListContainersOptions;
 use tuxstack_docker_core::ContainerSummary;
+use tuxstack_docker_core::services::containers::ListContainersOptions;
 
 use crate::error::CliError;
 use crate::output;
@@ -39,7 +39,12 @@ pub async fn run(ctx: &CommandContext, args: &PsArgs) -> Result<(), CliError> {
 
 fn print_table(containers: &[ContainerSummary]) {
     let mut table = output::Table::new(vec![
-        "CONTAINER ID", "NAME", "IMAGE", "STATE", "STATUS", "PORTS",
+        "CONTAINER ID",
+        "NAME",
+        "IMAGE",
+        "STATE",
+        "STATUS",
+        "PORTS",
     ]);
     for c in containers {
         table.row(vec![

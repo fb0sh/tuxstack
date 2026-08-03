@@ -8,12 +8,11 @@ use futures_util::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::DockerClient;
-use crate::error::{classify_api_error, DockerError};
+use crate::error::{DockerError, classify_api_error};
 use crate::mapping::system::map_event;
 use crate::models::DockerEvent;
 
-pub type EventStreamResult =
-    Pin<Box<dyn Stream<Item = Result<DockerEvent, DockerError>> + Send>>;
+pub type EventStreamResult = Pin<Box<dyn Stream<Item = Result<DockerEvent, DockerError>> + Send>>;
 
 /// Event stream service.
 #[derive(Clone)]
@@ -30,16 +29,17 @@ impl EventStream {
     ///
     /// The stream ends when the token is cancelled or the engine
     /// disconnects (returning a final error).
-    pub fn watch_events(
-        &self,
-        cancel: CancellationToken,
-    ) -> EventStreamResult {
+    pub fn watch_events(&self, cancel: CancellationToken) -> EventStreamResult {
         let docker = self.client.inner().clone();
         let filters: HashMap<String, Vec<String>> = HashMap::new();
         let opts = bollard::query_parameters::EventsOptions {
             since: None,
             until: None,
-            filters: if filters.is_empty() { None } else { Some(filters) },
+            filters: if filters.is_empty() {
+                None
+            } else {
+                Some(filters)
+            },
         };
 
         let inner = docker.events(Some(opts)).map(|item| match item {

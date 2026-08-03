@@ -36,15 +36,15 @@ pub fn map_container_stats(
     let cpu = response.cpu_stats.as_ref();
     let precpu = response.precpu_stats.as_ref();
 
-    let total_usage = cpu.and_then(|c| c.cpu_usage.as_ref()).and_then(|u| u.total_usage);
+    let total_usage = cpu
+        .and_then(|c| c.cpu_usage.as_ref())
+        .and_then(|u| u.total_usage);
     let prev_total = precpu
         .and_then(|c| c.cpu_usage.as_ref())
         .and_then(|u| u.total_usage);
     let system_usage = cpu.and_then(|c| c.system_cpu_usage);
     let prev_system = precpu.and_then(|c| c.system_cpu_usage);
-    let online_cpus = cpu
-        .and_then(|c| c.online_cpus)
-        .unwrap_or(0) as u64;
+    let online_cpus = cpu.and_then(|c| c.online_cpus).unwrap_or(0) as u64;
 
     let cpu_percent = match (total_usage, prev_total, system_usage, prev_system) {
         (Some(cur), Some(prev), Some(cur_sys), Some(prev_sys)) => {
@@ -67,10 +67,7 @@ pub fn map_container_stats(
         .as_ref()
         .map(|nets| {
             nets.values().fold((0u64, 0u64), |(r, t), n| {
-                (
-                    r + n.rx_bytes.unwrap_or(0),
-                    t + n.tx_bytes.unwrap_or(0),
-                )
+                (r + n.rx_bytes.unwrap_or(0), t + n.tx_bytes.unwrap_or(0))
             })
         })
         .unwrap_or((0, 0));
@@ -80,13 +77,13 @@ pub fn map_container_stats(
         .as_ref()
         .and_then(|b| b.io_service_bytes_recursive.as_ref())
         .map(|entries| {
-            entries.iter().fold((0u64, 0u64), |(r, w), e| {
-                match e.op.as_deref() {
+            entries
+                .iter()
+                .fold((0u64, 0u64), |(r, w), e| match e.op.as_deref() {
                     Some("Read") => (r + e.value.unwrap_or(0), w),
                     Some("Write") => (r, w + e.value.unwrap_or(0)),
                     _ => (r, w),
-                }
-            })
+                })
         })
         .unwrap_or((0, 0));
 
@@ -99,10 +96,7 @@ pub fn map_container_stats(
         network_tx_bytes: tx,
         block_read_bytes: read_bytes,
         block_write_bytes: write_bytes,
-        pids: response
-            .pids_stats
-            .as_ref()
-            .and_then(|p| p.current),
+        pids: response.pids_stats.as_ref().and_then(|p| p.current),
         sampled_at: response.read.unwrap_or_else(Utc::now),
     }
 }
@@ -111,7 +105,7 @@ pub fn map_container_stats(
 mod tests {
     use super::*;
     use bollard::models::{
-        ContainerBlkioStats, ContainerBlkioStatEntry, ContainerCpuStats, ContainerCpuUsage,
+        ContainerBlkioStatEntry, ContainerBlkioStats, ContainerCpuStats, ContainerCpuUsage,
         ContainerMemoryStats, ContainerNetworkStats, ContainerPidsStats, ContainerStatsResponse,
     };
     use std::collections::HashMap;

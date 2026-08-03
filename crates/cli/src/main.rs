@@ -8,7 +8,7 @@ mod output;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::error::{exit, CliError};
+use crate::error::{CliError, exit};
 
 #[derive(Parser)]
 #[command(
@@ -175,7 +175,9 @@ async fn main() -> std::process::ExitCode {
             if code == exit::DOCKER_UNAVAILABLE {
                 eprintln!("hint: is the Docker Engine running and the socket accessible?");
             } else if code == exit::PERMISSION_DENIED {
-                eprintln!("hint: your user needs access to the Docker socket (e.g. the docker group)");
+                eprintln!(
+                    "hint: your user needs access to the Docker socket (e.g. the docker group)"
+                );
             }
             std::process::ExitCode::from(code)
         }
@@ -183,11 +185,8 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<(), CliError> {
-    let ctx = commands::CommandContext::build(
-        cli.global.host,
-        cli.global.timeout,
-        cli.global.json,
-    )?;
+    let ctx =
+        commands::CommandContext::build(cli.global.host, cli.global.timeout, cli.global.json)?;
 
     match cli.command {
         Commands::Info => commands::info::run(&ctx).await,
@@ -229,7 +228,10 @@ async fn run(cli: Cli) -> Result<(), CliError> {
             .await
         }
         Commands::Start { containers } => commands::start::run(&ctx, &containers).await,
-        Commands::Stop { containers, timeout } => {
+        Commands::Stop {
+            containers,
+            timeout,
+        } => {
             commands::stop::run(
                 &ctx,
                 &commands::stop::StopArgs {

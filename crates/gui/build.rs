@@ -1,1 +1,43 @@
-fn main() {}
+use cxx_qt_build::{CxxQtBuilder, QmlModule};
+
+fn main() {
+    CxxQtBuilder::new_qml_module(
+        QmlModule::new("org.tuxstack.app")
+            .qml_files([
+                "qml/Main.qml",
+                "qml/pages/OverviewPage.qml",
+                "qml/pages/ContainersPage.qml",
+                "qml/pages/ContainerDetailsPage.qml",
+                "qml/pages/ImagesPage.qml",
+                "qml/pages/NetworksPage.qml",
+                "qml/pages/VolumesPage.qml",
+                "qml/pages/ComposePage.qml",
+                "qml/pages/SettingsPage.qml",
+                "qml/components/AppSidebar.qml",
+                "qml/components/PageHeader.qml",
+                "qml/components/LoadingView.qml",
+                "qml/components/EmptyState.qml",
+                "qml/components/ErrorBanner.qml",
+                "qml/components/StatusBadge.qml",
+                "qml/components/ContainerActions.qml",
+                "qml/components/ResourceSummaryCard.qml",
+                "qml/components/SearchField.qml",
+                "qml/dialogs/ConfirmRemoveDialog.qml",
+                "qml/dialogs/ContainerLogsDialog.qml",
+                "qml/dialogs/ContainerInspectDialog.qml",
+                "qml/dialogs/ErrorDetailsDialog.qml",
+            ])
+            .depend("QtQuick"),
+    )
+    .qt_module("Qml")
+    .qt_module("Quick")
+    .qt_module("QuickControls2")
+    .qt_module("QuickLayouts")
+    .files([
+        "src/bridge/app_bridge.rs",
+        "src/bridge/container_bridge.rs",
+        "src/bridge/detail_bridge.rs",
+        "src/bridge/resource_bridges.rs",
+    ])
+    .build();
+}

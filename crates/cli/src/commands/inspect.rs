@@ -21,14 +21,8 @@ pub async fn run(ctx: &CommandContext, id: &str) -> Result<(), CliError> {
     table.row(vec!["State".into(), summary.state.as_str().to_string()]);
     table.row(vec!["Status".into(), summary.status.clone()]);
     table.row(vec!["Created".into(), summary.created_at.to_rfc3339()]);
-    table.row(vec![
-        "Command".into(),
-        detail.command.join(" "),
-    ]);
-    table.row(vec![
-        "Entrypoint".into(),
-        detail.entrypoint.join(" "),
-    ]);
+    table.row(vec!["Command".into(), detail.command.join(" ")]);
+    table.row(vec!["Entrypoint".into(), detail.entrypoint.join(" ")]);
     table.row(vec![
         "Ports".into(),
         summary
@@ -69,8 +63,6 @@ pub async fn run(ctx: &CommandContext, id: &str) -> Result<(), CliError> {
     if let Some(health) = &detail.health {
         table.row(vec!["Health".into(), health.status.clone()]);
     }
-    table
-        .render(&mut std::io::stdout())
-        .map_err(CliError::Io)?;
+    table.render(&mut std::io::stdout()).map_err(CliError::Io)?;
     Ok(())
 }

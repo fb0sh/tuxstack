@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bollard::query_parameters::ListVolumesOptions as BollardListVolumesOptions;
 
 use crate::client::DockerClient;
-use crate::error::{classify_api_error, DockerError};
+use crate::error::{DockerError, classify_api_error};
 use crate::mapping::volumes::map_volume_summary;
 use crate::models::VolumeSummary;
 

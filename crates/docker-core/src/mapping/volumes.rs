@@ -31,15 +31,22 @@ mod tests {
             driver: "local".into(),
             mountpoint: "/var/lib/docker/volumes/pgdata/_data".into(),
             created_at: None,
-            labels: [("app".to_string(), "postgres".to_string())].into_iter().collect(),
-            options: [("type".to_string(), "ext4".to_string())].into_iter().collect(),
+            labels: [("app".to_string(), "postgres".to_string())]
+                .into_iter()
+                .collect(),
+            options: [("type".to_string(), "ext4".to_string())]
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
         let mapped = map_volume_summary(v);
         assert_eq!(mapped.name, "pgdata");
         assert_eq!(mapped.mountpoint, "/var/lib/docker/volumes/pgdata/_data");
         assert_eq!(mapped.scope, "local");
-        assert_eq!(mapped.labels.get("app").map(|s| s.as_str()), Some("postgres"));
+        assert_eq!(
+            mapped.labels.get("app").map(|s| s.as_str()),
+            Some("postgres")
+        );
     }
 
     #[test]

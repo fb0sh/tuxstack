@@ -19,12 +19,8 @@ pub struct LogsArgs {
 }
 
 pub async fn run(ctx: &CommandContext, args: &LogsArgs) -> Result<(), CliError> {
-    let since = args
-        .since
-        .map(|s| chrono::DateTime::from_timestamp(s, 0));
-    let until = args
-        .until
-        .map(|u| chrono::DateTime::from_timestamp(u, 0));
+    let since = args.since.map(|s| chrono::DateTime::from_timestamp(s, 0));
+    let until = args.until.map(|u| chrono::DateTime::from_timestamp(u, 0));
 
     let options = ContainerLogsOptions {
         stdout: true,

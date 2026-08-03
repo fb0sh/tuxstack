@@ -1,0 +1,156 @@
+//! App-level bridge: connection state and overview data.
+//!
+//! This QObject owns the connection lifecycle. On success it stores the
+//! shared `DockerServices` in the global registry so every page model
+//! can use them.
+
+use std::pin::Pin;
+
+use cxx_qt::Threading;
+use cxx_qt_lib::QString;
+use tuxstack_docker_core::DockerServices;
+
+use crate::app_state;
+use crate::settings;
+
+#[cxx_qt::bridge]
+pub mod qobject {
+    unsafe extern "C++" {
+        include!("cxx-qt-lib/qstring.h");
+        /// An alias to the QString type
+        type QString = cxx_qt_lib::QString;
+    }
+
+    impl cxx_qt::Threading for AppController {}
+
+    extern "RustQt" {
+        /// Global app controller: docker connection + overview.
+        #[qobject]
+        #[qml_element]
+        #[qproperty(i32, docker_status)]
+        #[qproperty(QString, docker_status_text)]
+        #[qproperty(QString, docker_host)]
+        #[qproperty(QString, engine_info_json)]
+        #[qproperty(bool, overview_loading)]
+        #[qproperty(QString, overview_json)]
+        type AppController = super::AppControllerRust;
+
+        /// Connect to Docker and load the overview (called from QML).
+        #[qinvokable]
+        #[cxx_name = "startup"]
+        fn startup(self: Pin<&mut Self>);
+
+        /// Re-run the overview aggregation.
+        #[qinvokable]
+        #[cxx_name = "refreshOverview"]
+        fn refresh_overview(self: Pin<&mut Self>);
+    }
+}
+
+/// Rust state backing [`qobject::AppController`].
+#[derive(Default)]
+pub struct AppControllerRust {
+    docker_status: i32,
+    docker_status_text: QString,
+    docker_host: QString,
+    engine_info_json: QString,
+    overview_loading: bool,
+    overview_json: QString,
+}
+
+impl qobject::AppController {
+    /// Start connecting to Docker asynchronously.
+    pub fn startup(mut self: Pin<&mut Self>) {
+        self.as_mut().set_docker_status(0); // loading
+        self.as_mut()
+            .set_docker_status_text(QString::from("Connecting to Docker Engine..."));
+
+        let (settings, warning) = settings::load_settings();
+        app_state::set_settings(settings.clone());
+        self.as_mut().set_docker_host(QString::from(
+            settings
+                .docker_host
+                .clone()
+                .unwrap_or_else(|| "default (DOCKER_HOST or /var/run/docker.sock)".to_string()),
+        ));
+
+        if let Some(w) = warning {
+            self.as_mut().set_docker_status_text(QString::from(w));
+        }
+
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let config = tuxstack_docker_core::DockerConfig {
+                host: settings.docker_host.clone(),
+                connect_timeout: std::time::Duration::from_secs(5),
+                ..Default::default()
+            };
+
+            let result = match tuxstack_docker_core::DockerClient::connect_with_config(config) {
+                Ok(client) => {
+                    let services = DockerServices::new(std::sync::Arc::new(client));
+                    match services.system.ping().await {
+                        Ok(()) => Ok(services),
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            qt_thread
+                .queue(move |mut controller| {
+                    match result {
+                        Ok(services) => {
+                            app_state::set_services(services);
+                            controller.as_mut().set_docker_status(1); // ready
+                            controller
+                                .as_mut()
+                                .set_docker_status_text(QString::from("Connected"));
+                            controller.as_mut().refresh_overview();
+                        }
+                        Err(e) => {
+                            tracing::debug!(error = %e, "docker connect failed");
+                            let app_err = app_state::map_docker_error(&e);
+                            controller.as_mut().set_docker_status(match app_err.kind() {
+                                "permission_denied" => 3,
+                                "docker_unavailable" => 2,
+                                _ => 4,
+                            });
+                            controller
+                                .as_mut()
+                                .set_docker_status_text(QString::from(app_err.user_message()));
+                        }
+                    }
+                })
+                .expect("queue to Qt thread");
+        });
+    }
+
+    /// Refresh the overview aggregation from the engine.
+    pub fn refresh_overview(mut self: Pin<&mut Self>) {
+        let Some(services) = app_state::get_services() else {
+            return;
+        };
+        self.as_mut().set_overview_loading(true);
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let result = services.system.overview().await;
+            qt_thread
+                .queue(move |mut controller| {
+                    controller.as_mut().set_overview_loading(false);
+                    match result {
+                        Ok(overview) => {
+                            let json = serde_json::to_string(&overview)
+                                .unwrap_or_else(|_| "{}".to_string());
+                            controller.as_mut().set_overview_json(QString::from(json));
+                        }
+                        Err(e) => {
+                            tracing::debug!(error = %e, "overview refresh failed");
+                            controller.as_mut().set_overview_json(QString::from("{}"));
+                        }
+                    }
+                })
+                .expect("queue to Qt thread");
+        });
+    }
+}

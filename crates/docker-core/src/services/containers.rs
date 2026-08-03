@@ -6,17 +6,15 @@ use std::sync::Arc;
 
 use bollard::query_parameters::{
     ListContainersOptions as BollardListContainersOptions, LogsOptions,
-    RemoveContainerOptions as BollardRemoveContainerOptions, RenameContainerOptions,
-    StatsOptions, StopContainerOptions as BollardStopContainerOptions,
+    RemoveContainerOptions as BollardRemoveContainerOptions, RenameContainerOptions, StatsOptions,
+    StopContainerOptions as BollardStopContainerOptions,
 };
 use futures_util::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::DockerClient;
-use crate::error::{classify_api_error, DockerError};
-use crate::mapping::containers::{
-    map_container_detail, map_container_summary, map_log_output,
-};
+use crate::error::{DockerError, classify_api_error};
+use crate::mapping::containers::{map_container_detail, map_container_summary, map_log_output};
 use crate::mapping::stats::map_container_stats;
 use crate::models::{
     ContainerDetail, ContainerLogsOptions, ContainerState, ContainerStats, ContainerSummary,
@@ -24,8 +22,7 @@ use crate::models::{
     StopContainerOptions as DomainStopOptions,
 };
 
-pub type LogStreamResult =
-    Pin<Box<dyn Stream<Item = Result<LogLine, DockerError>> + Send>>;
+pub type LogStreamResult = Pin<Box<dyn Stream<Item = Result<LogLine, DockerError>> + Send>>;
 pub type StatsStreamResult =
     Pin<Box<dyn Stream<Item = Result<ContainerStats, DockerError>> + Send>>;
 
@@ -61,16 +58,17 @@ impl ContainerService {
     ) -> Result<Vec<ContainerSummary>, DockerError> {
         let mut filters: HashMap<String, Vec<String>> = HashMap::new();
         if let Some(state) = &options.state {
-            filters.insert(
-                "status".to_string(),
-                vec![state.as_str().to_string()],
-            );
+            filters.insert("status".to_string(), vec![state.as_str().to_string()]);
         }
 
         let bollard_opts = BollardListContainersOptions {
             all: options.all,
             limit: options.limit.map(|l| l as i32),
-            filters: if filters.is_empty() { None } else { Some(filters) },
+            filters: if filters.is_empty() {
+                None
+            } else {
+                Some(filters)
+            },
             ..Default::default()
         };
 
@@ -268,10 +266,7 @@ impl ContainerService {
     }
 
     /// Fetch a single stats sample (non-streaming).
-    pub async fn container_stats(
-        &self,
-        id_or_name: &str,
-    ) -> Result<ContainerStats, DockerError> {
+    pub async fn container_stats(&self, id_or_name: &str) -> Result<ContainerStats, DockerError> {
         let opts = StatsOptions {
             stream: false,
             one_shot: true,
@@ -323,11 +318,7 @@ impl ContainerService {
     }
 
     /// Stream container stats at the Docker Engine's natural rate.
-    pub fn watch_stats(
-        &self,
-        id_or_name: &str,
-        cancel: CancellationToken,
-    ) -> StatsStreamResult {
+    pub fn watch_stats(&self, id_or_name: &str, cancel: CancellationToken) -> StatsStreamResult {
         let opts = StatsOptions {
             stream: true,
             one_shot: false,
@@ -335,16 +326,16 @@ impl ContainerService {
         let docker = self.client.inner().clone();
 
         let mut previous: Option<ContainerStats> = None;
-        let inner = docker.stats(id_or_name, Some(opts)).map(move |item| {
-            match item {
+        let inner = docker
+            .stats(id_or_name, Some(opts))
+            .map(move |item| match item {
                 Ok(raw) => {
                     let mapped = map_container_stats(raw, previous.as_ref());
                     previous = Some(mapped.clone());
                     Ok(mapped)
                 }
                 Err(e) => Err(classify_api_error(&e, "container")),
-            }
-        });
+            });
         Box::pin(inner.take_until(cancel.cancelled_owned())).boxed()
     }
 }
@@ -359,14 +350,7 @@ fn bollard_logs_options(options: &ContainerLogsOptions) -> LogsOptions {
             .tail
             .map(|t| t.to_string())
             .unwrap_or_else(|| "all".to_string()),
-        since: options
-            .since
-            .map(|t| t.timestamp() as i32)
-            .unwrap_or(0),
-        until: options
-            .until
-            .map(|t| t.timestamp() as i32)
-            .unwrap_or(0),
+        since: options.since.map(|t| t.timestamp() as i32).unwrap_or(0),
+        until: options.until.map(|t| t.timestamp() as i32).unwrap_or(0),
     }
 }
-

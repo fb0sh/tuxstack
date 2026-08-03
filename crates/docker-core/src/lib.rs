@@ -19,7 +19,9 @@ pub use client::{DockerClient, DockerConfig};
 pub use config::ResolvedConfig;
 pub use error::DockerError;
 pub use models::*;
-pub use services::{ContainerService, DockerServices, ImageService, NetworkService, SystemService, VolumeService};
+pub use services::{
+    ContainerService, DockerServices, ImageService, NetworkService, SystemService, VolumeService,
+};
 
 /// Re-export of common formatting helpers for byte sizes.
 pub mod format {

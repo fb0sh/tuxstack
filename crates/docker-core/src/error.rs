@@ -68,9 +68,7 @@ pub(crate) fn classify_connect_error(
         bollard::errors::Error::RequestTimeoutError => DockerError::ConnectionTimeout,
         _ => {
             let text = err.to_string().to_lowercase();
-            if text.contains("permission denied")
-                || text.contains("operation not permitted")
-            {
+            if text.contains("permission denied") || text.contains("operation not permitted") {
                 DockerError::PermissionDenied
             } else if text.contains("no such file") || text.contains("no such file or directory") {
                 DockerError::SocketNotFound(

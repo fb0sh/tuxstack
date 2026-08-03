@@ -35,11 +35,7 @@ impl Table {
 
     /// Render the table to a writer, aligning columns by padding.
     pub fn render(&self, w: &mut impl Write) -> std::io::Result<()> {
-        let mut widths: Vec<usize> = self
-            .headers
-            .iter()
-            .map(|h| h.chars().count())
-            .collect();
+        let mut widths: Vec<usize> = self.headers.iter().map(|h| h.chars().count()).collect();
         for row in &self.rows {
             for (i, cell) in row.iter().enumerate() {
                 if let Some(width) = widths.get_mut(i) {
@@ -48,7 +44,11 @@ impl Table {
             }
         }
 
-        fn render_row<W: Write>(w: &mut W, cells: &[String], widths: &[usize]) -> std::io::Result<()> {
+        fn render_row<W: Write>(
+            w: &mut W,
+            cells: &[String],
+            widths: &[usize],
+        ) -> std::io::Result<()> {
             let line = cells
                 .iter()
                 .enumerate()
@@ -65,7 +65,11 @@ impl Table {
         }
 
         render_row(w, &self.headers, &widths)?;
-        writeln!(w, "{}", "-".repeat(widths.iter().sum::<usize>() + widths.len() * 3))?;
+        writeln!(
+            w,
+            "{}",
+            "-".repeat(widths.iter().sum::<usize>() + widths.len() * 3)
+        )?;
         for row in &self.rows {
             render_row(w, row, &widths)?;
         }

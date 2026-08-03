@@ -26,10 +26,7 @@ pub fn map_system_info(info: SystemInfo) -> DockerSystemInfo {
             .containers_running
             .map(|c| c.max(0) as u64)
             .unwrap_or(0),
-        containers_paused: info
-            .containers_paused
-            .map(|c| c.max(0) as u64)
-            .unwrap_or(0),
+        containers_paused: info.containers_paused.map(|c| c.max(0) as u64).unwrap_or(0),
         containers_stopped: info
             .containers_stopped
             .map(|c| c.max(0) as u64)
@@ -55,10 +52,7 @@ pub fn apply_system_version(info: &mut DockerSystemInfo, version: SystemVersion)
 pub fn map_event(event: EventMessage) -> DockerEvent {
     let actor: Option<EventActor> = event.actor;
     DockerEvent {
-        event_type: event
-            .typ
-            .map(|t| t.to_string())
-            .unwrap_or_default(),
+        event_type: event.typ.map(|t| t.to_string()).unwrap_or_default(),
         action: event.action.unwrap_or_default(),
         actor_id: actor.as_ref().and_then(|a| a.id.clone()),
         actor_attributes: actor
@@ -71,9 +65,7 @@ pub fn map_event(event: EventMessage) -> DockerEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bollard::models::{
-        EventMessageTypeEnum, SystemInfo as SI, SystemVersion as SV,
-    };
+    use bollard::models::{EventMessageTypeEnum, SystemInfo as SI, SystemVersion as SV};
 
     #[test]
     fn maps_system_info_fields() {
