@@ -81,6 +81,8 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(!source.contains("Loader {"));
     assert!(source.contains("containersModel.initialize()"));
     assert!(source.contains("pendingContainerId"));
+    assert!(source.contains("CreateContainerDialog"));
+    assert!(source.contains("onCreateRequested"));
     assert!(detail.contains("selectionKind === \"container\""));
     assert!(detail.contains("selectionKind === \"group\""));
     assert!(detail.contains("selectionKind !== \"none\""));
@@ -290,6 +292,7 @@ fn all_qml_components_load_without_errors() {
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
+        "dialogs/containers/CreateContainerDialog.qml",
         "dialogs/containers/KillContainerDialog.qml",
         "dialogs/containers/RemoveContainerDialog.qml",
         "dialogs/containers/RemoveContainerGroupDialog.qml",

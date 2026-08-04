@@ -14,6 +14,7 @@ Item {
     property bool terminalCapability: false
     property bool filesCapability: false
 
+    signal createRequested()
     signal removeContainerRequested(string id)
     signal renameContainerRequested(string id)
     signal killContainerRequested(string id)
@@ -90,7 +91,15 @@ Item {
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.text: text
                 }
-                // No Create button until a real create bridge is registered.
+                QQC2.ToolButton {
+                    icon.name: "list-add"
+                    text: I18n.i18nd("tuxstack", "Create container")
+                    display: QQC2.AbstractButton.IconOnly
+                    enabled: root.containersModel && !root.containersModel.creating
+                    onClicked: root.createRequested()
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.text: text
+                }
             }
         }
 

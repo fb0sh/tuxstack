@@ -99,6 +99,8 @@ pub struct ContainersListModelRust {
     pub(crate) operation_in_progress: bool,
     pub(crate) operation_error_message: QString,
     pub(crate) last_group_result_message: QString,
+    pub(crate) creating: bool,
+    pub(crate) create_error_message: QString,
     pub(crate) label_search: String,
     pub(crate) label_descending: bool,
     pub(crate) refresh_cancel: Option<CancellationToken>,
@@ -128,6 +130,8 @@ pub mod qobject {
         type QString = cxx_qt_lib::QString;
         include!("cxx-qt-lib/qhash.h");
         type QHash_i32_QByteArray = cxx_qt_lib::QHash<cxx_qt_lib::QHashPair_i32_QByteArray>;
+        include!("cxx-qt-lib/core/qlist/qlist_i32.h");
+        type QList_i32 = cxx_qt_lib::QList<i32>;
     }
 
     impl cxx_qt::Threading for ContainersListModel {}
@@ -181,6 +185,8 @@ pub mod qobject {
         #[qproperty(QList_QVariant, group_metadata_model, cxx_name = "groupMetadataModel")]
         #[qproperty(bool, operation_in_progress, cxx_name = "operationInProgress")]
         #[qproperty(QString, operation_error_message, cxx_name = "operationErrorMessage")]
+        #[qproperty(bool, creating)]
+        #[qproperty(QString, create_error_message, cxx_name = "createErrorMessage")]
         #[qproperty(
             QString,
             last_group_result_message,
@@ -202,6 +208,17 @@ pub mod qobject {
         #[inherit]
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut Self>);
+        #[inherit]
+        #[rust_name = "data_changed"]
+        fn dataChanged(
+            self: Pin<&mut Self>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
+        #[inherit]
+        #[rust_name = "model_index"]
+        fn index(self: Pin<&mut Self>, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
 
         #[qsignal]
         #[cxx_name = "operationFinished"]
@@ -210,6 +227,14 @@ pub mod qobject {
             operation: QString,
             id: QString,
             success: bool,
+            message: QString,
+        );
+        #[qsignal]
+        #[cxx_name = "containerCreated"]
+        fn container_created(
+            self: Pin<&mut Self>,
+            container_id: QString,
+            started: bool,
             message: QString,
         );
         #[qsignal]
@@ -278,6 +303,10 @@ pub mod qobject {
         fn set_connection_state(self: Pin<&mut Self>, docker_status: i32, message: &QString);
         #[qinvokable]
         fn shutdown(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "createContainer"]
+        fn create_container(self: Pin<&mut Self>, request_json: &QString);
 
         #[qinvokable]
         #[cxx_name = "startContainer"]
@@ -632,6 +661,74 @@ impl qobject::ContainersListModel {
         state.group_operations.clear();
         state.refresh_in_progress = false;
         self.as_mut().apply_state(state);
+    }
+
+    pub fn create_container(mut self: Pin<&mut Self>, request_json: &QString) {
+        if self.creating {
+            return;
+        }
+        let request =
+            match parse_create_request(&request_json.to_string()) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.as_mut().set_create_error_message(QString::from(format!(
+                        "Invalid create request: {error}"
+                    )));
+                    return;
+                }
+            };
+        if let Err(error) = request.validate() {
+            self.as_mut()
+                .set_create_error_message(QString::from(error.to_string()));
+            return;
+        }
+        let Some(services) = get_services() else {
+            self.as_mut()
+                .set_create_error_message(QString::from("Docker Engine is unavailable."));
+            return;
+        };
+        self.as_mut().set_creating(true);
+        self.as_mut().set_create_error_message(QString::default());
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let result = services.containers.create_container(&request).await;
+            qt_thread
+                .queue(move |mut model| {
+                    model.as_mut().set_creating(false);
+                    match result {
+                        Ok(result) => {
+                            let mut messages = result.warnings;
+                            messages.extend(result.network_failures.iter().map(|failure| {
+                                format!("Network {}: {}", failure.network, failure.error)
+                            }));
+                            if let Some(error) = &result.start_error {
+                                messages.push(format!("Container was created but did not start: {error}"));
+                            }
+                            let message = if messages.is_empty() {
+                                if result.started {
+                                    "Container created and started.".to_string()
+                                } else {
+                                    "Container created.".to_string()
+                                }
+                            } else {
+                                messages.join("\n")
+                            };
+                            model.as_mut().container_created(
+                                QString::from(&result.id),
+                                result.started,
+                                QString::from(message),
+                            );
+                            model.as_mut().refresh();
+                        }
+                        Err(error) => {
+                            model
+                                .as_mut()
+                                .set_create_error_message(QString::from(operation_error_message(&error)));
+                        }
+                    }
+                })
+                .ok();
+        });
     }
 
     pub fn start_container(self: Pin<&mut Self>, id: &QString) {
@@ -1096,9 +1193,30 @@ impl qobject::ContainersListModel {
     }
 
     fn apply_state(mut self: Pin<&mut Self>, state: ContainersState) {
-        self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().state = state;
-        self.as_mut().end_reset_model();
+        let topology_unchanged = self.state.visible_rows.len() == state.visible_rows.len()
+            && self
+                .state
+                .visible_rows
+                .iter()
+                .zip(&state.visible_rows)
+                .all(|(old, new)| old.row_kind == new.row_kind && old.id == new.id);
+        if topology_unchanged {
+            self.as_mut().rust_mut().state = state;
+            let row_count = self.state.visible_rows.len();
+            if row_count > 0 {
+                let parent = QModelIndex::default();
+                let top = self.as_mut().model_index(0, 0, &parent);
+                let bottom = self
+                    .as_mut()
+                    .model_index((row_count - 1) as i32, 0, &parent);
+                let roles = cxx_qt_lib::QList::<i32>::default();
+                self.as_mut().data_changed(&top, &bottom, &roles);
+            }
+        } else {
+            self.as_mut().begin_reset_model();
+            self.as_mut().rust_mut().state = state;
+            self.as_mut().end_reset_model();
+        }
         let state = self.state.clone();
         self.as_mut()
             .set_search_query(QString::from(&state.search_query));
@@ -1676,6 +1794,12 @@ fn qv(value: &str) -> QVariant {
     QVariant::from(&QString::from(value))
 }
 
+fn parse_create_request(
+    json: &str,
+) -> Result<tuxstack_docker_core::CreateContainerRequest, serde_json::Error> {
+    serde_json::from_str(json)
+}
+
 fn saturating_i32(value: usize) -> i32 {
     value.min(i32::MAX as usize) as i32
 }
@@ -1795,6 +1919,41 @@ mod tests {
                 remove_volumes: false
             }
         );
+    }
+
+    #[test]
+    fn create_request_json_is_typed_and_environment_debug_is_redacted() {
+        let request = parse_create_request(
+            r#"{
+                "name":"web",
+                "image":"nginx:latest",
+                "platform":null,
+                "hostname":null,
+                "domain_name":null,
+                "entrypoint":["/docker-entrypoint.sh"],
+                "command":["nginx","-g","daemon off;"],
+                "working_directory":"/",
+                "user":null,
+                "tty":false,
+                "open_stdin":false,
+                "ports":[{"container_port":80,"protocol":"Tcp","host_ip":null,"host_port":8080}],
+                "mounts":[{"Volume":{"source":"data","destination":"/data","read_only":false}}],
+                "environment":[{"key":"TOKEN","value":"super-secret"}],
+                "networks":[],
+                "resources":{"cpu_cores_millis":1000,"memory_bytes":134217728,"pids_limit":64},
+                "restart_policy":{"name":"No","maximum_retry_count":null},
+                "labels":{},
+                "read_only_rootfs":false,
+                "privileged":false,
+                "auto_remove":false,
+                "create_and_start":true
+            }"#,
+        )
+        .unwrap();
+        request.validate().unwrap();
+        assert_eq!(request.command[2], "daemon off;");
+        assert_eq!(request.ports[0].host_port, Some(8080));
+        assert!(!format!("{request:?}").contains("super-secret"));
     }
 
     #[test]

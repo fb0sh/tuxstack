@@ -66,6 +66,7 @@ fn main() {
                 "qml/dialogs/PullImageDialog.qml",
                 "qml/dialogs/RemoveImageDialog.qml",
                 "qml/dialogs/ExportImageDialog.qml",
+                "qml/dialogs/containers/CreateContainerDialog.qml",
                 "qml/dialogs/containers/KillContainerDialog.qml",
                 "qml/dialogs/containers/RemoveContainerDialog.qml",
                 "qml/dialogs/containers/RemoveContainerGroupDialog.qml",

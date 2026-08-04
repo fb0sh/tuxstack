@@ -11,6 +11,9 @@ Kirigami.Page {
     id: root
 
     property var containersModel: null
+    property var imagesModel: null
+    property var networksModel: null
+    property var volumesModel: null
     property string pendingContainerId: ""
     property bool controllerInitialized: false
 
@@ -57,6 +60,7 @@ Kirigami.Page {
             terminalCapability: false
             filesCapability: false
 
+            onCreateRequested: createDialog.prepare()
             onRemoveContainerRequested: function(id) {
                 // The bridge emits the complete real-time inspect summary.
                 root.containersModel.prepareRemoveContainer(id)
@@ -98,6 +102,13 @@ Kirigami.Page {
         }
     }
 
+    CreateContainerDialog {
+        id: createDialog
+        containersModel: root.containersModel
+        imagesModel: root.imagesModel
+        networksModel: root.networksModel
+        volumesModel: root.volumesModel
+    }
     RemoveContainerDialog { id: removeDialog; containersModel: root.containersModel }
     RemoveContainerGroupDialog { id: removeGroupDialog; containersModel: root.containersModel }
     KillContainerDialog { id: killDialog; containersModel: root.containersModel }
@@ -107,6 +118,11 @@ Kirigami.Page {
         target: root.containersModel
         ignoreUnknownSignals: true
 
+        function onContainerCreated(containerId, started, message) {
+            createDialog.close()
+            root.pendingContainerId = containerId
+            root.notificationRequested(message)
+        }
         function onRemoveContainerPrepared(id, name, image, state, composeProject, mounts) {
             removeDialog.prepare(id, name, image, state, composeProject, mounts)
         }

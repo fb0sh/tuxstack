@@ -229,6 +229,9 @@ Kirigami.ApplicationWindow {
 
             ContainersPage {
                 containersModel: containersModel
+                imagesModel: imagesModel
+                networksModel: networksModel
+                volumesModel: volumesModel
                 pendingContainerId: root.pendingContainerId
                 onNotificationRequested: function(message) {
                     root.showPassiveNotification(message)
