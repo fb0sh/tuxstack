@@ -72,6 +72,34 @@ fn assert_qml_source_loads(url: &str, source: Option<&str>) {
 }
 
 #[test]
+fn containers_page_keeps_a_permanent_blankable_detail_panel() {
+    let source = include_str!("../qml/pages/ContainersPage.qml");
+    let detail = include_str!("../qml/components/containers/ContainerDetailPanel.qml");
+    assert!(source.contains("RowLayout {"));
+    assert!(source.contains("ContainerListPanel {"));
+    assert!(source.contains("ContainerDetailPanel {"));
+    assert!(!source.contains("Loader {"));
+    assert!(source.contains("containersModel.initialize()"));
+    assert!(source.contains("pendingContainerId"));
+    assert!(detail.contains("selectionKind === \"container\""));
+    assert!(detail.contains("selectionKind === \"group\""));
+    assert!(detail.contains("selectionKind !== \"none\""));
+    assert!(!detail.contains("No container selected"));
+    assert!(!detail.contains("Select a container"));
+}
+
+#[test]
+fn main_wires_the_long_lived_containers_model_and_events() {
+    let source = include_str!("../qml/Main.qml");
+    assert!(source.contains("ContainersListModel {"));
+    assert!(source.contains("id: containersModel"));
+    assert!(source.contains("containersModel.shutdown()"));
+    assert!(source.contains("containersModel.setConnectionState(appController.dockerStatus,"));
+    assert!(source.contains("refreshThrottled(containersModel, \"containers\")"));
+    assert!(source.contains("containersModel: containersModel"));
+}
+
+#[test]
 fn images_page_keeps_a_permanent_detail_panel() {
     let source = include_str!("../qml/pages/ImagesPage.qml");
     assert!(source.contains("RowLayout {"));
@@ -221,7 +249,13 @@ fn all_qml_components_load_without_errors() {
         "components/EmptyState.qml",
         "components/ErrorBanner.qml",
         "components/StatusBadge.qml",
-        "components/ContainerActions.qml",
+        "components/containers/ContainerContextMenu.qml",
+        "components/containers/ContainerDetailPanel.qml",
+        "components/containers/ContainerGroupInfoView.qml",
+        "components/containers/ContainerGroupItem.qml",
+        "components/containers/ContainerInfoView.qml",
+        "components/containers/ContainerListItem.qml",
+        "components/containers/ContainerListPanel.qml",
         "components/ResourceSummaryCard.qml",
         "components/SearchField.qml",
         "components/ImageListPanel.qml",
@@ -256,13 +290,13 @@ fn all_qml_components_load_without_errors() {
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
-        "dialogs/ConfirmRemoveDialog.qml",
-        "dialogs/ContainerLogsDialog.qml",
-        "dialogs/ContainerInspectDialog.qml",
+        "dialogs/containers/KillContainerDialog.qml",
+        "dialogs/containers/RemoveContainerDialog.qml",
+        "dialogs/containers/RemoveContainerGroupDialog.qml",
+        "dialogs/containers/RenameContainerDialog.qml",
         "dialogs/ErrorDetailsDialog.qml",
         "pages/OverviewPage.qml",
         "pages/ContainersPage.qml",
-        "pages/ContainerDetailsPage.qml",
         "pages/ImagesPage.qml",
         "pages/NetworksPage.qml",
         "pages/VolumesPage.qml",
@@ -280,14 +314,12 @@ fn all_qml_components_load_without_errors() {
     // every registered Rust type beneath an Item.
     let registered_types = [
         "AppController",
-        "ContainerListModel",
+        "ContainersListModel",
         "ImageListModel",
         "ImageFileListModel",
         "NetworkListModel",
         "VolumeListModel",
         "VolumeFileListModel",
-        "ContainerDetailController",
-        "LogListModel",
     ];
     for qml_type in registered_types {
         let source = format!("import QtQuick\nimport org.tuxstack.app\nItem {{ {qml_type} {{}} }}");

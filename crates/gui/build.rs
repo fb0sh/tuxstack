@@ -8,7 +8,6 @@ fn main() {
                 "qml/Main.qml",
                 "qml/pages/OverviewPage.qml",
                 "qml/pages/ContainersPage.qml",
-                "qml/pages/ContainerDetailsPage.qml",
                 "qml/pages/ImagesPage.qml",
                 "qml/pages/NetworksPage.qml",
                 "qml/pages/VolumesPage.qml",
@@ -26,7 +25,13 @@ fn main() {
                 "qml/components/EmptyState.qml",
                 "qml/components/ErrorBanner.qml",
                 "qml/components/StatusBadge.qml",
-                "qml/components/ContainerActions.qml",
+                "qml/components/containers/ContainerContextMenu.qml",
+                "qml/components/containers/ContainerDetailPanel.qml",
+                "qml/components/containers/ContainerGroupInfoView.qml",
+                "qml/components/containers/ContainerGroupItem.qml",
+                "qml/components/containers/ContainerInfoView.qml",
+                "qml/components/containers/ContainerListItem.qml",
+                "qml/components/containers/ContainerListPanel.qml",
                 "qml/components/ResourceSummaryCard.qml",
                 "qml/components/SearchField.qml",
                 "qml/components/ImageListPanel.qml",
@@ -61,9 +66,10 @@ fn main() {
                 "qml/dialogs/PullImageDialog.qml",
                 "qml/dialogs/RemoveImageDialog.qml",
                 "qml/dialogs/ExportImageDialog.qml",
-                "qml/dialogs/ConfirmRemoveDialog.qml",
-                "qml/dialogs/ContainerLogsDialog.qml",
-                "qml/dialogs/ContainerInspectDialog.qml",
+                "qml/dialogs/containers/KillContainerDialog.qml",
+                "qml/dialogs/containers/RemoveContainerDialog.qml",
+                "qml/dialogs/containers/RemoveContainerGroupDialog.qml",
+                "qml/dialogs/containers/RenameContainerDialog.qml",
                 "qml/dialogs/ErrorDetailsDialog.qml",
             ])
             .depends([
@@ -83,8 +89,7 @@ fn main() {
     .qt_module("QuickDialogs2")
     .files([
         "src/bridge/app_bridge.rs",
-        "src/bridge/container_bridge.rs",
-        "src/bridge/detail_bridge.rs",
+        "src/bridge/containers_bridge.rs",
         "src/bridge/resource_bridges.rs",
     ])
     .build();

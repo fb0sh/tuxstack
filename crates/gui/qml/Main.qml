@@ -46,6 +46,10 @@ Kirigami.ApplicationWindow {
         id: appController
     }
 
+    ContainersListModel {
+        id: containersModel
+    }
+
     ImageListModel {
         id: imagesModel
     }
@@ -68,6 +72,7 @@ Kirigami.ApplicationWindow {
 
     Component.onCompleted: appController.startup()
     onClosing: {
+        containersModel.shutdown()
         imagesModel.shutdown()
         networksModel.shutdown()
         volumesModel.shutdown()
@@ -79,6 +84,8 @@ Kirigami.ApplicationWindow {
         target: appController
 
         function onDockerStatusChanged() {
+            containersModel.setConnectionState(appController.dockerStatus,
+                                                appController.dockerStatusText)
             imagesModel.setConnectionState(appController.dockerStatus,
                                            appController.dockerStatusText)
             networksModel.setConnectionState(appController.dockerStatus,
@@ -93,6 +100,8 @@ Kirigami.ApplicationWindow {
 
         function onDockerStatusTextChanged() {
             if (appController.dockerStatus !== 1) {
+                containersModel.setConnectionState(appController.dockerStatus,
+                                                    appController.dockerStatusText)
                 imagesModel.setConnectionState(appController.dockerStatus,
                                                appController.dockerStatusText)
                 networksModel.setConnectionState(appController.dockerStatus,
@@ -124,6 +133,7 @@ Kirigami.ApplicationWindow {
                 root.refreshThrottled(volumesModel, "volumes")
                 break
             case "containers":
+                root.refreshThrottled(containersModel, "containers")
                 root.refreshThrottled(volumesModel, "volumes")
                 break
             case "daemon":
@@ -217,7 +227,23 @@ Kirigami.ApplicationWindow {
             Layout.fillHeight: true
             currentIndex: root.pageIndex(root.currentPage)
 
-            ContainersPage { }
+            ContainersPage {
+                containersModel: containersModel
+                pendingContainerId: root.pendingContainerId
+                onNotificationRequested: function(message) {
+                    root.showPassiveNotification(message)
+                }
+                onRetryConnectionRequested: appController.startup()
+                onVolumeNavigationRequested: function(volumeName) {
+                    root.currentPage = "volumes"
+                    volumesModel.selectVolume(volumeName)
+                }
+                onNetworkNavigationRequested: function(networkId, networkName) {
+                    root.currentPage = "networks"
+                    if (networkId && networkId.length > 0)
+                        networksModel.selectNetwork(networkId)
+                }
+            }
             ImagesPage {
                 imagesModel: imagesModel
                 filesModel: imageFilesModel

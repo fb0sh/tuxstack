@@ -4,8 +4,7 @@
 //! generated and compiled.
 
 pub mod app_bridge;
-pub mod container_bridge;
-pub mod detail_bridge;
+pub mod containers_bridge;
 pub mod image_bridge;
 pub mod image_file_bridge;
 pub mod network_bridge;
