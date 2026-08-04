@@ -1,146 +1,126 @@
 # TuxStack
 
-TuxStack is a native Docker management application for Linux desktops,
-designed for KDE Plasma and built with Rust, Qt, Kirigami, and Bollard.
+[English](#english) | 中文
 
-**Status: alpha.** The project is under active development; features are
-still being added and the API may change.
+> Docker + Incus 桌面管理工具，类似 OrbStack 的 Linux 版本
 
-## Features
+TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux（KDE Plasma）设计。提供 Docker 和 Incus 的统一管理界面，使用 Rust、Qt/Kirigami 构建。
 
-| Feature                 | Status        |
-| ----------------------- | ------------- |
-| Container list          | Implemented   |
-| Container inspect       | Implemented   |
-| Start/stop/restart      | Implemented   |
-| Container logs          | Implemented   |
-| Container stats         | Implemented   |
-| Image management        | Implemented   |
-| Network list            | Implemented   |
-| Volume list             | Implemented   |
-| Compose                 | Planned       |
-| Terminal                | Planned       |
-| Files                   | Implemented   |
-| Incus                   | Future consideration |
+**状态：Alpha 版本。** 项目正在积极开发中，功能持续迭代。
 
-What works today:
+## 功能
 
-- **Application** (`tuxstack`): KDE Plasma style (Breeze, system icons,
-  system fonts and colors). Pages for Overview, Containers (search,
-  state filter, start/stop/restart/remove, details, logs, stats,
-  inspect), Docker Images (usage grouping, search, sorting, typed details,
-  remove, pull progress, streaming export, and read-only file browsing in
-  an Info/Files tab layout), Networks, Volumes (including read-only file
-  browsing with download/open/properties), plus honest placeholders for
-  later phases. Live log following uses a capped line buffer; image
-  operations never use mock progress or mock data. Browsing an image's
-  filesystem runs a hardened, read-only temporary container from the
-  selected image; images without a shell (scratch, distroless) show an
-  explanatory "cannot be browsed" state instead of failing silently.
+### Docker 管理
 
-TuxStack is a GUI-only application. It does not install or maintain a
-separate command-line frontend.
+| 功能 | 状态 |
+| --- | --- |
+| 容器列表 / 详情 / 启动停止 | ✅ 已实现 |
+| 容器日志 / 监控 / Inspect | ✅ 已实现 |
+| 镜像管理 / 拉取 / 导出 | ✅ 已实现 |
+| 网络管理 | ✅ 已实现 |
+| 卷管理 / 文件浏览 | ✅ 已实现 |
+| 镜像文件浏览 | ✅ 已实现 |
+| Compose 项目 | 🔜 计划中 |
+| 容器终端 | 🔜 计划中 |
+| 镜像构建 / 推送 | 🔜 计划中 |
 
-What is deliberately **not** included yet: Compose projects, container
-terminal, container-filesystem browsing, image build/tag/push/prune,
-persistent registry accounts, remote-engine UI, Incus, and Podman. No
-mock data is used for any of these.
+### Incus 管理
 
-## Screenshots
+| 功能 | 状态 |
+| --- | --- |
+| 虚拟机 / 容器列表 | 🔮 未来实现 |
+| 网络 / 存储管理 | 🔮 未来实现 |
+| 镜像管理 | 🔮 未来实现 |
+| 终端 / 文件浏览 | 🔮 未来实现 |
 
-Screenshots will be added once the UI stabilizes.
-
-## Architecture
+## 架构
 
 ```
-┌─────────────────────────────────────┐
-│              tuxstack               │
-│  QML + Kirigami                     │
-│  CXX-Qt QObject / Qt Models         │
-│  GUI Controllers / App State        │
-└───────┬─────────────────────────────┘
-        │ Rust crate API
-        ▼
-┌─────────────────────────────────────┐
-│          tuxstack-docker-core       │
-│  Application services               │
-│  Docker models / operations         │
-│  Stats/logs/event streams           │
-│  Bollard type mapping               │
-└───────┬─────────────────────────────┘
-        │ Bollard
-        ▼
-┌─────────────────────────────────────┐
-│           Docker Engine             │
-│ /var/run/docker.sock or DOCKER_HOST │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│               tuxstack                  │
+│  QML + Kirigami UI                      │
+│  CXX-Qt Rust⇄Qt 桥接                   │
+│  GUI 控制器 / 应用状态                   │
+└───────┬─────────────────────────────────┘
+        │
+        ├───────────────────────┐
+        ▼                       ▼
+┌───────────────────┐  ┌───────────────────┐
+│   Docker Core     │  │   Incus Core      │
+│  Bollard 客户端   │  │  Incus API 客户端  │
+│  文件系统服务     │  │  虚拟机管理        │
+│  统计/日志/事件   │  │  网络/存储管理     │
+└───────┬───────────┘  └───────┬───────────┘
+        │                      │
+        ▼                      ▼
+┌───────────────────┐  ┌───────────────────┐
+│  Docker Engine    │  │  Incus Server     │
+│  /var/run/docker.sock │  /var/lib/incus/unix.socket │
+└───────────────────┘  └───────────────────┘
 ```
 
-There is **no daemon**, CLI frontend, or REST/JSON-RPC layer. The GUI
-links directly against `tuxstack-docker-core`, which talks to the Docker
-Engine through [Bollard](https://docs.rs/bollard).
+无守护进程、CLI 前端或 REST/JSON-RPC 层。GUI 直接链接核心库，通过原生 API 与后端通信。
 
-## Technology stack
+## 技术栈
 
-- Rust (edition 2024)
-- Qt 6 / Qt Quick / QML
-- Kirigami (KDE Frameworks 6)
-- CXX-Qt for the Rust ⇄ Qt bridge
-- Bollard (Docker API client), Tokio (async runtime)
-- Serde (serialization), thiserror, tracing
+- **语言**：Rust (edition 2024)
+- **UI**：Qt 6 / Qt Quick / QML + Kirigami (KF6)
+- **桥接**：CXX-Qt
+- **Docker 客户端**：Bollard + Tokio 异步运行时
+- **Incus 客户端**：Incus API (计划中)
+- **序列化**：Serde、thiserror、tracing
 
-## System requirements
+## 系统要求
 
-- Linux (KDE Plasma preferred; Wayland first, X11 compatible)
-- Rust 1.85+ (MSRV) and Cargo
-- Qt 6 (Core, QML, Quick, QuickControls2, QuickLayouts) with C++ compiler
-- Kirigami (KF6) and `kirigami-addons` QML modules
-- A running Docker Engine with an accessible socket
+- Linux（推荐 KDE Plasma；Wayland 优先，兼容 X11）
+- Rust 1.85+ (MSRV) 和 Cargo
+- Qt 6（Core、QML、Quick、QuickControls2、QuickLayouts）及 C++ 编译器
+- Kirigami (KF6) 和 `kirigami-addons` QML 模块
+- 运行中的 Docker Engine 和/或 Incus Server
 
-### Docker permissions
+### Docker 权限
 
-- The local default Docker socket is usually `/var/run/docker.sock`.
-- Your user needs permission to access it (typically membership in the
-  `docker` group, applied after logout/login).
-- Docker socket access is equivalent to high-privilege control of the
-  host. Manage `docker` group membership carefully.
-- TuxStack never runs `sudo`, never changes your groups, and never asks
-  for a root password. On permission errors it explains what to do.
+- 默认 socket 路径：`/var/run/docker.sock`
+- 用户需要 `docker` 组权限（添加后需重新登录）
+- Docker socket 访问等同于主机高权限控制，请谨慎管理
 
-### Dependency notes by distribution
+### Incus 权限
 
-See [docs/development.md](docs/development.md) for verified package
-names on Fedora, Arch Linux, and Ubuntu.
+- 默认 socket 路径：`/var/lib/incus/unix.socket`
+- 用户需要 `incus` 组权限
+- 或通过 `incus admin init` 初始化后使用
 
-## Building
+### 发行版依赖
+
+参见 [docs/development.md](docs/development.md) 获取 Fedora、Arch Linux、Ubuntu 的已验证包名。
+
+## 构建
 
 ```bash
 cargo build --workspace
 ```
 
-## Running the GUI
+## 运行
 
 ```bash
 cargo run
 ```
 
-The workspace defaults to the `tuxstack` application package. The explicit
-package form is `cargo run -p tuxstack`.
+等价于 `cargo run -p tuxstack`。启动时连接本地 Docker/Incus socket，不可用时在概览页显示错误并提供重试按钮。
 
-The GUI connects to the local Docker socket (or `DOCKER_HOST`) on
-startup. If Docker is unavailable or permissions are missing, the
-Overview page explains the problem and offers a retry button.
+## 配置
 
-## Configuration
-
-Configuration lives at `$XDG_CONFIG_HOME/tuxstack/config.toml`
-(default `~/.config/tuxstack/config.toml`):
+配置文件位于 `$XDG_CONFIG_HOME/tuxstack/config.toml`（默认 `~/.config/tuxstack/config.toml`）：
 
 ```toml
 [docker]
 host = ""
 connect_timeout_seconds = 5
 operation_timeout_seconds = 30
+
+[incus]
+socket_path = "/var/lib/incus/unix.socket"
+connect_timeout_seconds = 5
 
 [ui]
 auto_refresh_seconds = 5
@@ -152,25 +132,15 @@ confirm_remove = true
 level = "info"
 ```
 
-The theme always follows the system (Breeze Light / Breeze Dark). If
-the config file is unreadable, safe defaults are used and the problem
-is reported; the file is never overwritten.
+主题始终跟随系统（Breeze Light/Dark）。
 
-## Testing
+## 测试
 
 ```bash
 cargo test --workspace
 ```
 
-Unit tests cover docker-core mapping, error classification, stats
-math, config parsing, and the GUI page-state machine (loading→ready,
-loading→error, stale refresh rejection, busy/operation states). A
-QML smoke test loads the full UI headless.
-
-### Docker integration tests
-
-Real-Docker tests are gated behind `#[ignore]` and need an accessible
-Engine:
+### Docker 集成测试
 
 ```bash
 cargo test -p tuxstack-docker-core --test docker -- --ignored --nocapture
@@ -178,32 +148,221 @@ cargo test -p tuxstack-docker-core --test containers -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test images -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test networks -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test volumes -- --ignored --nocapture
-cargo test -p tuxstack-docker-core --test volume_files -- --ignored --nocapture
-cargo test -p tuxstack-docker-core --test image_files -- --ignored --nocapture
 ```
 
-Test containers use the unique prefix `tuxstack-test-<uuid>` and are
-removed even on failure.
+## 安全说明
 
-## Security notes
+- Docker/Incus socket 访问 = 主机控制权，谨慎管理组权限
+- TuxStack 仅记录容器 ID、操作类型和错误种类，不记录敏感信息
+- GUI 仅显示安全的用户友好错误信息
 
-- Docker socket access = host control. Be careful with group
-  membership and never expose the socket over a network.
-- TuxStack logs container/short IDs, operation types and error kinds.
-  It never logs secrets, tokens, image environment-variable values,
-  sensitive labels, registry passwords, or full container log contents.
-- Image environment variables are stored in the image metadata and may
-  themselves contain secrets. The details page displays the real metadata
-  on request, but TuxStack never writes those values to its logs.
-- The GUI only shows safe, concise user-facing error messages; the
-  full error chain goes to debug logs.
+## 路线图
+
+### 近期计划
+- [ ] Incus 虚拟机/容器管理
+- [ ] Compose 项目支持
+- [ ] 容器终端
+
+### 中期计划
+- [ ] 镜像构建/标签/推送
+- [ ] 持久化 Registry 账户
+- [ ] Docker 上下文切换
+
+### 长期愿景
+- [ ] 完整的 Incus 集成
+- [ ] 远程引擎管理
+- [ ] Kubernetes 集成
+
+参见 [docs/roadmap.md](docs/roadmap.md) 了解详细规划。
+
+## 文档
+
+- [架构](docs/architecture.md)
+- [docker-core](docs/docker-core.md)
+- [GUI](docs/gui.md)
+- [开发环境](docs/development.md)
+- [路线图](docs/roadmap.md)
+
+## 许可证
+
+MIT
+
+---
+
+# English
+
+> Docker + Incus desktop management tool, a Linux version of OrbStack
+
+TuxStack is a native container and virtual machine desktop management application for Linux (KDE Plasma). It provides a unified interface for Docker and Incus management, built with Rust, Qt/Kirigami.
+
+**Status: Alpha.** Actively developed; features iterate continuously.
+
+## Features
+
+### Docker Management
+
+| Feature | Status |
+| --- | --- |
+| Container list/details/start/stop | ✅ Implemented |
+| Container logs/stats/inspect | ✅ Implemented |
+| Image management/pull/export | ✅ Implemented |
+| Network management | ✅ Implemented |
+| Volume management/file browsing | ✅ Implemented |
+| Image file browsing | ✅ Implemented |
+| Compose projects | 🔜 Planned |
+| Container terminal | 🔜 Planned |
+| Image build/push | 🔜 Planned |
+
+### Incus Management
+
+| Feature | Status |
+| --- | --- |
+| VM/container list | 🔮 Future |
+| Network/storage management | 🔮 Future |
+| Image management | 🔮 Future |
+| Terminal/file browsing | 🔮 Future |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│               tuxstack                  │
+│  QML + Kirigami UI                      │
+│  CXX-Qt Rust⇄Qt bridge                 │
+│  GUI controllers / app state            │
+└───────┬─────────────────────────────────┘
+        │
+        ├───────────────────────┐
+        ▼                       ▼
+┌───────────────────┐  ┌───────────────────┐
+│   Docker Core     │  │   Incus Core      │
+│  Bollard client   │  │  Incus API client │
+│  Filesystem svc   │  │  VM management    │
+│  Stats/logs/events│  │  Network/storage  │
+└───────┬───────────┘  └───────┬───────────┘
+        │                      │
+        ▼                      ▼
+┌───────────────────┐  ┌───────────────────┐
+│  Docker Engine    │  │  Incus Server     │
+│  /var/run/docker.sock │  /var/lib/incus/unix.socket │
+└───────────────────┘  └───────────────────┘
+```
+
+No daemon, CLI frontend, or REST/JSON-RPC layer. The GUI links directly against core libraries, communicating with backends through native APIs.
+
+## Tech Stack
+
+- **Language**: Rust (edition 2024)
+- **UI**: Qt 6 / Qt Quick / QML + Kirigami (KF6)
+- **Bridge**: CXX-Qt
+- **Docker client**: Bollard + Tokio async runtime
+- **Incus client**: Incus API (planned)
+- **Serialization**: Serde, thiserror, tracing
+
+## Requirements
+
+- Linux (KDE Plasma preferred; Wayland first, X11 compatible)
+- Rust 1.85+ (MSRV) and Cargo
+- Qt 6 (Core, QML, Quick, QuickControls2, QuickLayouts) with C++ compiler
+- Kirigami (KF6) and `kirigami-addons` QML modules
+- Running Docker Engine and/or Incus Server
+
+### Docker Permissions
+
+- Default socket: `/var/run/docker.sock`
+- User needs `docker` group membership (re-login required after adding)
+- Docker socket access = high-privilege host control; manage carefully
+
+### Incus Permissions
+
+- Default socket: `/var/lib/incus/unix.socket`
+- User needs `incus` group membership
+- Or initialize with `incus admin init`
+
+### Distribution Dependencies
+
+See [docs/development.md](docs/development.md) for verified package names on Fedora, Arch Linux, and Ubuntu.
+
+## Building
+
+```bash
+cargo build --workspace
+```
+
+## Running
+
+```bash
+cargo run
+```
+
+Equivalent to `cargo run -p tuxstack`. Connects to local Docker/Incus socket on startup; shows error with retry button on Overview page when unavailable.
+
+## Configuration
+
+Config at `$XDG_CONFIG_HOME/tuxstack/config.toml` (default `~/.config/tuxstack/config.toml`):
+
+```toml
+[docker]
+host = ""
+connect_timeout_seconds = 5
+operation_timeout_seconds = 30
+
+[incus]
+socket_path = "/var/lib/incus/unix.socket"
+connect_timeout_seconds = 5
+
+[ui]
+auto_refresh_seconds = 5
+stats_refresh_seconds = 2
+log_line_limit = 5000
+confirm_remove = true
+
+[logging]
+level = "info"
+```
+
+Theme follows system (Breeze Light/Dark).
+
+## Testing
+
+```bash
+cargo test --workspace
+```
+
+### Docker Integration Tests
+
+```bash
+cargo test -p tuxstack-docker-core --test docker -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test containers -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test images -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test networks -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test volumes -- --ignored --nocapture
+```
+
+## Security Notes
+
+- Docker/Incus socket access = host control. Manage group membership carefully
+- TuxStack logs only container IDs, operation types, and error kinds; never sensitive information
+- GUI shows only safe, user-friendly error messages
 
 ## Roadmap
 
-See [docs/roadmap.md](docs/roadmap.md) for the planned direction:
-Compose, Terminal, container file browsing, image build/tag/push/prune,
-persistent registry accounts, Docker contexts, remote engines, and a
-future Incus integration.
+### Near-term
+- [ ] Incus VM/container management
+- [ ] Compose project support
+- [ ] Container terminal
+
+### Mid-term
+- [ ] Image build/tag/push
+- [ ] Persistent registry accounts
+- [ ] Docker context switching
+
+### Long-term
+- [ ] Full Incus integration
+- [ ] Remote engine management
+- [ ] Kubernetes integration
+
+See [docs/roadmap.md](docs/roadmap.md) for detailed planning.
 
 ## Documentation
 
