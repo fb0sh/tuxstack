@@ -1,7 +1,7 @@
 # Roadmap
 
-Current state: **alpha** — Docker-only, local engine, GUI + CLI on the
-same core.
+Current state: **alpha** — a GUI-only Docker desktop application for a
+local engine. The GUI uses the internal Rust Docker core directly.
 
 ## Planned
 
@@ -17,8 +17,8 @@ A real PTY-based terminal (planned); no fake terminal.
 File browser/copy in/out (planned); no fake file manager.
 
 ### Image operations
-Pull, build, tag, push, prune — with real progress from Docker, no
-mock progress bars.
+Pull, remove, inspect, and streaming export are implemented with real
+Docker progress/data. Build, tag, push, and prune remain planned.
 
 ### Registry login
 `docker login`-style credential handling, careful with secrets.

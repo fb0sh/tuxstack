@@ -23,6 +23,11 @@ pub fn set_services(services: DockerServices) {
     *SERVICES.lock().expect("services lock") = Some(Arc::new(services));
 }
 
+/// Clear a previous connection before starting a new connection attempt.
+pub fn clear_services() {
+    *SERVICES.lock().expect("services lock") = None;
+}
+
 /// Access the shared services, if connected.
 pub fn get_services() -> Option<Arc<DockerServices>> {
     SERVICES.lock().expect("services lock").clone()
@@ -206,28 +211,6 @@ impl ContainerPageState {
     pub fn operation_allowed(&self, id: &str, _operation: &str) -> bool {
         !self.is_busy(id)
     }
-}
-
-/// A single row of the image list model.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImageRow {
-    pub id: String,
-    pub short_id: String,
-    pub tags: String,
-    pub size: String,
-    pub created_at: String,
-}
-
-/// A single row of the network list model.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NetworkRow {
-    pub id: String,
-    pub name: String,
-    pub driver: String,
-    pub scope: String,
-    pub internal: bool,
-    pub attachable: bool,
-    pub ipv6: bool,
 }
 
 /// A single row of the volume list model.

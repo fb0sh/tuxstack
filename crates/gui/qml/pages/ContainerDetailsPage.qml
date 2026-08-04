@@ -16,7 +16,7 @@ Kirigami.Page {
 
     title: detailController && detailController.containerName.length > 0
            ? detailController.containerName
-           : i18nd("tuxstack", "Container details")
+           : I18n.i18nd("tuxstack", "Container details")
 
     function fmtBytes(b) {
         const units = ["B", "KB", "MB", "GB", "TB"]
@@ -46,17 +46,17 @@ Kirigami.Page {
     actions: [
         Kirigami.Action {
             icon.name: "utilities-terminal"
-            text: i18nd("tuxstack", "Logs")
+            text: I18n.i18nd("tuxstack", "Logs")
             onTriggered: logsDialog.open()
         },
         Kirigami.Action {
             icon.name: "document-properties"
-            text: i18nd("tuxstack", "Inspect")
+            text: I18n.i18nd("tuxstack", "Inspect")
             onTriggered: inspectDialog.open()
         },
         Kirigami.Action {
             icon.name: "go-previous"
-            text: i18nd("tuxstack", "Back")
+            text: I18n.i18nd("tuxstack", "Back")
             onTriggered: pageStack.pop()
         }
     ]
@@ -66,18 +66,18 @@ Kirigami.Page {
         spacing: 0
 
         // Tab bar
-        TabBar {
+        QQC2.TabBar {
             id: tabBar
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.topMargin: Kirigami.Units.mediumSpacing
 
-            QQC2.TabButton { text: i18nd("tuxstack", "Overview") }
-            QQC2.TabButton { text: i18nd("tuxstack", "Stats") }
-            QQC2.TabButton { text: i18nd("tuxstack", "Inspect") }
-            QQC2.TabButton { text: i18nd("tuxstack", "Terminal") }
-            QQC2.TabButton { text: i18nd("tuxstack", "Files") }
+            QQC2.TabButton { text: I18n.i18nd("tuxstack", "Overview") }
+            QQC2.TabButton { text: I18n.i18nd("tuxstack", "Stats") }
+            QQC2.TabButton { text: I18n.i18nd("tuxstack", "Inspect") }
+            QQC2.TabButton { text: I18n.i18nd("tuxstack", "Terminal") }
+            QQC2.TabButton { text: I18n.i18nd("tuxstack", "Files") }
         }
 
         StackLayout {
@@ -89,7 +89,7 @@ Kirigami.Page {
             Flickable {
                 clip: true
                 contentHeight: overviewColumn.implicitHeight
-                ScrollBar.vertical: QQC2.ScrollBar {}
+                QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
 
                 ColumnLayout {
                     id: overviewColumn
@@ -180,8 +180,8 @@ Kirigami.Page {
                     Layout.fillWidth: true
                     QQC2.Button {
                         text: (detailController && detailController.statsActive)
-                              ? i18nd("tuxstack", "Stop monitoring")
-                              : i18nd("tuxstack", "Start monitoring")
+                              ? I18n.i18nd("tuxstack", "Stop monitoring")
+                              : I18n.i18nd("tuxstack", "Start monitoring")
                         icon.name: (detailController && detailController.statsActive) ? "media-playback-stop" : "media-playback-start"
                         onClicked: {
                             if (!detailController) return
@@ -190,7 +190,7 @@ Kirigami.Page {
                         }
                     }
                     QQC2.Label {
-                        text: i18nd("tuxstack", "Sample interval from configuration")
+                        text: I18n.i18nd("tuxstack", "Sample interval from configuration")
                         color: Kirigami.Theme.disabledTextColor
                     }
                 }
@@ -201,30 +201,30 @@ Kirigami.Page {
                     columnSpacing: Kirigami.Units.largeSpacing
                     rowSpacing: Kirigami.Units.mediumSpacing
 
-                    QQC2.Label { text: i18nd("tuxstack", "CPU:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "CPU:") }
                     QQC2.Label { text: detailController ? detailController.cpuPercent.toFixed(1) + " %" : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "Memory:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "Memory:") }
                     QQC2.Label { text: detailController ? detailController.memoryUsage + " / " + detailController.memoryLimit + " (" + detailController.memoryPercent.toFixed(1) + " %)" : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "Network RX:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "Network RX:") }
                     QQC2.Label { text: detailController ? detailController.networkRx : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "Network TX:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "Network TX:") }
                     QQC2.Label { text: detailController ? detailController.networkTx : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "Block read:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "Block read:") }
                     QQC2.Label { text: detailController ? detailController.blockRead : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "Block write:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "Block write:") }
                     QQC2.Label { text: detailController ? detailController.blockWrite : "—" }
 
-                    QQC2.Label { text: i18nd("tuxstack", "PIDs:") }
+                    QQC2.Label { text: I18n.i18nd("tuxstack", "PIDs:") }
                     QQC2.Label { text: detailController ? detailController.pids : "—" }
                 }
 
                 QQC2.Label {
-                    text: i18nd("tuxstack", "CPU history (%)")
+                    text: I18n.i18nd("tuxstack", "CPU history (%)")
                     font.bold: true
                 }
 
@@ -272,10 +272,10 @@ Kirigami.Page {
                 clip: true
                 contentWidth: inspectText.implicitWidth
                 contentHeight: inspectText.implicitHeight
-                ScrollBar.vertical: QQC2.ScrollBar {}
-                ScrollBar.horizontal: QQC2.ScrollBar {}
+                QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+                QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
 
-                TextArea {
+                QQC2.TextArea {
                     id: inspectText
                     text: detailController ? detailController.detailJson : ""
                     readOnly: true
@@ -292,15 +292,15 @@ Kirigami.Page {
             // ---- Terminal (planned) ----
             EmptyState {
                 iconName: "utilities-terminal"
-                title: i18nd("tuxstack", "Terminal — planned")
-                message: i18nd("tuxstack", "Container terminal support is planned for a future release.")
+                title: I18n.i18nd("tuxstack", "Terminal — planned")
+                message: I18n.i18nd("tuxstack", "Container terminal support is planned for a future release.")
             }
 
             // ---- Files (planned) ----
             EmptyState {
                 iconName: "folder"
-                title: i18nd("tuxstack", "Files — planned")
-                message: i18nd("tuxstack", "Container file browsing is planned for a future release.")
+                title: I18n.i18nd("tuxstack", "Files — planned")
+                message: I18n.i18nd("tuxstack", "Container file browsing is planned for a future release.")
             }
         }
     }
@@ -314,7 +314,7 @@ Kirigami.Page {
 
     ContainerInspectDialog {
         id: inspectDialog
-        titleText: i18nd("tuxstack", "Inspect — %1").arg(root.title)
+        titleText: I18n.i18nd("tuxstack", "Inspect — %1").arg(root.title)
         jsonText: detailController ? detailController.detailJson : ""
     }
 }

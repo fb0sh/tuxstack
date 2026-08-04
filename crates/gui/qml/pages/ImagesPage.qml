@@ -1,141 +1,167 @@
-import QtQuick
-import QtQuick.Controls as QQC2
-import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
-import org.tuxstack.app
+pragma ComponentBehavior: Bound
 
-/**
- * Images page: real image list with search.
- * Pull/build/tag/push/prune are planned.
- */
+import QtQuick
+import QtQuick.Dialogs as Dialogs
+import QtQuick.Layouts
+import QtCore as QtCore
+import org.kde.kirigami as Kirigami
+import "../components"
+import "../dialogs"
+
 Kirigami.Page {
     id: root
 
+    /**
+     * Real ImageListModel / ImagesController facade. This remains nullable so the
+     * page and its components can be loaded before the CXX-Qt object is wired.
+     */
     property var imagesModel: null
+    property bool controllerInitialized: false
+    property string pendingExportImageId: ""
+    property string pendingExportName: ""
 
-    title: i18nd("tuxstack", "Images")
+    signal containerNavigationRequested(string containerId)
+    signal notificationRequested(string message)
+    signal retryConnectionRequested()
+    signal initializationRequested()
 
-    function refresh() {
-        if (imagesModel) imagesModel.refresh()
+    title: qsTr("Images")
+    padding: 0
+
+    function safeExportName(displayName, shortId) {
+        let base = displayName
+        if (!base || base === "<none>:<none>")
+            base = "image-" + shortId.replace(/^sha256:/, "")
+        base = base.replace(/[^A-Za-z0-9._-]+/g, "-")
+                   .replace(/^-+|-+$/g, "")
+        if (base.length === 0)
+            base = "image"
+        return base + ".tar"
     }
 
-    Component.onCompleted: refresh()
-    onIsCurrentPageChanged: {
-        if (isCurrentPage) refresh()
+    function localPath(url) {
+        const value = String(url)
+        return value.indexOf("file://") === 0
+               ? decodeURIComponent(value.substring(7)) : value
     }
 
-    actions: [
-        Kirigami.Action {
-            icon.name: "view-refresh"
-            text: i18nd("tuxstack", "Refresh")
-            onTriggered: root.refresh()
-        },
-        Kirigami.Action {
-            icon.name: "download"
-            text: i18nd("tuxstack", "Pull (planned)")
-            enabled: false
-        }
-    ]
+    function notify(message) {
+        root.notificationRequested(message)
+    }
 
-    ColumnLayout {
+    function initializeController() {
+        if (!root.imagesModel || root.controllerInitialized)
+            return
+        root.controllerInitialized = true
+        root.imagesModel.initialize()
+        root.initializationRequested()
+    }
+
+    Component.onCompleted: {
+        console.info("ImagesPage created")
+        root.initializeController()
+    }
+    onImagesModelChanged: root.initializeController()
+
+    RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: Kirigami.Units.mediumSpacing
-            spacing: Kirigami.Units.mediumSpacing
+        ImageListPanel {
+            id: listPanel
+            Layout.fillHeight: true
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+            Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 16,
+                                            Math.min(Kirigami.Units.gridUnit * 19,
+                                                     root.width * 0.31))
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 19
+            imagesModel: root.imagesModel
 
-            SearchField {
-                Layout.fillWidth: true
-                onTextChanged: {
-                    if (imagesModel) imagesModel.searchText = text
-                    root.refresh()
-                }
+            onPullRequested: pullDialog.open()
+            onRetryRequested: root.retryConnectionRequested()
+            onRemoveRequested: function(imageId, displayName, shortId, tagsText,
+                                        sizeText, usedByCount) {
+                removeDialog.prepare(imageId, displayName, shortId, tagsText,
+                                     sizeText, usedByCount)
             }
         }
 
-        ErrorBanner {
-            Layout.fillWidth: true
-            textMessage: (imagesModel && imagesModel.status === 4) ? imagesModel.statusText : ""
+        Kirigami.Separator {
+            Layout.fillHeight: true
         }
 
-        LoadingView {
+        ImageDetailPanel {
+            id: detailPanel
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: imagesModel && imagesModel.status === 1
-        }
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 16
+            imagesModel: root.imagesModel
 
-        EmptyState {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            visible: imagesModel && imagesModel.status === 3
-            iconName: "image-x-generic"
-            title: i18nd("tuxstack", "No images")
-            message: i18nd("tuxstack", "Pull images with `docker pull` from the terminal.")
-        }
-
-        EmptyState {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            visible: imagesModel && imagesModel.status === 5
-            iconName: "network-offline"
-            title: i18nd("tuxstack", "Docker unavailable")
-            message: imagesModel ? imagesModel.statusText : ""
-        }
-
-        ListView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            visible: imagesModel && (imagesModel.status === 2 || imagesModel.status === 0)
-            model: imagesModel
-            ScrollBar.vertical: QQC2.ScrollBar {}
-            spacing: 1
-
-            delegate: Kirigami.AbstractCard {
-                width: ListView.view.width
-                contentItem: RowLayout {
-                    spacing: Kirigami.Units.mediumSpacing
-                    Layout.margins: Kirigami.Units.mediumSpacing
-
-                    Kirigami.Icon {
-                        source: "image-x-generic"
-                        implicitWidth: Kirigami.Units.iconSizes.medium
-                        implicitHeight: Kirigami.Units.iconSizes.medium
-                        color: Kirigami.Theme.textColor
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        QQC2.Label {
-                            text: model.tags
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                        RowLayout {
-                            spacing: Kirigami.Units.largeSpacing
-                            QQC2.Label {
-                                text: model.shortId
-                                color: Kirigami.Theme.disabledTextColor
-                                font.family: "monospace"
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                            QQC2.Label {
-                                text: i18nd("tuxstack", "Size: %1", model.size)
-                                color: Kirigami.Theme.disabledTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                            QQC2.Label {
-                                text: i18nd("tuxstack", "Created: %1", model.createdAt)
-                                color: Kirigami.Theme.disabledTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                        }
-                    }
-                }
+            onExportRequested: function(imageId, displayName, shortId) {
+                root.pendingExportImageId = imageId
+                root.pendingExportName = root.safeExportName(displayName, shortId)
+                const folder = QtCore.StandardPaths.writableLocation(QtCore.StandardPaths.DocumentsLocation)
+                saveDialog.currentFolder = folder
+                saveDialog.selectedFile = folder + "/" + root.pendingExportName
+                saveDialog.open()
             }
+            onContainerRequested: function(containerId) {
+                root.containerNavigationRequested(containerId)
+            }
+        }
+    }
+
+    PullImageDialog {
+        id: pullDialog
+        imagesModel: root.imagesModel
+    }
+
+    RemoveImageDialog {
+        id: removeDialog
+        removing: root.imagesModel
+                  && root.imagesModel.removingImageId === removeDialog.imageId
+        errorMessage: root.imagesModel ? root.imagesModel.removeErrorMessage : ""
+        onRemovalRequested: function(imageId, force, pruneChildren) {
+            if (root.imagesModel)
+                root.imagesModel.removeImage(imageId, force, pruneChildren)
+        }
+    }
+
+    Dialogs.FileDialog {
+        id: saveDialog
+        title: qsTr("Export Docker Image")
+        fileMode: Dialogs.FileDialog.SaveFile
+        nameFilters: [qsTr("Tar archives (*.tar)"), qsTr("All files (*)")]
+        defaultSuffix: "tar"
+        acceptLabel: qsTr("Export")
+        onAccepted: {
+            const path = root.localPath(selectedFile)
+            exportDialog.showFor(path)
+            if (root.imagesModel)
+                root.imagesModel.exportImage(root.pendingExportImageId, path)
+        }
+    }
+
+    ExportImageDialog {
+        id: exportDialog
+        imagesModel: root.imagesModel
+    }
+
+    Connections {
+        target: root.imagesModel
+        ignoreUnknownSignals: true
+
+        function onImageRemoved(displayName) {
+            removeDialog.close()
+            root.notify(qsTr("Image “%1” removed.").arg(displayName))
+        }
+
+        function onPullCompleted(imageReference) {
+            root.notify(qsTr("Image “%1” pulled.").arg(imageReference))
+        }
+
+        function onExportCompleted(destinationPath) {
+            root.notify(qsTr("Image exported to %1").arg(destinationPath))
         }
     }
 }

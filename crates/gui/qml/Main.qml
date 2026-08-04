@@ -1,153 +1,172 @@
 import QtQuick
-import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.tuxstack.app
 
 /**
- * TuxStack main window: sidebar navigation + Kirigami page stack.
+ * TuxStack application shell.
+ *
+ * The application shell owns the Docker connection and image controller while
+ * the fixed StackLayout keeps page navigation responsive and predictable.
  */
 Kirigami.ApplicationWindow {
     id: root
-    title: "TuxStack"
-    width: 1100
-    height: 720
-    visible: true
-    minimumWidth: 720
-    minimumHeight: 480
 
-    // ---- Shared state objects (registered by CXX-Qt) ----
+    property string currentPage: "containers"
+    property string pendingContainerId: ""
+    property bool userCollapsed: false
+
+    readonly property bool compactMode: width < Kirigami.Units.gridUnit * 45
+    readonly property bool sidebarCollapsed: compactMode || userCollapsed
+
+    title: qsTr("TuxStack — %1").arg(pageTitle(currentPage))
+    width: Kirigami.Units.gridUnit * 61
+    height: Kirigami.Units.gridUnit * 40
+    minimumWidth: Kirigami.Units.gridUnit * 24
+    minimumHeight: Kirigami.Units.gridUnit * 24
+    visible: true
+
     AppController {
-        id: app
-        Component.onCompleted: startup()
+        id: appController
     }
-    ContainerListModel { id: containersModel }
-    ImageListModel { id: imagesModel }
-    NetworkListModel { id: networksModel }
-    VolumeListModel { id: volumesModel }
-    ContainerDetailController { id: detailController }
-    LogListModel { id: logModel }
+
+    ImageListModel {
+        id: imagesModel
+    }
+
+    NetworkListModel {
+        id: networksModel
+    }
+
+    Component.onCompleted: appController.startup()
+    onClosing: {
+        imagesModel.shutdown()
+        networksModel.shutdown()
+    }
 
     Connections {
-        target: app
+        target: appController
+
         function onDockerStatusChanged() {
-            if (app.dockerStatus === 1 && pageRow.currentItem) {
-                if (pageRow.currentItem.refresh) pageRow.currentItem.refresh()
+            imagesModel.setConnectionState(appController.dockerStatus,
+                                           appController.dockerStatusText)
+            networksModel.setConnectionState(appController.dockerStatus,
+                                             appController.dockerStatusText)
+        }
+
+        function onDockerStatusTextChanged() {
+            if (appController.dockerStatus !== 1) {
+                imagesModel.setConnectionState(appController.dockerStatus,
+                                               appController.dockerStatusText)
+                networksModel.setConnectionState(appController.dockerStatus,
+                                                 appController.dockerStatusText)
             }
         }
     }
 
-    // Sidebar + page area (fixed sidebar for a desktop app).
-    contentItem: RowLayout {
+    Connections {
+        target: imagesModel
+
+        function onContainerNavigationRequested(containerId) {
+            root.pendingContainerId = containerId
+            root.currentPage = "containers"
+        }
+    }
+
+    function pageIndex(pageId) {
+        switch (pageId) {
+        case "containers": return 0
+        case "images": return 1
+        case "volumes": return 2
+        case "networks": return 3
+        case "activity": return 4
+        case "commands": return 5
+        case "devices": return 6
+        case "settings": return 7
+        default: return 0
+        }
+    }
+
+    function pageTitle(pageId) {
+        switch (pageId) {
+        case "containers": return qsTr("Containers")
+        case "images": return qsTr("Images")
+        case "volumes": return qsTr("Volumes")
+        case "networks": return qsTr("Networks")
+        case "activity": return qsTr("Activity Monitor")
+        case "commands": return qsTr("Commands")
+        case "devices": return qsTr("Devices")
+        case "settings": return qsTr("Settings")
+        default: return qsTr("Containers")
+        }
+    }
+
+    RowLayout {
+        anchors.fill: parent
         spacing: 0
 
         AppSidebar {
             id: sidebar
+
             Layout.fillHeight: true
-            statusText: root.connectionStatusText
-            statusColor: root.connectionStatusColor
-            onNavigate: function (pageId) {
-                root.navigate(pageId)
+            Layout.minimumWidth: sidebar.implicitWidth
+            Layout.preferredWidth: sidebar.implicitWidth
+            Layout.maximumWidth: sidebar.implicitWidth
+            currentPage: root.currentPage
+            collapsed: root.sidebarCollapsed
+            collapseEnabled: !root.compactMode
+
+            onPageRequested: function(pageId) {
+                root.currentPage = pageId
+            }
+            onCollapseRequested: {
+                if (!root.compactMode)
+                    root.userCollapsed = !root.userCollapsed
             }
         }
 
-        Rectangle {
+        Kirigami.Separator {
             Layout.fillHeight: true
-            width: 1
-            color: Kirigami.Theme.disabledTextColor
-            opacity: 0.3
         }
 
-        Kirigami.PageRow {
-            id: pageRow
+        StackLayout {
+            id: pageStack
+
             Layout.fillWidth: true
             Layout.fillHeight: true
-            initialPage: overviewPageComponent
-        }
-    }
+            currentIndex: root.pageIndex(root.currentPage)
 
-    readonly property string connectionStatusText: {
-        if (!app) return ""
-        if (app.dockerStatus === 1) return i18nd("tuxstack", "Docker connected")
-        if (app.dockerStatus === 0) return i18nd("tuxstack", "Connecting…")
-        return i18nd("tuxstack", "Docker unavailable")
-    }
-
-    readonly property color connectionStatusColor: {
-        if (!app || app.dockerStatus === 1) return Kirigami.Theme.positiveTextColor
-        if (app.dockerStatus === 0) return Kirigami.Theme.disabledTextColor
-        return Kirigami.Theme.negativeTextColor
-    }
-
-    // Main pages defined inline; navigation replaces the current page.
-    Component {
-        id: overviewPageComponent
-        OverviewPage {
-            appController: app
-            engineJson: app ? app.overviewJson : ""
-        }
-    }
-    Component {
-        id: containersPageComponent
-        ContainersPage {
-            containersModel: containersModel
-            detailController: detailController
-            logModel: logModel
-            onOpenDetailsRequested: function (id) {
-                root.openContainerDetails(id)
+            ContainersPage { }
+            ImagesPage {
+                imagesModel: imagesModel
+                onContainerNavigationRequested: function(containerId) {
+                    imagesModel.requestContainerNavigation(containerId)
+                }
+                onNotificationRequested: function(message) {
+                    root.showPassiveNotification(message)
+                }
+                onInitializationRequested: {
+                    imagesModel.setConnectionState(appController.dockerStatus,
+                                                   appController.dockerStatusText)
+                }
+                onRetryConnectionRequested: appController.startup()
             }
-        }
-    }
-    Component {
-        id: imagesPageComponent
-        ImagesPage { imagesModel: imagesModel }
-    }
-    Component {
-        id: networksPageComponent
-        NetworksPage { networksModel: networksModel }
-    }
-    Component {
-        id: volumesPageComponent
-        VolumesPage { volumesModel: volumesModel }
-    }
-    Component {
-        id: composePageComponent
-        ComposePage {}
-    }
-    Component {
-        id: settingsPageComponent
-        SettingsPage {
-            dockerHost: app ? app.dockerHost : ""
-        }
-    }
-
-    function pageComponent(pageId) {
-        switch (pageId) {
-        case "overview": return overviewPageComponent
-        case "containers": return containersPageComponent
-        case "images": return imagesPageComponent
-        case "networks": return networksPageComponent
-        case "volumes": return volumesPageComponent
-        case "compose": return composePageComponent
-        case "settings": return settingsPageComponent
-        }
-        return overviewPageComponent
-    }
-
-    function navigate(pageId) {
-        pageRow.replace(pageComponent(pageId))
-    }
-
-    function openContainerDetails(id) {
-        if (detailController) detailController.open(id)
-        pageRow.push(containerDetailsPageComponent)
-    }
-
-    Component {
-        id: containerDetailsPageComponent
-        ContainerDetailsPage {
-            detailController: detailController
-            logModel: logModel
+            VolumesPage { }
+            NetworksPage {
+                networksModel: networksModel
+                onNotificationRequested: function(message) {
+                    root.showPassiveNotification(message)
+                }
+                onInitializationRequested: {
+                    networksModel.setConnectionState(appController.dockerStatus,
+                                                     appController.dockerStatusText)
+                }
+                onRetryConnectionRequested: appController.startup()
+            }
+            ActivityMonitorPage { }
+            CommandsPage { }
+            DevicesPage { }
+            SettingsPage { }
         }
     }
 }

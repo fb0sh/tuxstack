@@ -1,0 +1,70 @@
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:70: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:69: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:78: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:86:9: QML OverviewPage: Created graphical object was not placed in the graphics scene.
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:31: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:16: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:80: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:86: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:92: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:107: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:113: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:119: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:125: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:131: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:137: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:143: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:149: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:158: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:169:13: Unable to assign [undefined] to QString
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:168: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:175: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:19:5: Unable to assign [undefined] to int
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:88:13: Unable to assign [undefined] to QString
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:86:9: QML OverviewPage: Created graphical object was not placed in the graphics scene.
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:31: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:16: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:80: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:86: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:92: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:107: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:113: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:119: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:125: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:131: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:137: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:143: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:149: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:158: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:169:13: Unable to assign [undefined] to QString
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:168: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:175: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/OverviewPage.qml:19:5: Unable to assign [undefined] to int
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:88:13: Unable to assign [undefined] to QString
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:93:9: QML ContainersPage: Created graphical object was not placed in the graphics scene.
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:34: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:18: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/components/SearchField.qml:11: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:67: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:77: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:105: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:104: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ContainersPage.qml:113: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/dialogs/ConfirmRemoveDialog.qml:37: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/dialogs/ConfirmRemoveDialog.qml:14: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/dialogs/ConfirmRemoveDialog.qml:12: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:108:9: QML NetworksPage: Created graphical object was not placed in the graphics scene.
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:30: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:16: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/components/SearchField.qml:11: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:70: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:69: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/NetworksPage.qml:78: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/Main.qml:104:9: QML ImagesPage: Created graphical object was not placed in the graphics scene.
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:30: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:35: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:16: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/components/SearchField.qml:11: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:75: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:74: ReferenceError: i18nd is not defined
+qrc:/qt/qml/org/tuxstack/app/qml/pages/ImagesPage.qml:83: ReferenceError: i18nd is not defined

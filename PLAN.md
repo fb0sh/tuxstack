@@ -9,8 +9,9 @@
 * 不再开发自有 daemon
 * 不再使用 REST API
 * 不再使用 JSON-RPC
-* 不再通过额外 Unix socket 在 GUI、CLI 和后端之间通信
-* GUI 和 CLI 直接复用同一个 Rust Docker 核心库
+* 不再通过额外 Unix socket 在 GUI 和后端之间通信
+* 不再提供或维护 CLI 产品入口
+* GUI 直接复用 Rust Docker 核心库
 * Docker 核心库通过 Bollard 连接 Docker Engine
 * 当前版本只支持 Docker
 * Incus 相关代码全部删除
@@ -31,7 +32,7 @@
 * 使用 Breeze、系统图标、系统字体和系统配色
 * 管理本地 Docker Engine
 * 支持容器、镜像、网络、卷和 Compose 项目
-* GUI 与 CLI 共享同一套核心逻辑
+* 只通过 GUI 提供产品功能
 * 保持架构简单、清晰、可测试
 
 项目当前处于 alpha 阶段。
@@ -59,7 +60,6 @@ KDE 组件：Kirigami
 Rust 与 Qt 桥接：CXX-Qt
 Docker 客户端：Bollard
 异步运行时：Tokio
-CLI：Clap
 序列化：Serde
 错误处理：thiserror
 日志：tracing
@@ -141,7 +141,7 @@ prototype/
 
 ```text
 ┌─────────────────────────────────────┐
-│            tuxstack-gui             │
+│              tuxstack               │
 │                                     │
 │ QML + Kirigami                      │
 │       │                             │
@@ -168,24 +168,9 @@ prototype/
 └─────────────────────────────────────┘
 ```
 
-CLI 结构：
+GUI 必须直接依赖 `docker-core`，禁止在 GUI bridge 或 QML 中重复封装 Docker API。
 
-```text
-tuxstack-cli
-      │
-      ▼
-tuxstack-docker-core
-      │
-      ▼
-Bollard
-      │
-      ▼
-Docker Engine
-```
-
-GUI 和 CLI 必须直接依赖 `docker-core`。
-
-GUI 和 CLI 禁止重复封装 Docker API。
+项目不提供 CLI frontend；自动化和集成验证直接测试 `docker-core`。
 
 ---
 
@@ -295,26 +280,6 @@ tuxstack/
 │   │           ├── ContainerLogsDialog.qml
 │   │           ├── ContainerInspectDialog.qml
 │   │           └── ErrorDetailsDialog.qml
-│   │
-│   └── cli/
-│       ├── Cargo.toml
-│       └── src/
-│           ├── main.rs
-│           ├── error.rs
-│           ├── output.rs
-│           └── commands/
-│               ├── mod.rs
-│               ├── ps.rs
-│               ├── inspect.rs
-│               ├── logs.rs
-│               ├── start.rs
-│               ├── stop.rs
-│               ├── restart.rs
-│               ├── remove.rs
-│               ├── images.rs
-│               ├── networks.rs
-│               ├── volumes.rs
-│               └── info.rs
 │
 ├── docs/
 │   ├── architecture.md
@@ -336,7 +301,8 @@ tuxstack/
     └── integration/
         ├── docker.rs
         ├── containers.rs
-        └── cli.rs
+        ├── images.rs
+        └── networks.rs
 ```
 
 当前没有实现的 Compose 页面可以显示真实的“计划中”状态。
@@ -355,7 +321,6 @@ resolver = "2"
 members = [
     "crates/docker-core",
     "crates/gui",
-    "crates/cli",
 ]
 ```
 
@@ -371,7 +336,6 @@ anyhow = "1"
 bollard = "..."
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -425,8 +389,6 @@ Qt 和 CXX-Qt 相关依赖根据上游官方文档配置。
 
 * Qt 类型
 * QML
-* CLI 参数解析
-* 表格输出
 * GUI loading 状态
 * GUI 导航
 * HTTP 服务
@@ -571,7 +533,7 @@ pub enum DockerError {
 
 # 十、领域模型
 
-Bollard 类型不得泄漏到 GUI 和 CLI。
+Bollard 类型不得泄漏到 GUI。
 
 定义独立领域模型。
 
@@ -800,18 +762,6 @@ restart
 remove
 logs
 stats
-```
-
-CLI 至少接入：
-
-```text
-list
-inspect
-start
-stop
-restart
-remove
-logs
 ```
 
 ## 列表选项
@@ -1534,102 +1484,9 @@ refresh_generation += 1;
 
 ---
 
-# 二十七、CLI 设计
-
-CLI binary 名称：
-
-```text
-tuxstack
-```
-
-GUI binary 可以使用：
-
-```text
-tuxstack-gui
-```
-
-CLI 命令：
-
-```text
-tuxstack info
-tuxstack ps
-tuxstack inspect <container>
-tuxstack logs <container>
-tuxstack start <container...>
-tuxstack stop <container...>
-tuxstack restart <container...>
-tuxstack pause <container...>
-tuxstack unpause <container...>
-tuxstack rm <container...>
-tuxstack images
-tuxstack networks
-tuxstack volumes
-```
-
-全局参数：
-
-```text
---host
---timeout
---json
---debug
-```
-
-`ps` 参数：
-
-```text
---all
---running
---filter
---format
-```
-
-`logs` 参数：
-
-```text
---follow
---tail
---timestamps
---since
---until
-```
-
-`rm` 参数：
-
-```text
---force
---volumes
-```
-
-CLI 和 GUI 直接使用 `docker-core`。
-
-禁止 CLI 调用 GUI。
-
-禁止 CLI 通过隐藏 daemon 工作。
-
-表格输出示例：
-
-```text
-CONTAINER ID   NAME       IMAGE          STATE     STATUS       PORTS
-abcdef123456   postgres   postgres:17    running   Up 2 hours   127.0.0.1:5432->5432/tcp
-```
-
-退出码：
-
-```text
-0 成功
-1 通用错误
-2 参数错误
-3 Docker 不可用
-4 权限不足
-5 资源不存在
-6 操作冲突
-7 操作超时
-```
-
 ---
 
-# 二十八、配置
+# 二十七、配置
 
 配置路径遵循 XDG：
 
@@ -1674,7 +1531,7 @@ level = "info"
 
 ---
 
-# 二十九、日志
+# 二十八、日志
 
 使用 `tracing`。
 
@@ -1713,7 +1570,7 @@ info
 
 ---
 
-# 三十、权限说明
+# 二十九、权限说明
 
 应用直接访问 Docker Engine。
 
@@ -1733,7 +1590,7 @@ GUI 遇到权限错误时提供明确说明。
 
 ---
 
-# 三十一、桌面集成
+# 三十、桌面集成
 
 提供：
 
@@ -1749,7 +1606,7 @@ desktop file 至少包含：
 Type=Application
 Name=TuxStack
 Comment=Native Docker management for KDE Plasma
-Exec=tuxstack-gui
+Exec=tuxstack
 Icon=io.github.tuxstack.TuxStack
 Categories=System;Utility;
 Terminal=false
@@ -1766,7 +1623,7 @@ AppStream 文件中：
 
 ---
 
-# 三十二、未来 Incus 扩展策略
+# 三十一、未来 Incus 扩展策略
 
 当前不得实现 Incus。
 
@@ -1824,7 +1681,7 @@ Instance
 
 ---
 
-# 三十三、测试要求
+# 三十二、测试要求
 
 必须为 `docker-core` 提供单元测试。
 
@@ -1918,7 +1775,7 @@ tuxstack-test-<uuid>
 
 ---
 
-# 三十四、GUI 测试
+# 三十三、GUI 测试
 
 至少完成：
 
@@ -1942,7 +1799,7 @@ QML 层至少进行：
 
 ---
 
-# 三十五、代码质量要求
+# 三十四、代码质量要求
 
 完成后必须运行：
 
@@ -1956,7 +1813,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 GUI 构建环境允许时运行：
 
 ```bash
-cargo build -p tuxstack-gui
+cargo build -p tuxstack
 ```
 
 如果当前环境缺失 Qt、Kirigami 或 CXX-Qt 构建依赖：
@@ -1971,7 +1828,7 @@ cargo build -p tuxstack-gui
 
 ---
 
-# 三十六、README 重写
+# 三十五、README 重写
 
 README 必须包含：
 
@@ -1987,12 +1844,11 @@ README 必须包含：
 10. Qt/Kirigami 依赖
 11. 构建命令
 12. GUI 运行方式
-13. CLI 使用方式
-14. 配置路径
-15. 测试方式
-16. Docker 集成测试
-17. 安全说明
-18. Roadmap
+13. 配置路径
+14. 测试方式
+15. Docker 集成测试
+16. 安全说明
+17. Roadmap
 
 已实现和计划中必须分开。
 
@@ -2018,7 +1874,7 @@ Incus                    Future consideration
 
 ---
 
-# 三十七、文档
+# 三十六、文档
 
 创建：
 
@@ -2026,8 +1882,8 @@ Incus                    Future consideration
 
 说明：
 
-* 无 daemon 架构
-* GUI 和 CLI 直接复用 docker-core
+* 无 daemon、无 CLI 的 GUI-only 架构
+* GUI 直接复用 docker-core
 * Qt 与 Tokio 边界
 * CXX-Qt 边界
 * Bollard 数据映射
@@ -2098,7 +1954,7 @@ Incus                    Future consideration
 
 ---
 
-# 三十八、实施顺序
+# 三十七、实施顺序
 
 严格按以下顺序实施。
 
@@ -2163,20 +2019,7 @@ cargo test --workspace
 * streams
 * integration tests
 
-## Phase 4：CLI
-
-* info
-* ps
-* inspect
-* logs
-* start
-* stop
-* restart
-* rm
-* JSON output
-* exit codes
-
-## Phase 5：Qt/Kirigami GUI 基础
+## Phase 4：Qt/Kirigami GUI 基础
 
 * CXX-Qt
 * Tokio runtime
@@ -2186,7 +2029,7 @@ cargo test --workspace
 * Docker connection state
 * Containers page
 
-## Phase 6：GUI 容器功能
+## Phase 5：GUI 容器功能
 
 * real container model
 * refresh
@@ -2197,14 +2040,14 @@ cargo test --workspace
 * error states
 * loading states
 
-## Phase 7：其他 Docker 资源
+## Phase 6：其他 Docker 资源
 
 * images
 * networks
 * volumes
 * overview
 
-## Phase 8：文档和打包
+## Phase 7：文档和打包
 
 * README
 * architecture docs
@@ -2214,7 +2057,7 @@ cargo test --workspace
 
 ---
 
-# 三十九、第一阶段验收标准
+# 三十八、第一阶段验收标准
 
 完成后，以下命令应当有效：
 
@@ -2223,19 +2066,10 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-CLI：
-
-```bash
-cargo run -p tuxstack-cli -- info
-cargo run -p tuxstack-cli -- ps --all
-cargo run -p tuxstack-cli -- inspect <container>
-cargo run -p tuxstack-cli -- logs <container> --tail 100
-```
-
 GUI：
 
 ```bash
-cargo run -p tuxstack-gui
+cargo run
 ```
 
 GUI 必须：
@@ -2266,10 +2100,10 @@ GUI 必须：
 
 ---
 
-# 四十、实现原则
+# 三十九、实现原则
 
 1. 当前只做 Docker。
-2. GUI 和 CLI 直接复用 docker-core。
+2. GUI 直接复用 docker-core；不提供 CLI frontend。
 3. Bollard 直接连接 Docker Engine。
 4. 不开发额外 daemon。
 5. 不开发 REST API。
@@ -2291,7 +2125,7 @@ GUI 必须：
 
 ---
 
-# 四十一、Commit 要求
+# 四十、Commit 要求
 
 使用小而清晰的 commit。
 
@@ -2302,7 +2136,6 @@ refactor: remove daemon incus slint and json-rpc
 feat(docker-core): add docker connection and domain models
 feat(docker-core): implement container lifecycle operations
 feat(docker-core): add logs stats and event streams
-feat(cli): implement docker management commands
 feat(gui): migrate to CXX-Qt and Kirigami
 feat(gui): connect container views to docker-core
 feat(gui): add logs stats and container details
@@ -2317,7 +2150,7 @@ test: add docker mapping and integration coverage
 
 ---
 
-# 四十二、最终交付报告
+# 四十一、最终交付报告
 
 完成后输出：
 
@@ -2326,16 +2159,15 @@ test: add docker mapping and integration coverage
 3. 最终 workspace 结构
 4. docker-core 公开 API
 5. GUI 页面和功能状态
-6. CLI 命令
-7. Docker 连接方式
-8. 错误处理
-9. 测试结果
-10. 构建结果
-11. Clippy 结果
-12. Qt/Kirigami 验证情况
-13. 已知限制
-14. 后续开发建议
-15. 所有 commit hash
+6. Docker 连接方式
+7. 错误处理
+8. 测试结果
+9. 构建结果
+10. Clippy 结果
+11. Qt/Kirigami 验证情况
+12. 已知限制
+13. 后续开发建议
+14. 所有 commit hash
 
 必须执行并报告：
 
@@ -2359,8 +2191,6 @@ git status --short
 
 ```text
 Qt/Kirigami GUI
-        +
-Rust CLI
         ↓
 docker-core
         ↓

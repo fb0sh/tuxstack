@@ -272,7 +272,7 @@ impl qobject::ContainerListModel {
                         }
                     }
                 })
-                .expect("queue to Qt thread");
+                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
     }
 
@@ -362,7 +362,7 @@ impl qobject::ContainerListModel {
                     // Refresh the list to reflect the new state.
                     model.as_mut().refresh();
                 })
-                .expect("queue to Qt thread");
+                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
     }
 

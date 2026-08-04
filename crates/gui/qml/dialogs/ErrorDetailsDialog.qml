@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.tuxstack.app
 
 /**
  * Error details dialog (full error text).
@@ -11,7 +12,7 @@ Kirigami.Dialog {
 
     property string errorText: ""
 
-    title: i18nd("tuxstack", "Error details")
+    title: I18n.i18nd("tuxstack", "Error details")
 
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
@@ -27,8 +28,8 @@ Kirigami.Dialog {
 
     footer: QQC2.DialogButtonBox {
         QQC2.Button {
-            text: i18nd("tuxstack", "Close")
-            DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole
+            text: I18n.i18nd("tuxstack", "Close")
+            QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole
             onClicked: root.close()
         }
     }

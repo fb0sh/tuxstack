@@ -6,7 +6,7 @@
 
 use std::pin::Pin;
 
-use cxx_qt::Threading;
+use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use tuxstack_docker_core::DockerServices;
 
@@ -27,12 +27,12 @@ pub mod qobject {
         /// Global app controller: docker connection + overview.
         #[qobject]
         #[qml_element]
-        #[qproperty(i32, docker_status)]
-        #[qproperty(QString, docker_status_text)]
-        #[qproperty(QString, docker_host)]
-        #[qproperty(QString, engine_info_json)]
-        #[qproperty(bool, overview_loading)]
-        #[qproperty(QString, overview_json)]
+        #[qproperty(i32, docker_status, cxx_name = "dockerStatus")]
+        #[qproperty(QString, docker_status_text, cxx_name = "dockerStatusText")]
+        #[qproperty(QString, docker_host, cxx_name = "dockerHost")]
+        #[qproperty(QString, engine_info_json, cxx_name = "engineInfoJson")]
+        #[qproperty(bool, overview_loading, cxx_name = "overviewLoading")]
+        #[qproperty(QString, overview_json, cxx_name = "overviewJson")]
         type AppController = super::AppControllerRust;
 
         /// Connect to Docker and load the overview (called from QML).
@@ -50,6 +50,7 @@ pub mod qobject {
 /// Rust state backing [`qobject::AppController`].
 #[derive(Default)]
 pub struct AppControllerRust {
+    connection_generation: u64,
     docker_status: i32,
     docker_status_text: QString,
     docker_host: QString,
@@ -61,6 +62,12 @@ pub struct AppControllerRust {
 impl qobject::AppController {
     /// Start connecting to Docker asynchronously.
     pub fn startup(mut self: Pin<&mut Self>) {
+        app_state::clear_services();
+        let generation = {
+            let mut state = self.as_mut().rust_mut();
+            state.connection_generation = state.connection_generation.wrapping_add(1);
+            state.connection_generation
+        };
         self.as_mut().set_docker_status(0); // loading
         self.as_mut()
             .set_docker_status_text(QString::from("Connecting to Docker Engine..."));
@@ -82,8 +89,8 @@ impl qobject::AppController {
         crate::runtime::spawn(async move {
             let config = tuxstack_docker_core::DockerConfig {
                 host: settings.docker_host.clone(),
-                connect_timeout: std::time::Duration::from_secs(5),
-                ..Default::default()
+                connect_timeout: std::time::Duration::from_secs(settings.connect_timeout_seconds),
+                request_timeout: std::time::Duration::from_secs(settings.operation_timeout_seconds),
             };
 
             let result = match tuxstack_docker_core::DockerClient::connect_with_config(config) {
@@ -99,6 +106,9 @@ impl qobject::AppController {
 
             qt_thread
                 .queue(move |mut controller| {
+                    if controller.rust().connection_generation != generation {
+                        return;
+                    }
                     match result {
                         Ok(services) => {
                             app_state::set_services(services);
@@ -122,7 +132,7 @@ impl qobject::AppController {
                         }
                     }
                 })
-                .expect("queue to Qt thread");
+                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
     }
 
@@ -150,7 +160,7 @@ impl qobject::AppController {
                         }
                     }
                 })
-                .expect("queue to Qt thread");
+                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
     }
 }

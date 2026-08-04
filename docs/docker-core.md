@@ -1,6 +1,8 @@
 # tuxstack-docker-core
 
-The shared Docker core library. GUI and CLI depend on it directly.
+The internal Docker core library used directly by the GUI. Keeping Docker
+I/O and domain mapping independent of Qt makes it reusable within the GUI
+and straightforward to test without introducing another product frontend.
 
 ## Module structure
 

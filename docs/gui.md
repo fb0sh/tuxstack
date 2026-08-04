@@ -4,75 +4,108 @@ Qt 6 + QML + Kirigami, bridged with CXX-Qt.
 
 ## QML page structure
 
-```
+```text
 Kirigami.ApplicationWindow (Main.qml)
-├── AppSidebar          fixed left navigation
-└── Kirigami.PageRow    main pages + pushed detail pages
-    ├── OverviewPage        engine status + resource counts
-    ├── ContainersPage      searchable/filterable container list
-    ├── ContainerDetailsPage (pushed on demand)
-    │   ├── Overview tab    inspect summary fields
-    │   ├── Stats tab       live stats + CPU sparkline
-    │   ├── Inspect tab     pretty JSON
-    │   ├── Terminal tab    planned
-    │   └── Files tab       planned
-    ├── ImagesPage
-    ├── NetworksPage
-    ├── VolumesPage
-    ├── ComposePage         honest "planned" state
-    └── SettingsPage        connection + config info
+├── AppSidebar                 responsive KDE navigation
+├── Kirigami.Separator
+└── StackLayout
+    ├── ContainersPage        current phase placeholder
+    ├── ImagesPage            real Docker image management
+    │   ├── ImageListPanel
+    │   │   ├── search / sort / refresh / pull
+    │   │   └── In Use / Unused image sections
+    │   └── ImageDetailPanel
+    │       ├── basic information / export
+    │       ├── config
+    │       ├── environment
+    │       ├── labels
+    │       └── used-by containers
+    ├── VolumesPage           current phase placeholder
+    ├── NetworksPage          current phase placeholder
+    ├── ActivityMonitorPage   future phase placeholder
+    ├── CommandsPage          future phase placeholder
+    ├── DevicesPage           future phase placeholder
+    └── SettingsPage          future phase placeholder
 ```
 
-Dialog components: `ConfirmRemoveDialog`, `ContainerLogsDialog`,
-`ContainerInspectDialog`, `ErrorDetailsDialog`.
+The Images detail panel starts directly with image metadata. It does not
+contain Info, Terminal, or Files tabs.
 
-## Controllers and models
+Image workflows use `PullImageDialog`, `RemoveImageDialog`, and
+`ExportImageDialog`. The save location is selected through Qt's native
+save-file dialog.
 
-All page logic lives in Rust:
+## Images controller and model
 
-- `bridge/app_bridge.rs` — `AppController`: connection lifecycle,
-  overview aggregation, shared `DockerServices` registry.
-- `bridge/container_bridge.rs` — `ContainerListModel` (roles:
-  containerId, shortId, name, image, state, status, ports, cpuPercent,
-  memoryUsage, memoryLimit, createdAt, running, busy, operation) plus
-  start/stop/restart/remove invokables.
-- `bridge/detail_bridge.rs` — `ContainerDetailController` (inspect
-  JSON, log follow with `logChunk` signal, stats polling with
-  cancellation) and `LogListModel` (capped, searchable log lines).
-- `bridge/resource_bridges.rs` — `ImageListModel`, `NetworkListModel`,
-  `VolumeListModel`.
+`ImageListModel` is a `QAbstractListModel` and the controller for the page.
+Its roles start at `Qt::UserRole + 1` and expose scalar image-list data.
+The typed detail snapshot is exposed as a QVariant map; environment,
+labels, and used-by containers are structured QVariant lists rather than
+JSON strings.
 
-The bridges are thin; `app_state.rs` holds pure page-state machines
-(`ContainerPageState`, `LoadState`, `PageStatus`) with unit tests for
-loading→ready/empty/error transitions, stale-generation rejection, and
-busy/operation gating.
+Pure, Qt-free state lives in:
 
-## Runtime
+- `src/controllers/images.rs` — loading/error transitions, local filtering,
+  eight sort modes, selection preservation, generation guards, busy/pull/
+  export state.
+- `src/models/image_model.rs` — list and detail view mapping, IEC sizes,
+  relative timestamps, config array formatting.
 
-One shared Tokio runtime (`runtime.rs`). Invokables spawn tasks;
-results return to the Qt thread via `CxxQtThread::queue`. Streams use
-`CancellationToken`s cancelled by page close handlers.
+`src/bridge/image_bridge.rs` performs Docker and file operations on Tokio:
+
+- list images and all containers, then load the selected image detail;
+- remove an image with force/prune options and refresh from Docker;
+- consume real pull progress with cancellation;
+- stream image TAR bytes to a sibling temporary file, flush/sync, then
+  atomically rename it to the selected destination;
+- cancel refresh, detail, pull, export, and remove work during shutdown.
+
+Refresh and detail requests have independent generation IDs, so stale
+responses cannot overwrite newer state. Search and sorting operate only on
+the in-memory inventory and never issue another Docker request.
+
+## Image/container association
+
+`docker-core` requests all containers, including stopped and created ones.
+It normalizes full and short `sha256` IDs, prefers exact image-ID matches,
+accepts only unambiguous short-ID prefixes, and uses exact tag/digest aliases
+only as a fallback. Docker's image-summary container count is not trusted for
+the In Use/Unused grouping.
+
+The total shown by the page is the logical sum of unique image IDs. It is not
+presented as exclusive on-disk layer usage.
+
+## Runtime and security
+
+One shared Tokio runtime handles all Docker and file I/O. Results return to
+the Qt thread through `CxxQtThread::queue`; the Qt event loop never blocks.
+Pull/export streams and outstanding requests use `CancellationToken`.
+
+Registry credentials exist only for the active pull request. Password/token
+fields are cleared immediately after submission and credentials are never
+logged or persisted. Image environment variables and labels are shown because
+they are real image metadata, but their values are never written to tracing.
 
 ## Kirigami theming
 
-Colors come only from `Kirigami.Theme.*` (backgroundColor,
-alternateBackgroundColor, textColor, disabledTextColor, highlightColor,
-negativeTextColor, positiveTextColor, neutralTextColor), spacing from
-`Kirigami.Units.*` (smallSpacing, mediumSpacing, largeSpacing,
-gridUnit), and icons are FreeDesktop/KDE system icon names. There are
-no hardcoded colors and no custom Light/Dark toggle — the app follows
-the system theme (Breeze Light / Breeze Dark) automatically.
+Colors come from `Kirigami.Theme.*`, spacing and animation durations from
+`Kirigami.Units.*`, and icons from the active FreeDesktop/KDE icon theme.
+The sidebar and image rows use Breeze-style normal, hover, pressed, selected,
+and keyboard-focus states. There are no fixed Light/Dark colors or custom
+accent colors.
 
-## Responsive layout
-
-Wide windows: fixed sidebar + page list + optional pushed detail page.
-Narrow windows: the `PageRow` stack pushes details as a new page and
-the sidebar remains available. Window resizing is supported; minimum
-size is 720×480.
+The sidebar automatically collapses on compact windows. The Images page uses
+a two-panel list/detail layout on desktop widths and stacks the panels when
+space is constrained.
 
 ## Testing
 
-- Unit tests for `app_state` (controller transitions), `error`
-  (message mapping), `settings` (defaults).
-- `smoke_test.rs` loads the real `Main.qml` headless
-  (`QT_QPA_PLATFORM=offscreen`) and asserts root objects are created.
+- docker-core mapping/service/stream unit tests cover image IDs, tags,
+  dangling images, details, environment parsing, usage association, unique
+  sizes, error classes, progress, and cancellation.
+- GUI pure-state tests cover loading/error states, local search and sorting,
+  selection/race behavior, busy cleanup, pull progress, and export state.
+- `smoke_test.rs` loads every registered QML component and Rust QML type with
+  the offscreen Qt platform, then validates complete `Main.qml` creation.
+- Real Docker image lifecycle tests are marked ignored and cover pull, list,
+  inspect, container usage association, export, remove, and cleanup.

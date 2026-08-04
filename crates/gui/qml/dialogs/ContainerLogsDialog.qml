@@ -16,7 +16,7 @@ Kirigami.Dialog {
     property var detailController: null
     property bool autoScroll: true
 
-    title: i18nd("tuxstack", "Logs — %1").arg(root.containerName)
+    title: I18n.i18nd("tuxstack", "Logs — %1").arg(root.containerName)
 
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
@@ -39,7 +39,7 @@ Kirigami.Dialog {
 
             QQC2.ToolButton {
                 icon.name: "media-playback-start"
-                text: i18nd("tuxstack", "Follow")
+                text: I18n.i18nd("tuxstack", "Follow")
                 checkable: true
                 checked: root.detailController ? root.detailController.logsActive : false
                 onToggled: {
@@ -51,7 +51,7 @@ Kirigami.Dialog {
 
             QQC2.ToolButton {
                 icon.name: "edit-clear"
-                text: i18nd("tuxstack", "Clear")
+                text: I18n.i18nd("tuxstack", "Clear")
                 onClicked: {
                     if (root.logModel) root.logModel.clear()
                 }
@@ -59,7 +59,7 @@ Kirigami.Dialog {
 
             QQC2.ToolButton {
                 icon.name: "go-down"
-                text: i18nd("tuxstack", "Auto-scroll")
+                text: I18n.i18nd("tuxstack", "Auto-scroll")
                 checkable: true
                 checked: root.autoScroll
                 onToggled: root.autoScroll = checked
@@ -72,7 +72,7 @@ Kirigami.Dialog {
             Layout.fillHeight: true
             clip: true
             model: root.logModel
-            ScrollBar.vertical: QQC2.ScrollBar {}
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
             onCountChanged: {
                 if (root.autoScroll) {
                     positionViewAtEnd()

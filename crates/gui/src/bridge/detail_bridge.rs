@@ -309,7 +309,7 @@ impl qobject::ContainerDetailController {
                         }
                     }
                 })
-                .expect("queue to Qt thread");
+                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
     }
 

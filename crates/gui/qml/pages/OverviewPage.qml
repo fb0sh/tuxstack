@@ -13,7 +13,7 @@ Kirigami.Page {
     property var appController: null
     property string engineJson: ""
 
-    title: i18nd("tuxstack", "Overview")
+    title: I18n.i18nd("tuxstack", "Overview")
 
     // docker_status: 0 loading, 1 ready, 2 unavailable, 3 permission, 4 error
     readonly property int dockerStatus: appController ? appController.dockerStatus : 0
@@ -28,7 +28,7 @@ Kirigami.Page {
     actions: [
         Kirigami.Action {
             icon.name: "view-refresh"
-            text: i18nd("tuxstack", "Refresh")
+            text: I18n.i18nd("tuxstack", "Refresh")
             onTriggered: {
                 if (appController) appController.refreshOverview()
             }
@@ -77,19 +77,19 @@ Kirigami.Page {
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "docker"
-                label: i18nd("tuxstack", "Docker Engine")
+                label: I18n.i18nd("tuxstack", "Docker Engine")
                 value: engine.server_version || "—"
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "settings-configure"
-                label: i18nd("tuxstack", "API version")
+                label: I18n.i18nd("tuxstack", "API version")
                 value: engine.api_version || "—"
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "computer"
-                label: i18nd("tuxstack", "OS / Architecture")
+                label: I18n.i18nd("tuxstack", "OS / Architecture")
                 value: (engine.operating_system || "—") + " (" + (engine.arch || "—") + ")"
             }
         }
@@ -104,49 +104,49 @@ Kirigami.Page {
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "applications-system"
-                label: i18nd("tuxstack", "Running containers")
+                label: I18n.i18nd("tuxstack", "Running containers")
                 value: String(engine.containers_running ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "applications-system"
-                label: i18nd("tuxstack", "Stopped containers")
+                label: I18n.i18nd("tuxstack", "Stopped containers")
                 value: String(engine.containers_stopped ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "image-x-generic"
-                label: i18nd("tuxstack", "Images")
+                label: I18n.i18nd("tuxstack", "Images")
                 value: String(engine.images ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "network-server"
-                label: i18nd("tuxstack", "Networks")
+                label: I18n.i18nd("tuxstack", "Networks")
                 value: String(engine.networks ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "drive-harddisk"
-                label: i18nd("tuxstack", "Volumes")
+                label: I18n.i18nd("tuxstack", "Volumes")
                 value: String(engine.volumes ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "memory"
-                label: i18nd("tuxstack", "Total memory")
+                label: I18n.i18nd("tuxstack", "Total memory")
                 value: fmtBytes(engine.total_memory || 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "cpu"
-                label: i18nd("tuxstack", "CPUs")
+                label: I18n.i18nd("tuxstack", "CPUs")
                 value: String(engine.n_cpus ?? 0)
             }
             ResourceSummaryCard {
                 Layout.fillWidth: true
                 iconName: "folder"
-                label: i18nd("tuxstack", "Data root")
+                label: I18n.i18nd("tuxstack", "Data root")
                 value: engine.docker_root_dir || "—"
             }
         }
@@ -155,7 +155,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: dockerStatus === 0
-            message: i18nd("tuxstack", "Connecting to Docker Engine…")
+            message: I18n.i18nd("tuxstack", "Connecting to Docker Engine…")
         }
 
         EmptyState {
@@ -164,15 +164,15 @@ Kirigami.Page {
             visible: dockerStatus === 2 || dockerStatus === 3
             iconName: dockerStatus === 3 ? "dialog-password" : "network-offline"
             title: dockerStatus === 3
-                   ? i18nd("tuxstack", "Permission denied")
-                   : i18nd("tuxstack", "Docker Engine unavailable")
+                   ? I18n.i18nd("tuxstack", "Permission denied")
+                   : I18n.i18nd("tuxstack", "Docker Engine unavailable")
             message: appController ? appController.dockerStatusText : ""
 
             QQC2.Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.bottom
                 anchors.topMargin: Kirigami.Units.largeSpacing
-                text: i18nd("tuxstack", "Try again")
+                text: I18n.i18nd("tuxstack", "Try again")
                 icon.name: "view-refresh"
                 onClicked: {
                     if (appController) appController.startup()

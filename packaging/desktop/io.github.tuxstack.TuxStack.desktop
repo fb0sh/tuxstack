@@ -2,9 +2,9 @@
 Type=Application
 Name=TuxStack
 Comment=Native Docker management for KDE Plasma
-Exec=tuxstack-gui
+Exec=tuxstack
 Icon=io.github.tuxstack.TuxStack
 Categories=System;Utility;
 Terminal=false
-StartupWMClass=tuxstack-gui
+StartupWMClass=tuxstack
 X-KDE-Wayland-Applications=io.github.tuxstack.TuxStack

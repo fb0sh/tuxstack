@@ -7,5 +7,9 @@
 //! tasks.
 
 pub mod events;
+pub mod image_export;
+pub mod image_pull;
 
 pub use events::*;
+pub use image_export::*;
+pub use image_pull::*;

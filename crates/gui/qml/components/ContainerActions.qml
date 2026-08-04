@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
+import org.tuxstack.app
 
 /**
  * Action buttons for a container row (start/stop/restart/remove).
@@ -26,27 +27,27 @@ Item {
 
         QQC2.ToolButton {
             icon.name: "media-playback-start"
-            text: i18nd("tuxstack", "Start")
+            text: I18n.i18nd("tuxstack", "Start")
             visible: !root.running
             enabled: !root.busy
             onClicked: root.startRequested(root.containerId)
         }
         QQC2.ToolButton {
             icon.name: "media-playback-stop"
-            text: i18nd("tuxstack", "Stop")
+            text: I18n.i18nd("tuxstack", "Stop")
             visible: root.running
             enabled: !root.busy
             onClicked: root.stopRequested(root.containerId)
         }
         QQC2.ToolButton {
             icon.name: "view-refresh"
-            text: i18nd("tuxstack", "Restart")
+            text: I18n.i18nd("tuxstack", "Restart")
             enabled: !root.busy
             onClicked: root.restartRequested(root.containerId)
         }
         QQC2.ToolButton {
             icon.name: "edit-delete"
-            text: i18nd("tuxstack", "Remove")
+            text: I18n.i18nd("tuxstack", "Remove")
             enabled: !root.busy
             onClicked: root.removeRequested(root.containerId)
         }

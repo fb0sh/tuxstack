@@ -6,4 +6,6 @@
 pub mod app_bridge;
 pub mod container_bridge;
 pub mod detail_bridge;
+pub mod image_bridge;
+pub mod network_bridge;
 pub mod resource_bridges;

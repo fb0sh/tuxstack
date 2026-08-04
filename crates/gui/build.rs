@@ -1,8 +1,9 @@
-use cxx_qt_build::{CxxQtBuilder, QmlModule};
+use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
 
 fn main() {
     CxxQtBuilder::new_qml_module(
         QmlModule::new("org.tuxstack.app")
+            .qml_file(QmlFile::from("qml/I18n.qml").singleton(true))
             .qml_files([
                 "qml/Main.qml",
                 "qml/pages/OverviewPage.qml",
@@ -11,9 +12,15 @@ fn main() {
                 "qml/pages/ImagesPage.qml",
                 "qml/pages/NetworksPage.qml",
                 "qml/pages/VolumesPage.qml",
+                "qml/pages/ActivityMonitorPage.qml",
+                "qml/pages/CommandsPage.qml",
+                "qml/pages/DevicesPage.qml",
                 "qml/pages/ComposePage.qml",
                 "qml/pages/SettingsPage.qml",
                 "qml/components/AppSidebar.qml",
+                "qml/components/SidebarSection.qml",
+                "qml/components/SidebarItem.qml",
+                "qml/components/SidebarCollapseButton.qml",
                 "qml/components/PageHeader.qml",
                 "qml/components/LoadingView.qml",
                 "qml/components/EmptyState.qml",
@@ -22,17 +29,43 @@ fn main() {
                 "qml/components/ContainerActions.qml",
                 "qml/components/ResourceSummaryCard.qml",
                 "qml/components/SearchField.qml",
+                "qml/components/ImageListPanel.qml",
+                "qml/components/ImageListItem.qml",
+                "qml/components/ImageDetailPanel.qml",
+                "qml/components/PropertySection.qml",
+                "qml/components/PropertyList.qml",
+                "qml/components/PropertyRow.qml",
+                "qml/components/KeyValueTable.qml",
+                "qml/components/ImageUsedByList.qml",
+                "qml/components/NetworkListPanel.qml",
+                "qml/components/NetworkListItem.qml",
+                "qml/components/NetworkDetailPanel.qml",
+                "qml/components/NetworkContainerList.qml",
+                "qml/dialogs/CreateNetworkDialog.qml",
+                "qml/dialogs/RemoveNetworkDialog.qml",
+                "qml/dialogs/PullImageDialog.qml",
+                "qml/dialogs/RemoveImageDialog.qml",
+                "qml/dialogs/ExportImageDialog.qml",
                 "qml/dialogs/ConfirmRemoveDialog.qml",
                 "qml/dialogs/ContainerLogsDialog.qml",
                 "qml/dialogs/ContainerInspectDialog.qml",
                 "qml/dialogs/ErrorDetailsDialog.qml",
             ])
-            .depend("QtQuick"),
+            .depends([
+                "QtCore",
+                "QtQuick",
+                "QtQuick.Controls",
+                "QtQuick.Dialogs",
+                "QtQuick.Layouts",
+                "org.kde.kirigami",
+                "org.kde.ki18n",
+            ]),
     )
     .qt_module("Qml")
     .qt_module("Quick")
     .qt_module("QuickControls2")
     .qt_module("QuickLayouts")
+    .qt_module("QuickDialogs2")
     .files([
         "src/bridge/app_bridge.rs",
         "src/bridge/container_bridge.rs",

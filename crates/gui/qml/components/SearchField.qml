@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
+import org.tuxstack.app
 
 /**
  * Search field with a clear button.
@@ -8,7 +9,7 @@ import org.kde.kirigami as Kirigami
 QQC2.TextField {
     id: root
 
-    property string placeholderTextFallback: i18nd("tuxstack", "Search…")
+    property string placeholderTextFallback: I18n.i18nd("tuxstack", "Search…")
 
     placeholderText: placeholderTextFallback
     implicitWidth: Kirigami.Units.gridUnit * 16

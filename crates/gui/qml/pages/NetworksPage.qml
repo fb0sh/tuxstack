@@ -1,140 +1,113 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.tuxstack.app
+import "../components"
+import "../dialogs"
 
-/**
- * Networks page: real network list.
- * Create/connect/disconnect operations are planned.
- */
 Kirigami.Page {
     id: root
 
     property var networksModel: null
+    property var initializedModel: null
 
-    title: i18nd("tuxstack", "Networks")
+    signal initializationRequested()
+    signal retryConnectionRequested()
+    signal notificationRequested(string message)
 
-    function refresh() {
-        if (networksModel) networksModel.refresh()
+    title: I18n.i18nd("tuxstack", "Networks")
+    padding: 0
+
+    function initializeModel() {
+        if (!root.networksModel || root.initializedModel === root.networksModel)
+            return
+
+        root.initializedModel = root.networksModel
+        root.networksModel.initialize()
+        root.initializationRequested()
     }
 
-    Component.onCompleted: refresh()
-    onIsCurrentPageChanged: {
-        if (isCurrentPage) refresh()
+    function notify(message) {
+        root.notificationRequested(message)
     }
 
-    actions: [
-        Kirigami.Action {
-            icon.name: "view-refresh"
-            text: i18nd("tuxstack", "Refresh")
-            onTriggered: root.refresh()
-        }
-    ]
+    Component.onCompleted: root.initializeModel()
+    onNetworksModelChanged: root.initializeModel()
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: Kirigami.Units.mediumSpacing
-            spacing: Kirigami.Units.mediumSpacing
+        NetworkListPanel {
+            id: listPanel
 
-            SearchField {
-                Layout.fillWidth: true
-                onTextChanged: {
-                    if (networksModel) networksModel.searchText = text
-                    root.refresh()
-                }
+            Layout.fillHeight: true
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+            Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 16,
+                                            Math.min(Kirigami.Units.gridUnit * 19,
+                                                     root.width * 0.31))
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 19
+            networksModel: root.networksModel
+
+            onCreateRequested: createDialog.prepare()
+            onRetryRequested: root.retryConnectionRequested()
+            onRemoveRequested: function(networkId) {
+                if (root.networksModel)
+                    root.networksModel.prepareRemoveNetwork(networkId)
             }
         }
 
-        ErrorBanner {
-            Layout.fillWidth: true
-            textMessage: (networksModel && networksModel.status === 4) ? networksModel.statusText : ""
+        Kirigami.Separator {
+            Layout.fillHeight: true
         }
 
-        LoadingView {
+        NetworkDetailPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: networksModel && networksModel.status === 1
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 16
+            networksModel: root.networksModel
+        }
+    }
+
+    CreateNetworkDialog {
+        id: createDialog
+        networksModel: root.networksModel
+    }
+
+    RemoveNetworkDialog {
+        id: removeDialog
+        removing: root.networksModel
+                  && root.networksModel.removingNetworkId === removeDialog.networkId
+        errorMessage: root.networksModel ? root.networksModel.removeErrorMessage : ""
+
+        onRemovalRequested: function(networkId) {
+            if (root.networksModel)
+                root.networksModel.removeNetwork(networkId)
+        }
+    }
+
+    Connections {
+        target: root.networksModel
+        ignoreUnknownSignals: true
+
+        function onRemovePrepared(networkId, name, shortId, containerCount) {
+            removeDialog.prepare(networkId, name, shortId, containerCount)
         }
 
-        EmptyState {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            visible: networksModel && networksModel.status === 3
-            iconName: "network-server"
-            title: i18nd("tuxstack", "No networks")
-            message: i18nd("tuxstack", "Docker always provides a default bridge network.")
+        function onRemovePreparationFailed(message) {
+            root.notify(message)
         }
 
-        EmptyState {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            visible: networksModel && networksModel.status === 5
-            iconName: "network-offline"
-            title: i18nd("tuxstack", "Docker unavailable")
-            message: networksModel ? networksModel.statusText : ""
+        function onNetworkCreated(name) {
+            createDialog.close()
+            root.notify(I18n.i18nd("tuxstack", "Network “%1” created.").arg(name))
         }
 
-        ListView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            visible: networksModel && (networksModel.status === 2 || networksModel.status === 0)
-            model: networksModel
-            ScrollBar.vertical: QQC2.ScrollBar {}
-            spacing: 1
-
-            delegate: Kirigami.AbstractCard {
-                width: ListView.view.width
-                contentItem: RowLayout {
-                    spacing: Kirigami.Units.mediumSpacing
-                    Layout.margins: Kirigami.Units.mediumSpacing
-
-                    Kirigami.Icon {
-                        source: "network-server"
-                        implicitWidth: Kirigami.Units.iconSizes.medium
-                        implicitHeight: Kirigami.Units.iconSizes.medium
-                        color: Kirigami.Theme.textColor
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        QQC2.Label {
-                            text: model.name
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                        RowLayout {
-                            spacing: Kirigami.Units.largeSpacing
-                            QQC2.Label {
-                                text: model.driver
-                                color: Kirigami.Theme.disabledTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                            QQC2.Label {
-                                text: model.scope
-                                color: Kirigami.Theme.disabledTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                            QQC2.Label {
-                                text: model.internal ? i18nd("tuxstack", "internal") : ""
-                                color: Kirigami.Theme.neutralTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                            QQC2.Label {
-                                text: model.ipv6 ? "IPv6" : ""
-                                color: Kirigami.Theme.disabledTextColor
-                                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                            }
-                        }
-                    }
-                }
-            }
+        function onNetworkRemoved(name) {
+            removeDialog.close()
+            root.notify(I18n.i18nd("tuxstack", "Network “%1” removed.").arg(name))
         }
     }
 }

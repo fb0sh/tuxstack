@@ -30,3 +30,11 @@ path = "../../tests/integration/docker.rs"
 [[test]]
 name = "containers"
 path = "../../tests/integration/containers.rs"
+
+[[test]]
+name = "images"
+path = "../../tests/integration/images.rs"
+
+[[test]]
+name = "networks"
+path = "../../tests/integration/networks.rs"

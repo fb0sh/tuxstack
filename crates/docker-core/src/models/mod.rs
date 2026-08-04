@@ -1,4 +1,4 @@
-//! Domain models shared by GUI and CLI.
+//! Docker domain models exposed to the GUI without leaking Bollard DTOs.
 //!
 //! Bollard/Docker DTOs are never exposed outside of `docker-core`; every
 //! service returns these types instead.

@@ -60,9 +60,11 @@ cargo build --workspace
 ## Running
 
 ```bash
-cargo run -p tuxstack-gui        # GUI
-cargo run -p tuxstack-cli -- info  # CLI
+cargo run
 ```
+
+The workspace default package and default binary are both named `tuxstack`.
+Use `cargo run -p tuxstack` when an explicit package selector is preferred.
 
 If the GUI cannot find Kirigami at runtime, point QML at the right
 module path, e.g.:
@@ -85,7 +87,8 @@ to have socket access:
 ```bash
 cargo test -p tuxstack-docker-core --test docker -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test containers -- --ignored --nocapture
-cargo test -p tuxstack-cli --test cli -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test images -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test networks -- --ignored --nocapture
 ```
 
 ## Known toolchain quirks

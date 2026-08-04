@@ -15,7 +15,7 @@ still being added and the API may change.
 | Start/stop/restart      | Implemented   |
 | Container logs          | Implemented   |
 | Container stats         | Implemented   |
-| Image list              | Implemented   |
+| Image management        | Implemented   |
 | Network list            | Implemented   |
 | Volume list             | Implemented   |
 | Compose                 | Planned       |
@@ -25,19 +25,21 @@ still being added and the API may change.
 
 What works today:
 
-- **GUI** (`tuxstack-gui`): KDE Plasma style (Breeze, system icons,
+- **Application** (`tuxstack`): KDE Plasma style (Breeze, system icons,
   system fonts and colors). Pages for Overview, Containers (search,
   state filter, start/stop/restart/remove, details, logs, stats,
-  inspect), Images, Networks, Volumes, plus an honest "planned" Compose
-  page. Live log following with search and a capped line buffer; live
-  stats with a CPU sparkline.
-- **CLI** (`tuxstack`): `info`, `ps`, `inspect`, `logs`, `start`,
-  `stop`, `restart`, `pause`, `unpause`, `rm`, `images`, `networks`,
-  `volumes`, with `--json` output and documented exit codes.
+  inspect), Docker Images (usage grouping, search, sorting, typed details,
+  remove, pull progress, and streaming export), Networks, Volumes, plus
+  honest placeholders for later phases. Live log following uses a capped
+  line buffer; image operations never use mock progress or mock data.
+
+TuxStack is a GUI-only application. It does not install or maintain a
+separate command-line frontend.
 
 What is deliberately **not** included yet: Compose projects, container
-terminal, file browser, image pull/build/tag/push, registry login,
-remote engines, Incus, Podman. No mock data is used for any of these.
+terminal, file browser, image build/tag/push/prune, persistent registry
+accounts, remote-engine UI, Incus, and Podman. No mock data is used for
+any of these.
 
 ## Screenshots
 
@@ -47,7 +49,7 @@ Screenshots will be added once the UI stabilizes.
 
 ```
 ┌─────────────────────────────────────┐
-│            tuxstack-gui             │
+│              tuxstack               │
 │  QML + Kirigami                     │
 │  CXX-Qt QObject / Qt Models         │
 │  GUI Controllers / App State        │
@@ -69,9 +71,9 @@ Screenshots will be added once the UI stabilizes.
 └─────────────────────────────────────┘
 ```
 
-There is **no daemon** and **no REST/JSON-RPC layer**. The GUI and the
-CLI both link directly against `tuxstack-docker-core`, which talks to
-the Docker Engine through [Bollard](https://docs.rs/bollard).
+There is **no daemon**, CLI frontend, or REST/JSON-RPC layer. The GUI
+links directly against `tuxstack-docker-core`, which talks to the Docker
+Engine through [Bollard](https://docs.rs/bollard).
 
 ## Technology stack
 
@@ -80,7 +82,7 @@ the Docker Engine through [Bollard](https://docs.rs/bollard).
 - Kirigami (KDE Frameworks 6)
 - CXX-Qt for the Rust ⇄ Qt bridge
 - Bollard (Docker API client), Tokio (async runtime)
-- Clap (CLI), Serde (serialization), thiserror, tracing
+- Serde (serialization), thiserror, tracing
 
 ## System requirements
 
@@ -114,44 +116,15 @@ cargo build --workspace
 ## Running the GUI
 
 ```bash
-cargo run -p tuxstack-gui
+cargo run
 ```
+
+The workspace defaults to the `tuxstack` application package. The explicit
+package form is `cargo run -p tuxstack`.
 
 The GUI connects to the local Docker socket (or `DOCKER_HOST`) on
 startup. If Docker is unavailable or permissions are missing, the
 Overview page explains the problem and offers a retry button.
-
-## Using the CLI
-
-```bash
-cargo run -p tuxstack-cli -- info
-cargo run -p tuxstack-cli -- ps --all
-cargo run -p tuxstack-cli -- inspect <container>
-cargo run -p tuxstack-cli -- logs <container> --tail 100
-cargo run -p tuxstack-cli -- start <container...>
-cargo run -p tuxstack-cli -- stop <container...>
-cargo run -p tuxstack-cli -- restart <container...>
-cargo run -p tuxstack-cli -- rm --force <container...>
-cargo run -p tuxstack-cli -- images
-cargo run -p tuxstack-cli -- networks
-cargo run -p tuxstack-cli -- volumes
-```
-
-Global options: `--host <host>` (e.g. `unix:///var/run/docker.sock`,
-`tcp://127.0.0.1:2375`), `--timeout <seconds>`, `--json`, `--debug`.
-
-Exit codes:
-
-| Code | Meaning                |
-| ---- | ---------------------- |
-| 0    | Success                |
-| 1    | General error          |
-| 2    | Argument error         |
-| 3    | Docker unavailable     |
-| 4    | Permission denied      |
-| 5    | Resource not found     |
-| 6    | Operation conflict     |
-| 7    | Operation timeout      |
 
 ## Configuration
 
@@ -197,7 +170,8 @@ Engine:
 ```bash
 cargo test -p tuxstack-docker-core --test docker -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test containers -- --ignored --nocapture
-cargo test -p tuxstack-cli --test cli -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test images -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test networks -- --ignored --nocapture
 ```
 
 Test containers use the unique prefix `tuxstack-test-<uuid>` and are
@@ -208,16 +182,19 @@ removed even on failure.
 - Docker socket access = host control. Be careful with group
   membership and never expose the socket over a network.
 - TuxStack logs container/short IDs, operation types and error kinds.
-  It never logs secrets, tokens, environment variables, registry
-  passwords, or full container log contents.
+  It never logs secrets, tokens, image environment-variable values,
+  sensitive labels, registry passwords, or full container log contents.
+- Image environment variables are stored in the image metadata and may
+  themselves contain secrets. The details page displays the real metadata
+  on request, but TuxStack never writes those values to its logs.
 - The GUI only shows safe, concise user-facing error messages; the
   full error chain goes to debug logs.
 
 ## Roadmap
 
 See [docs/roadmap.md](docs/roadmap.md) for the planned direction:
-Compose, Terminal, Files, image pull/build, registry login, Docker
-contexts, remote engines, and a future Incus integration.
+Compose, Terminal, Files, image build/tag/push/prune, persistent registry
+accounts, Docker contexts, remote engines, and a future Incus integration.
 
 ## Documentation
 

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.tuxstack.app
 
 /**
  * Read-only JSON inspection dialog (container/image inspect output).
@@ -9,7 +10,7 @@ import org.kde.kirigami as Kirigami
 Kirigami.Dialog {
     id: root
 
-    property string titleText: i18nd("tuxstack", "Inspect")
+    property string titleText: I18n.i18nd("tuxstack", "Inspect")
     property string jsonText: ""
 
     title: titleText
@@ -21,7 +22,7 @@ Kirigami.Dialog {
 
         QQC2.ToolButton {
             icon.name: "edit-copy"
-            text: i18nd("tuxstack", "Copy")
+            text: I18n.i18nd("tuxstack", "Copy")
             onClicked: {
                 // Simple clipboard write via selection
                 root.jsonTextArea.selectAll()
@@ -37,7 +38,7 @@ Kirigami.Dialog {
             clip: true
             contentWidth: jsonTextArea.implicitWidth
             contentHeight: jsonTextArea.implicitHeight
-            TextArea.flickable: TextArea {
+            QQC2.TextArea.flickable: QQC2.TextArea {
                 id: jsonTextArea
                 text: root.jsonText
                 readOnly: true
@@ -46,15 +47,15 @@ Kirigami.Dialog {
                 selectByMouse: true
                 wrapMode: TextEdit.NoWrap
             }
-            ScrollBar.vertical: QQC2.ScrollBar {}
-            ScrollBar.horizontal: QQC2.ScrollBar {}
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+            QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
         }
     }
 
     footer: QQC2.DialogButtonBox {
         QQC2.Button {
-            text: i18nd("tuxstack", "Close")
-            DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole
+            text: I18n.i18nd("tuxstack", "Close")
+            QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole
             onClicked: root.close()
         }
     }

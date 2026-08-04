@@ -1,6 +1,6 @@
 //! # tuxstack-docker-core
 //!
-//! The shared Docker core library used by both the GUI and the CLI.
+//! The internal Docker core library used directly by the GUI.
 //!
 //! It connects to the Docker Engine through [Bollard], exposes domain
 //! models and services, and never leaks Bollard types to callers.
@@ -22,12 +22,13 @@ pub use models::*;
 pub use services::{
     ContainerService, DockerServices, ImageService, NetworkService, SystemService, VolumeService,
 };
+pub use streams::{ImageExportStream, ImagePullStream};
 
 /// Re-export of common formatting helpers for byte sizes.
 pub mod format {
     /// Format a byte count as a human readable string.
     pub fn bytes(bytes: u64) -> String {
-        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
         if bytes == 0 {
             return "0 B".to_string();
         }
@@ -57,8 +58,10 @@ mod tests {
         use crate::format::bytes;
         assert_eq!(bytes(0), "0 B");
         assert_eq!(bytes(512), "512 B");
-        assert_eq!(bytes(2048), "2.0 KB");
-        assert_eq!(bytes(5 * 1024 * 1024), "5.0 MB");
-        assert_eq!(bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+        assert_eq!(bytes(1024), "1.0 KiB");
+        assert_eq!(bytes(2048), "2.0 KiB");
+        assert_eq!(bytes(5 * 1024 * 1024), "5.0 MiB");
+        assert_eq!(bytes(3 * 1024 * 1024 * 1024), "3.0 GiB");
+        assert_eq!(bytes(2 * 1024_u64.pow(4)), "2.0 TiB");
     }
 }
