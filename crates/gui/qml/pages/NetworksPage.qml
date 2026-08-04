@@ -102,12 +102,12 @@ Kirigami.Page {
 
         function onNetworkCreated(name) {
             createDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Network “%1” created.").arg(name))
+            root.notify(I18n.i18nd("tuxstack", "Network “%1” created.", name))
         }
 
         function onNetworkRemoved(name) {
             removeDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Network “%1” removed.").arg(name))
+            root.notify(I18n.i18nd("tuxstack", "Network “%1” removed.", name))
         }
     }
 }

@@ -51,7 +51,19 @@ impl ImageService {
     where
         O: Borrow<ListImagesOptions>,
     {
-        let options = options.borrow();
+        let timer = crate::instrument::Timer::start("docker.list_images");
+        let result = self.list_images_inner(options.borrow()).await;
+        match &result {
+            Ok(images) => timer.finish_ok(images.len(), "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn list_images_inner(
+        &self,
+        options: &ListImagesOptions,
+    ) -> Result<Vec<ImageSummary>, DockerError> {
         let docker = self.client.inner().clone();
         let timeout = self.client.config().request_timeout;
         let image_options = BollardListImagesOptions {

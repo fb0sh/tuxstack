@@ -44,10 +44,10 @@ Item {
             return I18n.i18nd("tuxstack", "Volume sizes unavailable")
         if (unknown > 0) {
             return unknown === 1
-                   ? I18n.i18nd("tuxstack", "%1 known · 1 volume unknown").arg(total)
-                   : I18n.i18nd("tuxstack", "%1 known · %2 volumes unknown").arg(total).arg(unknown)
+                   ? I18n.i18nd("tuxstack", "%1 known · 1 volume unknown", total)
+                   : I18n.i18nd("tuxstack", "%1 known · %2 volumes unknown", total, unknown)
         }
-        return I18n.i18nd("tuxstack", "%1 total volume data").arg(total)
+        return I18n.i18nd("tuxstack", "%1 total volume data", total)
     }
 
     ColumnLayout {
@@ -74,7 +74,7 @@ Item {
                                       ? Number(root.volumesModel.volumeCount) : 0
                         return count === 1
                                ? I18n.i18nd("tuxstack", "1 volume")
-                               : I18n.i18nd("tuxstack", "%1 volumes").arg(count)
+                               : I18n.i18nd("tuxstack", "%1 volumes", count)
                     }
                     color: Kirigami.Theme.disabledTextColor
                 }
@@ -443,7 +443,7 @@ Item {
                  && (root.stateIs("ready") || root.stateIs("empty"))
         icon.name: "drive-harddisk"
         text: root.query.length > 0
-              ? I18n.i18nd("tuxstack", "No volumes match “%1”.").arg(root.query)
+              ? I18n.i18nd("tuxstack", "No volumes match “%1”.", root.query)
               : I18n.i18nd("tuxstack", "No Docker volumes found.")
         explanation: root.query.length > 0
                      ? I18n.i18nd("tuxstack", "Try a different search term.")

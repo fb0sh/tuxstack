@@ -17,7 +17,7 @@ use tuxstack_docker_core::{
     RemoveVolumeOptions, VolumeExportCompression,
 };
 
-use crate::app_state::get_services;
+use crate::app_state::{get_services, get_store};
 use crate::bridge::resource_bridges::qobject;
 use crate::controllers::volumes::{VolumeSortMode, VolumesListState, VolumesState};
 use crate::models::volume_model::{
@@ -245,9 +245,45 @@ impl qobject::VolumeListModel {
         self.as_mut().rust_mut().refresh_cancel = Some(token.clone());
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
+            // Stage A: the base list only — no container association, no
+            // /system/df — so the names appear as fast as possible. Usage is
+            // patched in Stage B without blocking this first paint.
             let result = tokio::select! {
                 _ = token.cancelled() => return,
-                result = services.volumes.list_all_volumes() => result,
+                result = services.volumes.list_volume_summaries() => result,
+            };
+            // Stale-while-revalidate: apply cached usage (persistent snapshot
+            // or short-TTL memory) to the rows before the first model update.
+            let store = get_store();
+            let cached_usage: HashMap<String, tuxstack_docker_core::cache::CachedVolumeUsage> =
+                match &result {
+                    Ok(volumes) => {
+                        let mut map = HashMap::new();
+                        for volume in volumes {
+                            if let Some(usage) = store.volume_usage.get(&volume.name).await {
+                                map.insert(volume.name.clone(), usage);
+                            }
+                        }
+                        map
+                    }
+                    Err(_) => HashMap::new(),
+                };
+            // Stage B uses the base names later; extract before moving `result`.
+            let base_names: Vec<String> = match &result {
+                Ok(volumes) => volumes.iter().map(|v| v.name.clone()).collect(),
+                Err(_) => Vec::new(),
+            };
+            let base_result = match result {
+                Ok(mut volumes) => {
+                    for volume in &mut volumes {
+                        if let Some(usage) = cached_usage.get(&volume.name) {
+                            volume.usage.size_bytes = usage.size_bytes;
+                            volume.usage.ref_count = usage.ref_count;
+                        }
+                    }
+                    Ok(volumes)
+                }
+                Err(error) => Err(error),
             };
             qt_thread
                 .queue(move |mut model| {
@@ -255,7 +291,7 @@ impl qobject::VolumeListModel {
                         return;
                     }
                     let mut state = model.as_mut().rust_mut().state.clone();
-                    let applied = match result {
+                    let applied = match base_result {
                         Ok(volumes) => {
                             tracing::info!(count = volumes.len(), "Docker returned volumes");
                             state.apply_list(state_generation, &volumes)
@@ -276,15 +312,45 @@ impl qobject::VolumeListModel {
                         "Updating volume model"
                     );
                     model.as_mut().apply_state(state);
-                    // List and detail have independent state/generations. A
-                    // successful list merely starts an inspect for its selected
-                    // row; inspect failure cannot replace the ready list.
                     if !selected.is_empty() {
                         tracing::info!("Selecting first or preserved volume");
                         model.as_mut().load_detail(&selected, false);
                     }
                 })
                 .unwrap_or_else(|error| tracing::debug!(%error, "volume refresh result dropped"));
+
+            // Stage B: associate containers and system-df usage in the
+            // background and patch rows in place (no full reset).
+            if base_names.is_empty() {
+                return;
+            }
+            let (references, usage) = services.volumes.enrich_usage(&base_names).await;
+            // Record fresh measurements into the usage cache (short TTL).
+            for (name, usage_entry) in &usage {
+                store
+                    .volume_usage
+                    .put(
+                        name,
+                        usage_entry.size_bytes,
+                        usage_entry.ref_count,
+                        tuxstack_docker_core::cache::VolumeUsageSource::SystemDf,
+                    )
+                    .await;
+            }
+            qt_thread
+                .queue(move |mut model| {
+                    if bridge_generation != model.refresh_bridge_generation {
+                        return;
+                    }
+                    let mut state = model.as_mut().rust_mut().state.clone();
+                    let patched = state.patch_usage(&references, &usage);
+                    if patched == 0 {
+                        return;
+                    }
+                    tracing::info!(patched_rows = patched, "Patched volume usage");
+                    model.as_mut().apply_state(state);
+                })
+                .ok();
         });
     }
 

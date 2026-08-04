@@ -56,6 +56,19 @@ impl ContainerService {
         &self,
         options: &ListContainersOptions,
     ) -> Result<Vec<ContainerSummary>, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.list_containers");
+        let result = self.list_containers_inner(options).await;
+        match &result {
+            Ok(containers) => timer.finish_ok(containers.len(), "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn list_containers_inner(
+        &self,
+        options: &ListContainersOptions,
+    ) -> Result<Vec<ContainerSummary>, DockerError> {
         let mut filters: HashMap<String, Vec<String>> = HashMap::new();
         if let Some(state) = &options.state {
             filters.insert("status".to_string(), vec![state.as_str().to_string()]);

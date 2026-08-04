@@ -51,7 +51,7 @@ Item {
                         const total = isFinite(value) ? value : 0
                         return total === 1
                                ? I18n.i18nd("tuxstack", "1 network")
-                               : I18n.i18nd("tuxstack", "%1 networks").arg(total)
+                               : I18n.i18nd("tuxstack", "%1 networks", total)
                     }
                     color: Kirigami.Theme.disabledTextColor
                 }
@@ -327,7 +327,7 @@ Item {
                  && (root.stateIs("ready") || root.stateIs("empty"))
         icon.name: "network-wired"
         text: root.query.length > 0
-              ? I18n.i18nd("tuxstack", "No networks match “%1”").arg(root.query)
+              ? I18n.i18nd("tuxstack", "No networks match “%1”", root.query)
               : I18n.i18nd("tuxstack", "No Docker networks found.")
         explanation: root.query.length > 0
                      ? I18n.i18nd("tuxstack", "Try a different search term.")

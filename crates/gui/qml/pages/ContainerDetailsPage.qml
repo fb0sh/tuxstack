@@ -314,7 +314,7 @@ Kirigami.Page {
 
     ContainerInspectDialog {
         id: inspectDialog
-        titleText: I18n.i18nd("tuxstack", "Inspect — %1").arg(root.title)
+        titleText: I18n.i18nd("tuxstack", "Inspect — %1", root.title)
         jsonText: detailController ? detailController.detailJson : ""
     }
 }

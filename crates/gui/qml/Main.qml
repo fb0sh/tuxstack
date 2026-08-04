@@ -17,6 +17,21 @@ Kirigami.ApplicationWindow {
     property string pendingContainerId: ""
     property bool userCollapsed: false
 
+    property var lastRefreshAt: ({}) // model key -> timestamp
+
+    function refreshThrottled(model, key) {
+        // A single debounced event burst can carry both Containers and
+        // Volumes kinds; both map to volumesModel. Refresh each model at
+        // most once per burst so the list does not rebuild twice.
+        const now = Date.now()
+        const last = root.lastRefreshAt[key]
+        if (last !== undefined && now - last < 600) {
+            return
+        }
+        root.lastRefreshAt[key] = now
+        model.refresh()
+    }
+
     readonly property bool compactMode: width < Kirigami.Units.gridUnit * 45
     readonly property bool sidebarCollapsed: compactMode || userCollapsed
 
@@ -43,11 +58,16 @@ Kirigami.ApplicationWindow {
         id: volumesModel
     }
 
+    VolumeFileListModel {
+        id: volumeFilesModel
+    }
+
     Component.onCompleted: appController.startup()
     onClosing: {
         imagesModel.shutdown()
         networksModel.shutdown()
         volumesModel.shutdown()
+        volumeFilesModel.shutdown()
     }
 
     Connections {
@@ -60,6 +80,8 @@ Kirigami.ApplicationWindow {
                                              appController.dockerStatusText)
             volumesModel.setConnectionState(appController.dockerStatus,
                                             appController.dockerStatusText)
+            volumeFilesModel.setConnectionState(appController.dockerStatus,
+                                                appController.dockerStatusText)
         }
 
         function onDockerStatusTextChanged() {
@@ -70,6 +92,34 @@ Kirigami.ApplicationWindow {
                                                  appController.dockerStatusText)
                 volumesModel.setConnectionState(appController.dockerStatus,
                                                 appController.dockerStatusText)
+                volumeFilesModel.setConnectionState(appController.dockerStatus,
+                                                    appController.dockerStatusText)
+            }
+        }
+
+        function onDockerChanged(kind) {
+            // Event-driven targeted refresh: only the affected model reloads.
+            if (appController.dockerStatus !== 1) {
+                return
+            }
+            switch (kind) {
+            case "images":
+                root.refreshThrottled(imagesModel, "images")
+                break
+            case "networks":
+                root.refreshThrottled(networksModel, "networks")
+                break
+            case "volumes":
+                // Container mounts affect volume usage association too, so
+                // both kinds refresh volumesModel.
+                root.refreshThrottled(volumesModel, "volumes")
+                break
+            case "containers":
+                root.refreshThrottled(volumesModel, "volumes")
+                break
+            case "daemon":
+                appController.refreshOverview()
+                break
             }
         }
     }
@@ -175,6 +225,7 @@ Kirigami.ApplicationWindow {
             }
             VolumesPage {
                 volumesModel: volumesModel
+                filesModel: volumeFilesModel
                 onNotificationRequested: function(message) {
                     root.showPassiveNotification(message)
                 }

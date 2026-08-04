@@ -12,6 +12,7 @@ pub mod options;
 pub mod stats;
 pub mod system;
 pub mod volume;
+pub mod volume_file;
 
 pub use compose::*;
 pub use container::*;
@@ -22,3 +23,4 @@ pub use options::*;
 pub use stats::*;
 pub use system::*;
 pub use volume::*;
+pub use volume_file::*;

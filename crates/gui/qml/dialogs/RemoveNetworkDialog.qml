@@ -36,8 +36,7 @@ Kirigami.Dialog {
 
         Kirigami.Heading {
             Layout.fillWidth: true
-            text: I18n.i18nd("tuxstack", "Remove network “%1”?")
-                  .arg(root.networkName)
+            text: I18n.i18nd("tuxstack", "Remove network “%1”?", root.networkName)
             level: 3
             wrapMode: Text.WordWrap
         }

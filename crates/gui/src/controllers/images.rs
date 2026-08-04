@@ -241,6 +241,32 @@ impl ImagesState {
         true
     }
 
+    /// Patch architecture/os/variant for one image row without a full list
+    /// reset. Returns true when the row existed and its value changed.
+    pub fn patch_metadata(&mut self, image_id: &str, architecture: &str) -> bool {
+        let mut changed = false;
+        for row in &mut self.source_rows {
+            if row.image_id == image_id && row.architecture != architecture {
+                row.architecture = architecture.to_string();
+                changed = true;
+            }
+        }
+        for row in &mut self.visible_rows {
+            if row.image_id == image_id && row.architecture != architecture {
+                row.architecture = architecture.to_string();
+            }
+        }
+        changed
+    }
+
+    /// Count rows whose architecture is still the unknown placeholder.
+    pub fn missing_metadata_count(&self) -> usize {
+        self.source_rows
+            .iter()
+            .filter(|row| row.architecture == "unknown")
+            .count()
+    }
+
     pub fn set_search_query(&mut self, query: &str) {
         self.search_query = query.trim().to_string();
         let selected = self.selected_image_id.clone();

@@ -6,6 +6,7 @@
 pub use crate::bridge::image_bridge::ImageListModelRust;
 pub use crate::bridge::network_bridge::NetworkListModelRust;
 pub use crate::bridge::volume_bridge::VolumeListModelRust;
+pub use crate::bridge::volume_file_bridge::VolumeFileListModelRust;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -27,6 +28,9 @@ pub mod qobject {
 
         include!("cxx-qt-lib/qhash.h");
         type QHash_i32_QByteArray = cxx_qt_lib::QHash<cxx_qt_lib::QHashPair_i32_QByteArray>;
+
+        include!("cxx-qt-lib/core/qlist/qlist_i32.h");
+        type QList_i32 = cxx_qt_lib::QList<i32>;
     }
 
     // Image role IDs are implemented as constants 257..=272 in
@@ -126,6 +130,19 @@ pub mod qobject {
         #[inherit]
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut Self>);
+
+        #[inherit]
+        #[rust_name = "data_changed"]
+        fn dataChanged(
+            self: Pin<&mut Self>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
+
+        #[inherit]
+        #[rust_name = "model_index"]
+        fn index(self: Pin<&mut Self>, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
 
         #[qsignal]
         #[cxx_name = "operationFinished"]
@@ -640,6 +657,177 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "setStatusSortAscending"]
         fn set_status_sort_ascending(self: Pin<&mut Self>, ascending: bool);
+
+        #[qinvokable]
+        fn shutdown(self: Pin<&mut Self>);
+    }
+
+    impl cxx_qt::Threading for VolumeFileListModel {}
+
+    unsafe extern "RustQt" {
+        /// Read-only Docker volume file browser model/controller.
+        #[qobject]
+        #[qml_element]
+        #[base = QAbstractListModel]
+        #[qproperty(QString, files_state, cxx_name = "filesState")]
+        #[qproperty(QString, error_kind, cxx_name = "errorKind")]
+        #[qproperty(QString, error_message, cxx_name = "errorMessage")]
+        #[qproperty(QString, volume_name, cxx_name = "volumeName")]
+        #[qproperty(QString, current_path, cxx_name = "currentPath")]
+        #[qproperty(bool, can_go_back, cxx_name = "canGoBack")]
+        #[qproperty(bool, can_go_up, cxx_name = "canGoUp")]
+        #[qproperty(bool, show_hidden, cxx_name = "showHidden", READ, NOTIFY)]
+        #[qproperty(QString, search_query, cxx_name = "searchQuery", READ, NOTIFY)]
+        #[qproperty(QString, sort_column, cxx_name = "sortColumn")]
+        #[qproperty(bool, sort_descending, cxx_name = "sortDescending")]
+        #[qproperty(bool, directories_first, cxx_name = "directoriesFirst")]
+        #[qproperty(QString, selected_entry_path, cxx_name = "selectedEntryPath")]
+        #[qproperty(bool, loading)]
+        #[qproperty(i32, count)]
+        #[qproperty(bool, truncated)]
+        #[qproperty(QList_QVariant, breadcrumb_model, cxx_name = "breadcrumbModel")]
+        #[qproperty(bool, active, READ, NOTIFY)]
+        #[qproperty(bool, preview_loading, cxx_name = "previewLoading")]
+        #[qproperty(QString, preview_name, cxx_name = "previewName")]
+        #[qproperty(QString, preview_path, cxx_name = "previewPath")]
+        #[qproperty(QString, preview_kind, cxx_name = "previewKind")]
+        #[qproperty(QString, preview_text, cxx_name = "previewText")]
+        #[qproperty(QString, preview_mime, cxx_name = "previewMime")]
+        #[qproperty(QString, preview_size_text, cxx_name = "previewSizeText")]
+        #[qproperty(bool, preview_truncated, cxx_name = "previewTruncated")]
+        #[qproperty(bool, preview_is_image, cxx_name = "previewIsImage")]
+        #[qproperty(bool, preview_is_text, cxx_name = "previewIsText")]
+        #[qproperty(bool, preview_is_binary, cxx_name = "previewIsBinary")]
+        #[qproperty(QString, preview_parse_error, cxx_name = "previewParseError")]
+        #[qproperty(QString, preview_image_path, cxx_name = "previewImagePath")]
+        #[qproperty(QString, preview_error, cxx_name = "previewError")]
+        #[qproperty(bool, download_in_progress, cxx_name = "downloadInProgress")]
+        #[qproperty(i64, download_bytes_written, cxx_name = "downloadBytesWritten")]
+        #[qproperty(QString, download_progress_text, cxx_name = "downloadProgressText")]
+        #[qproperty(QString, download_error, cxx_name = "downloadError")]
+        #[qproperty(QList_QVariant, properties_model, cxx_name = "propertiesModel")]
+        type VolumeFileListModel = super::VolumeFileListModelRust;
+
+        #[cxx_override]
+        #[rust_name = "row_count"]
+        fn rowCount(&self, parent: &QModelIndex) -> i32;
+
+        #[cxx_override]
+        fn data(&self, index: &QModelIndex, role: i32) -> QVariant;
+
+        #[cxx_override]
+        #[rust_name = "role_names"]
+        fn roleNames(&self) -> QHash_i32_QByteArray;
+
+        #[inherit]
+        #[rust_name = "begin_reset_model"]
+        fn beginResetModel(self: Pin<&mut Self>);
+
+        #[inherit]
+        #[rust_name = "end_reset_model"]
+        fn endResetModel(self: Pin<&mut Self>);
+
+        #[qsignal]
+        #[cxx_name = "previewReady"]
+        fn preview_ready(self: Pin<&mut Self>);
+
+        #[qsignal]
+        #[cxx_name = "previewFailed"]
+        fn preview_failed(self: Pin<&mut Self>, message: QString);
+
+        #[qsignal]
+        #[cxx_name = "downloadCompleted"]
+        fn download_completed(self: Pin<&mut Self>, destination_path: QString);
+
+        #[qsignal]
+        #[cxx_name = "downloadFailed"]
+        fn download_failed(self: Pin<&mut Self>, message: QString);
+
+        #[qsignal]
+        #[cxx_name = "propertiesReady"]
+        fn properties_ready(self: Pin<&mut Self>);
+
+        #[qsignal]
+        #[cxx_name = "symlinkBlocked"]
+        fn symlink_blocked(self: Pin<&mut Self>, message: QString);
+
+        #[qinvokable]
+        #[rust_name = "update_active"]
+        #[cxx_name = "setActive"]
+        fn set_active(self: Pin<&mut Self>, active: bool);
+
+        #[qinvokable]
+        #[cxx_name = "openVolume"]
+        fn open_volume(self: Pin<&mut Self>, volume_name: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "closeVolume"]
+        fn close_volume(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        fn refresh(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "openEntry"]
+        fn open_entry(self: Pin<&mut Self>, path: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "goBack"]
+        fn go_back(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "goUp"]
+        fn go_up(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "navigateTo"]
+        fn navigate_to(self: Pin<&mut Self>, path: &QString);
+
+        #[qinvokable]
+        #[rust_name = "update_search_query"]
+        #[cxx_name = "setSearchQuery"]
+        fn set_search_query(self: Pin<&mut Self>, query: &QString);
+
+        #[qinvokable]
+        #[rust_name = "update_show_hidden"]
+        #[cxx_name = "setShowHidden"]
+        fn set_show_hidden(self: Pin<&mut Self>, show: bool);
+
+        #[qinvokable]
+        #[rust_name = "update_sort"]
+        #[cxx_name = "setSort"]
+        fn set_sort(self: Pin<&mut Self>, column: &QString, descending: bool);
+
+        #[qinvokable]
+        #[cxx_name = "toggleSort"]
+        fn toggle_sort(self: Pin<&mut Self>, column: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "selectEntry"]
+        fn select_entry(self: Pin<&mut Self>, path: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "previewEntry"]
+        fn preview_entry(self: Pin<&mut Self>, path: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "cancelPreview"]
+        fn cancel_preview(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "downloadEntry"]
+        fn download_entry(self: Pin<&mut Self>, path: &QString, destination: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "cancelDownload"]
+        fn cancel_download(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "loadProperties"]
+        fn load_properties(self: Pin<&mut Self>, path: &QString);
+
+        #[qinvokable]
+        fn retry(self: Pin<&mut Self>);
 
         #[qinvokable]
         fn shutdown(self: Pin<&mut Self>);

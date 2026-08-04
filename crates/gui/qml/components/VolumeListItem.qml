@@ -38,9 +38,9 @@ QQC2.ItemDelegate {
     Accessible.name: root.displayName.length > 0 ? root.displayName : root.volumeName
     Accessible.description: root.inUse
                             ? (root.usedByCount === 1
-                               ? I18n.i18nd("tuxstack", "%1, used by 1 container").arg(root.sizeText)
-                               : I18n.i18nd("tuxstack", "%1, used by %2 containers").arg(root.sizeText).arg(root.usedByCount))
-                            : I18n.i18nd("tuxstack", "%1, unused").arg(root.sizeText)
+                               ? I18n.i18nd("tuxstack", "%1, used by 1 container", root.sizeText)
+                               : I18n.i18nd("tuxstack", "%1, used by %2 containers", root.sizeText, root.usedByCount))
+                            : I18n.i18nd("tuxstack", "%1, unused", root.sizeText)
     onClicked: root.selectedRequested(root.volumeName)
 
     background: Rectangle {
@@ -102,10 +102,10 @@ QQC2.ItemDelegate {
                                  ? root.sizeText : I18n.i18nd("tuxstack", "Unknown size")
                     if (root.inUse) {
                         return root.usedByCount === 1
-                               ? I18n.i18nd("tuxstack", "%1 · 1 container").arg(size)
-                               : I18n.i18nd("tuxstack", "%1 · %2 containers").arg(size).arg(root.usedByCount)
+                               ? I18n.i18nd("tuxstack", "%1 · 1 container", size)
+                               : I18n.i18nd("tuxstack", "%1 · %2 containers", size, root.usedByCount)
                     }
-                    return I18n.i18nd("tuxstack", "%1 · Unused").arg(size)
+                    return I18n.i18nd("tuxstack", "%1 · Unused", size)
                 }
                 color: root.selected ? Kirigami.Theme.highlightedTextColor
                                      : Kirigami.Theme.disabledTextColor
@@ -139,7 +139,7 @@ QQC2.ItemDelegate {
             visible: !root.busy
             opacity: root.hovered || activeFocus || root.visualFocus ? 1 : 0.55
             icon.name: "edit-delete"
-            text: I18n.i18nd("tuxstack", "Remove volume “%1”").arg(root.volumeName)
+            text: I18n.i18nd("tuxstack", "Remove volume “%1”", root.volumeName)
             display: QQC2.AbstractButton.IconOnly
             focusPolicy: Qt.StrongFocus
             onClicked: root.removeRequested(root.volumeName)

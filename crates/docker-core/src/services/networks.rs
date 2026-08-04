@@ -35,6 +35,19 @@ impl NetworkService {
         &self,
         options: &ListNetworksOptions,
     ) -> Result<Vec<NetworkSummary>, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.list_networks");
+        let result = self.list_networks_inner(options).await;
+        match &result {
+            Ok(networks) => timer.finish_ok(networks.len(), "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn list_networks_inner(
+        &self,
+        options: &ListNetworksOptions,
+    ) -> Result<Vec<NetworkSummary>, DockerError> {
         let docker = self.client.inner().clone();
         let networks = tokio::time::timeout(
             self.client.config().request_timeout,
@@ -53,6 +66,16 @@ impl NetworkService {
 
     /// Inspect only the selected network.
     pub async fn inspect_network(&self, id: &str) -> Result<NetworkDetail, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.inspect_network");
+        let result = self.inspect_network_inner(id).await;
+        match &result {
+            Ok(_) => timer.finish_ok(1, "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn inspect_network_inner(&self, id: &str) -> Result<NetworkDetail, DockerError> {
         let docker = self.client.inner().clone();
         let detail = tokio::time::timeout(
             self.client.config().request_timeout,

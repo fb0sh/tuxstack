@@ -11,6 +11,7 @@ Kirigami.Page {
     id: root
 
     property var volumesModel: null
+    property var filesModel: null
     property var initializedModel: null
 
     signal initializationRequested()
@@ -78,6 +79,7 @@ Kirigami.Page {
             Layout.fillHeight: true
             Layout.minimumWidth: Kirigami.Units.gridUnit * 16
             volumesModel: root.volumesModel
+            filesModel: root.filesModel
 
             onExportRequested: function(volumeName) {
                 exportDialog.prepare(volumeName)
@@ -89,6 +91,9 @@ Kirigami.Page {
                 if (root.volumesModel)
                     root.volumesModel.navigateToContainer(containerId)
                 root.containerNavigationRequested(containerId)
+            }
+            onNotificationRequested: function(message) {
+                root.notify(message)
             }
         }
     }
@@ -140,35 +145,31 @@ Kirigami.Page {
 
         function onVolumeCreated(volumeName) {
             createDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Volume “%1” created.").arg(volumeName))
+            root.notify(I18n.i18nd("tuxstack", "Volume “%1” created.", volumeName))
         }
 
         function onVolumeRemoved(volumeName) {
             removeDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Volume “%1” removed.").arg(volumeName))
+            root.notify(I18n.i18nd("tuxstack", "Volume “%1” removed.", volumeName))
         }
 
         function onVolumesPruned(removedCount, reclaimedSizeText, unknownSizeCount) {
             pruneDialog.close()
             if (Number(unknownSizeCount) > 0) {
-                root.notify(I18n.i18nd("tuxstack", "%1 unused volumes removed; %2 known data reclaimed. Some removed volumes had unknown size.")
-                            .arg(removedCount).arg(reclaimedSizeText))
+                root.notify(I18n.i18nd("tuxstack", "%1 unused volumes removed; %2 known data reclaimed. Some removed volumes had unknown size.", removedCount, reclaimedSizeText))
             } else {
-                root.notify(I18n.i18nd("tuxstack", "%1 unused volumes removed; %2 reclaimed.")
-                            .arg(removedCount).arg(reclaimedSizeText))
+                root.notify(I18n.i18nd("tuxstack", "%1 unused volumes removed; %2 reclaimed.", removedCount, reclaimedSizeText))
             }
         }
 
         function onExportCompleted(volumeName, destinationPath) {
             exportDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Volume “%1” exported to %2.")
-                        .arg(volumeName).arg(destinationPath))
+            root.notify(I18n.i18nd("tuxstack", "Volume “%1” exported to %2.", volumeName, destinationPath))
         }
 
         function onCloneCompleted(sourceVolume, targetVolume) {
             cloneDialog.close()
-            root.notify(I18n.i18nd("tuxstack", "Volume “%1” cloned as “%2”.")
-                        .arg(sourceVolume).arg(targetVolume))
+            root.notify(I18n.i18nd("tuxstack", "Volume “%1” cloned as “%2”.", sourceVolume, targetVolume))
         }
     }
 }

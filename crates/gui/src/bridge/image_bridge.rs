@@ -15,8 +15,9 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::{PullImageOptions, RegistryAuth, RemoveImageOptions};
 
-use crate::app_state::{get_services, map_docker_error};
+use crate::app_state::{get_services, get_store, map_docker_error};
 use crate::bridge::resource_bridges::qobject;
+use crate::bridge::resource_bridges::qobject::QList_i32;
 use crate::controllers::images::{
     ImageDetailState, ImageSortMode, ImagesListState, ImagesState, SelectionChange,
 };
@@ -244,6 +245,25 @@ impl qobject::ImageListModel {
                 _ = cancel.cancelled() => return,
                 result = services.images.list_images(options) => result,
             };
+            // Stale-while-revalidate: resolve cached architecture metadata off
+            // the Qt thread so the UI never waits on a cache lock.
+            let cached = match &result {
+                Ok(images) => {
+                    let store = get_store();
+                    let mut map = std::collections::HashMap::new();
+                    for image in images {
+                        if let Some(meta) = store.image_metadata.get(&image.id).await {
+                            map.insert(
+                                image.id.clone(),
+                                meta.architecture
+                                    .unwrap_or_else(|| "Unknown architecture".to_string()),
+                            );
+                        }
+                    }
+                    map
+                }
+                Err(_) => std::collections::HashMap::new(),
+            };
             qt_thread
                 .queue(move |mut model| {
                     let mut state = model.as_mut().rust_mut().state.clone();
@@ -268,6 +288,11 @@ impl qobject::ImageListModel {
                     );
                     model.as_mut().rust_mut().refresh_cancel = None;
                     let selected = state.selected_image_id.clone();
+                    if !cached.is_empty() {
+                        for (image_id, architecture) in &cached {
+                            state.patch_metadata(image_id, architecture);
+                        }
+                    }
                     if !selected.is_empty() {
                         if had_selection {
                             tracing::debug!("Selecting preserved image");
@@ -279,8 +304,89 @@ impl qobject::ImageListModel {
                     if !selected.is_empty() {
                         model.as_mut().load_detail(&selected, false);
                     }
+                    // Background prefetch of missing architecture/os/variant
+                    // metadata. Rows appear immediately with what the summary
+                    // knows; missing fields are filled in as inspects finish
+                    // (single-flight deduplicated, bounded concurrency,
+                    // cached for next start).
+                    model.as_mut().prefetch_missing_metadata();
                 })
                 .unwrap_or_else(|error| tracing::debug!(%error, "image refresh result dropped"));
+        });
+    }
+
+    /// Inspect images whose architecture is still unknown, bounded to a few
+    /// concurrent requests, and patch each row in place as it completes.
+    /// Results are cached in the shared [`DockerStore`] image-metadata cache
+    /// so restarts reuse them without re-inspecting.
+    fn prefetch_missing_metadata(self: Pin<&mut Self>) {
+        let Some(services) = get_services() else {
+            return;
+        };
+        let store = get_store();
+        let image_ids: Vec<String> = {
+            let state = self.state.clone();
+            state
+                .source_rows
+                .iter()
+                .filter(|row| row.architecture == "unknown")
+                .map(|row| row.image_id.clone())
+                .collect()
+        };
+        if image_ids.is_empty() {
+            tracing::debug!("No image metadata to prefetch");
+            return;
+        }
+        let still_missing = self.state.missing_metadata_count();
+        tracing::info!(
+            count = image_ids.len(),
+            still_missing = still_missing,
+            "Prefetching image metadata"
+        );
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let missing = store
+                .image_metadata
+                .prefetch(&image_ids, move |image_id| {
+                    let services = services.clone();
+                    async move {
+                        match services.images.inspect_image(&image_id).await {
+                            Ok(detail) => {
+                                let inspected = tuxstack_docker_core::cache::CachedImageMetadata {
+                                    architecture: detail.architecture.clone(),
+                                    os: detail.os.clone(),
+                                    variant: detail.variant.clone(),
+                                    config_digest: None,
+                                    inspected_at: chrono::Utc::now().timestamp(),
+                                };
+                                Ok(inspected)
+                            }
+                            Err(error) => Err(error.to_string()),
+                        }
+                    }
+                })
+                .await;
+            tracing::debug!(still_missing = missing, "Image metadata prefetch pass done");
+            // Read all now-cached metadata off the async side so the Qt
+            // callback never blocks on cache locks.
+            let mut rows: Vec<(String, String)> = Vec::new();
+            for id in &image_ids {
+                if let Some(metadata) = store.image_metadata.get(id).await {
+                    let arch = metadata
+                        .architecture
+                        .unwrap_or_else(|| "Unknown architecture".to_string());
+                    rows.push((id.clone(), arch));
+                }
+            }
+            qt_thread
+                .queue(move |mut model| {
+                    for (image_id, architecture) in rows {
+                        model
+                            .as_mut()
+                            .patch_architecture_row(&image_id, &architecture);
+                    }
+                })
+                .ok();
         });
     }
 
@@ -859,6 +965,31 @@ impl qobject::ImageListModel {
                 ""
             }));
         self.as_mut().sync_detail(state.detail.as_ref());
+    }
+
+    /// Patch one row's architecture field in place and emit `dataChanged`
+    /// for that row, avoiding a full model reset (no scroll/focus flicker).
+    fn patch_architecture_row(mut self: Pin<&mut Self>, image_id: &str, architecture: &str) {
+        let mut state = self.as_mut().rust_mut().state.clone();
+        let changed = state.patch_metadata(image_id, architecture);
+        if !changed {
+            return;
+        }
+        self.as_mut().rust_mut().state = state;
+        let row = self
+            .state
+            .visible_rows
+            .iter()
+            .position(|row| row.image_id == image_id);
+        let Some(row) = row else {
+            return;
+        };
+        let index = self
+            .as_mut()
+            .model_index(row as i32, 0, &QModelIndex::default());
+        let mut roles = QList_i32::default();
+        roles.append(266);
+        self.as_mut().data_changed(&index, &index, &roles);
     }
 
     fn sync_detail(mut self: Pin<&mut Self>, detail: Option<&ImageDetailView>) {

@@ -25,10 +25,9 @@ Kirigami.ApplicationWindow (Main.qml)
     │   │   ├── search / sort / refresh / create / prune
     │   │   └── In Use / Unused volume sections
     │   └── VolumeDetailPanel
-    │       ├── general metadata / export / clone
-    │       ├── used-by containers
-    │       ├── labels / driver options
-    │       └── plugin status
+    │       ├── Info / Files tabs
+    │       ├── Info: metadata / export / clone / used-by / labels
+    │       └── Files: read-only helper-session browser + preview
     ├── NetworksPage          real Docker network management
     ├── ActivityMonitorPage   future phase placeholder
     ├── CommandsPage          future phase placeholder
@@ -97,6 +96,17 @@ container ID, matching Images navigation.
 Export and clone run asynchronously through restricted helper containers and
 support cooperative cancellation. Create, remove, prune, export, and clone
 completion signals drive passive notifications and dialog lifecycle in QML.
+
+## Volume files browser
+
+`VolumeFileListModel` owns a separate read-only preview session per selected
+volume. Switching to the Files tab starts a constrained helper container
+(`alpine:3.20`, volume mounted at `/volume:ro`, no network, no privileges,
+dropped capabilities). Directory listings, bounded text/JSON/image previews,
+properties, and streaming Save As use Docker exec with validated
+`VolumePath` values. Leaving Files or changing volumes tears the session down;
+application startup also cleans orphan helpers labeled
+`io.github.tuxstack.purpose=volume-preview`.
 
 ## Image/container association
 

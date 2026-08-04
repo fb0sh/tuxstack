@@ -17,6 +17,7 @@ src/
 │   ├── network.rs    NetworkSummary/Detail
 │   ├── volume.rs     VolumeSummary/Detail, usage, container references,
 │   │                  create/remove/prune/export/clone requests
+│   ├── volume_file.rs VolumePath, file entries, preview/download models
 │   ├── stats.rs      ContainerStats
 │   ├── event.rs      DockerEvent
 │   ├── system.rs     DockerSystemInfo, OverviewData
@@ -28,6 +29,7 @@ src/
 │   ├── images.rs      list/inspect/remove
 │   ├── networks.rs    list/inspect
 │   ├── volumes.rs     list/inspect/create/remove/prune/export/clone
+│   ├── volume_files/  read-only volume file browse via helper session
 │   ├── system.rs      ping/info/overview
 │   └── compose.rs     planned placeholder (returns an explicit error)
 ├── mapping/      Bollard DTO → domain model (pure, tested)
@@ -58,7 +60,7 @@ Connection resolution order:
 
 ## Services
 
-`DockerServices { system, containers, images, networks, volumes, compose }`
+`DockerServices { system, containers, images, networks, volumes, volume_files, compose }`
 all share one `Arc<DockerClient>` and are cheap to clone. There is no
 generic backend trait — Docker is modeled directly (Incus will get its
 own crate later).
@@ -76,6 +78,19 @@ mode, or network access; source volumes are mounted read-only. Export writes a
 temporary sibling and renames it after success. Clone refuses an existing
 target and can clean up an incomplete target. Both operations support
 `CancellationToken` and always attempt helper cleanup.
+
+### Volume file browsing
+
+`VolumeFileService` provides read-only directory listing and bounded file
+preview through a long-lived sleep helper (`tuxstack-volume-preview-<uuid>`).
+The selected volume is mounted at `/volume:ro`. Paths are validated
+`VolumePath` values (no `..`, no host paths). Symlinks are resolved with
+`realpath` and rejected when they escape `/volume`. Listings use a fixed
+shell script with argv-only paths and base64-encoded names. Previews are
+byte-limited (default 1 MiB text, 16 MiB images). Downloads stream via
+`cat` argv into a temporary sibling file then rename. Orphan helpers labeled
+`io.github.tuxstack.managed=true` + `purpose=volume-preview` are cleaned on
+application connect.
 
 ## Timeouts and cancellation
 

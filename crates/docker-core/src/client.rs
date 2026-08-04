@@ -123,13 +123,27 @@ impl DockerClient {
             }
         };
 
+        // Resolve the effective socket path (if any) after connection so
+        // default local and DOCKER_HOST unix connections are recognised too.
+        let env_host = std::env::var("DOCKER_HOST")
+            .ok()
+            .map(|h| h.trim().to_string())
+            .filter(|h| !h.is_empty());
+        let socket_path = if let Some(h) = host.as_deref().filter(|h| h.starts_with("unix://")) {
+            Some(PathBuf::from(h.trim_start_matches("unix://")))
+        } else if let Some(h) = env_host.as_deref().filter(|h| h.starts_with("unix://")) {
+            Some(PathBuf::from(h.trim_start_matches("unix://")))
+        } else if is_local && host.is_none() && env_host.is_none() {
+            let default = PathBuf::from("/var/run/docker.sock");
+            default.exists().then_some(default)
+        } else {
+            None
+        };
+
         Ok(Self {
             docker,
             config,
-            socket_path: host
-                .as_deref()
-                .filter(|h| h.starts_with("unix://"))
-                .map(|h| PathBuf::from(h.trim_start_matches("unix://"))),
+            socket_path,
             is_local,
         })
     }
@@ -148,6 +162,22 @@ impl DockerClient {
     /// mounts must not be offered for remote engines.
     pub fn is_local(&self) -> bool {
         self.is_local
+    }
+
+    /// A stable fingerprint of the endpoint used for cache isolation.
+    /// Prefers the resolved socket path, falling back to the configured
+    /// host. Never contains credentials.
+    pub fn endpoint_fingerprint(&self) -> String {
+        if let Some(path) = &self.socket_path {
+            return format!("unix://{}", path.display());
+        }
+        if let Some(host) = &self.config.host {
+            // Strip any userinfo (user:password@) so credentials never leak
+            // into the fingerprint.
+            let host = host.rsplit('@').next().unwrap_or(host);
+            return host.to_string();
+        }
+        "default-local".to_string()
     }
 
     /// Access to the underlying Bollard client (internal use only).

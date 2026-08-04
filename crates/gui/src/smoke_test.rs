@@ -84,10 +84,34 @@ fn main_wires_the_long_lived_volume_model() {
     let source = include_str!("../qml/Main.qml");
     assert!(source.contains("VolumeListModel {"));
     assert!(source.contains("id: volumesModel"));
+    assert!(source.contains("VolumeFileListModel {"));
+    assert!(source.contains("id: volumeFilesModel"));
     assert!(source.contains("volumesModel.shutdown()"));
+    assert!(source.contains("volumeFilesModel.shutdown()"));
     assert!(source.contains("volumesModel.setConnectionState(appController.dockerStatus,"));
+    assert!(
+        source.contains("volumeFilesModel.setConnectionState(appController.dockerStatus,"),
+        "Files model must receive connection-state replay like the other models"
+    );
+    assert!(
+        source.contains("function onDockerChanged(kind)"),
+        "Main.qml must handle event-driven dockerChanged notifications"
+    );
+    assert!(source.contains("refreshThrottled(imagesModel, \"images\")"));
+    assert!(source.contains("refreshThrottled(networksModel, \"networks\")"));
+    // Containers and Volumes kinds both refresh volumesModel; the throttle
+    // key keeps a single burst from rebuilding the volume list twice.
+    assert_eq!(
+        source
+            .matches("refreshThrottled(volumesModel, \"volumes\")")
+            .count(),
+        2,
+        "containers and volumes kinds must both map to volumesModel"
+    );
+    assert!(source.contains("appController.refreshOverview()"));
     assert!(source.contains("VolumesPage {"));
     assert!(source.contains("volumesModel: volumesModel"));
+    assert!(source.contains("filesModel: volumeFilesModel"));
     assert!(source.contains("onInitializationRequested:"));
     assert!(source.contains("onRetryConnectionRequested: appController.startup()"));
     assert!(source.contains("root.showPassiveNotification(message)"));
@@ -107,6 +131,26 @@ fn volumes_page_keeps_a_permanent_detail_panel() {
     );
     assert!(source.contains("Component.onCompleted"));
     assert!(source.contains("root.volumesModel.initialize()"));
+}
+
+#[test]
+fn volume_files_view_uses_single_fill_height_content_area() {
+    let source = include_str!("../qml/components/VolumeFilesView.qml");
+    assert!(source.contains("id: fileArea"));
+    assert!(source.contains("Layout.fillHeight: true"));
+    assert!(source.contains("anchors.centerIn: parent"));
+    // Overlays must not be ColumnLayout fillHeight siblings of the toolbar.
+    assert!(
+        source.contains("// Single fill-height content area") || source.contains("id: fileArea"),
+        "file table area must own the remaining height"
+    );
+    let detail = include_str!("../qml/components/VolumeDetailPanel.qml");
+    assert!(detail.contains("QQC2.TabBar"));
+    assert!(detail.contains("StackLayout"));
+    assert!(detail.contains("VolumeFilesView"));
+    assert!(detail.contains("VolumeInfoView"));
+    assert!(detail.contains("openVolume"));
+    assert!(!detail.contains("anchors.centerIn: parent"));
 }
 
 #[test]
@@ -162,6 +206,8 @@ fn all_qml_components_load_without_errors() {
         "components/VolumeListPanel.qml",
         "components/VolumeListItem.qml",
         "components/VolumeDetailPanel.qml",
+        "components/VolumeInfoView.qml",
+        "components/VolumeFilesView.qml",
         "components/VolumeUsedByList.qml",
         "components/VolumeKeyValueEditor.qml",
         "dialogs/CreateNetworkDialog.qml",
@@ -171,6 +217,8 @@ fn all_qml_components_load_without_errors() {
         "dialogs/PruneVolumesDialog.qml",
         "dialogs/ExportVolumeDialog.qml",
         "dialogs/CloneVolumeDialog.qml",
+        "dialogs/VolumeFilePreviewDialog.qml",
+        "dialogs/VolumeFilePropertiesDialog.qml",
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
@@ -202,6 +250,7 @@ fn all_qml_components_load_without_errors() {
         "ImageListModel",
         "NetworkListModel",
         "VolumeListModel",
+        "VolumeFileListModel",
         "ContainerDetailController",
         "LogListModel",
     ];
@@ -337,7 +386,10 @@ Item {
 import QtQuick
 import org.tuxstack.app
 Item {
-    AppController { id: appController }
+    AppController {
+        id: appController
+        onDockerChanged: (kind) => {}
+    }
     property int dockerStatus: appController.dockerStatus
     property string dockerStatusText: appController.dockerStatusText
     property string dockerHost: appController.dockerHost
@@ -706,12 +758,240 @@ Item {
         function setStatusSearchQuery(query) {}
         function setStatusSortAscending(ascending) {}
     }
-    VolumeDetailPanel { anchors.fill: parent; volumesModel: volumeModel }
+    QtObject {
+        id: filesModel
+        property string filesState: "ready"
+        property string errorMessage: ""
+        property string errorKind: ""
+        property string volumeName: "postgres-data"
+        property string currentPath: "/"
+        property bool canGoBack: false
+        property bool canGoUp: false
+        property bool showHidden: false
+        property string searchQuery: ""
+        property string sortColumn: "name"
+        property bool sortDescending: false
+        property bool directoriesFirst: true
+        property string selectedEntryPath: ""
+        property bool loading: false
+        property int count: 2
+        property bool truncated: false
+        property bool active: true
+        property var breadcrumbModel: [{ label: "postgres-data", path: "/" }]
+        property bool previewLoading: false
+        property string previewName: ""
+        property string previewPath: ""
+        property string previewKind: ""
+        property string previewText: ""
+        property string previewMime: ""
+        property string previewSizeText: ""
+        property bool previewTruncated: false
+        property bool previewIsImage: false
+        property bool previewIsText: false
+        property bool previewIsBinary: false
+        property string previewParseError: ""
+        property string previewImagePath: ""
+        property string previewError: ""
+        property bool downloadInProgress: false
+        property var propertiesModel: []
+        // ListModel-like roles for the file table
+        property var modelData: []
+        function setActive(active) {}
+        function openVolume(name) {}
+        function closeVolume() {}
+        function refresh() {}
+        function openEntry(path) {}
+        function goBack() {}
+        function goUp() {}
+        function navigateTo(path) {}
+        function setSearchQuery(query) {}
+        function setShowHidden(show) {}
+        function setSort(column, descending) {}
+        function toggleSort(column) {}
+        function selectEntry(path) {}
+        function previewEntry(path) {}
+        function cancelPreview() {}
+        function downloadEntry(path, destination) {}
+        function cancelDownload() {}
+        function loadProperties(path) {}
+        function retry() {}
+        function shutdown() {}
+        // QAbstractListModel surface used by ListView
+        function rowCount() { return 2 }
+        function data(index, role) { return "" }
+    }
+    // Files tab selected so VolumeFilesView layout is exercised.
+    VolumeDetailPanel {
+        anchors.fill: parent
+        volumesModel: volumeModel
+        filesModel: filesModel
+        detailTabIndex: 1
+    }
 }
 "#;
     assert_qml_source_loads(
         "qrc:/qt/qml/org/tuxstack/app/tests/LoadedVolumeDetail.qml",
         Some(loaded_volume_detail),
+    );
+
+    // VolumeFilesView state overlays: loading / empty / error must load without
+    // the old multi-fillHeight layout collapse.
+    let volume_files_states = r#"
+import QtQuick
+import QtQuick.Layouts
+import org.tuxstack.app
+Item {
+    width: 920
+    height: 720
+    ColumnLayout {
+        anchors.fill: parent
+        VolumeFilesView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            filesModel: QtObject {
+                property string filesState: "starting"
+                property string errorMessage: ""
+                property bool canGoBack: false
+                property bool canGoUp: false
+                property bool showHidden: false
+                property string searchQuery: ""
+                property string sortColumn: "name"
+                property bool sortDescending: false
+                property string selectedEntryPath: ""
+                property int count: 0
+                property bool truncated: false
+                property var breadcrumbModel: [{ label: "vol", path: "/" }]
+                property bool previewLoading: false
+                property string previewName: ""
+                property string previewPath: ""
+                property bool previewIsText: false
+                property bool previewIsImage: false
+                property bool previewIsBinary: false
+                property string previewText: ""
+                property string previewMime: ""
+                property string previewSizeText: ""
+                property bool previewTruncated: false
+                property string previewParseError: ""
+                property string previewImagePath: ""
+                property var propertiesModel: []
+                function setActive(a) {}
+                function openVolume(n) {}
+                function closeVolume() {}
+                function refresh() {}
+                function openEntry(p) {}
+                function goBack() {}
+                function goUp() {}
+                function navigateTo(p) {}
+                function setSearchQuery(q) {}
+                function setShowHidden(s) {}
+                function toggleSort(c) {}
+                function selectEntry(p) {}
+                function loadProperties(p) {}
+                function retry() {}
+                function cancelPreview() {}
+                function downloadEntry(p, d) {}
+            }
+        }
+        VolumeFilesView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            filesModel: QtObject {
+                property string filesState: "empty"
+                property string errorMessage: ""
+                property bool canGoBack: false
+                property bool canGoUp: true
+                property bool showHidden: false
+                property string searchQuery: ""
+                property string sortColumn: "name"
+                property bool sortDescending: false
+                property string selectedEntryPath: ""
+                property int count: 0
+                property bool truncated: false
+                property var breadcrumbModel: [{ label: "vol", path: "/" }, { label: "empty", path: "/empty" }]
+                property bool previewLoading: false
+                property string previewName: ""
+                property string previewPath: ""
+                property bool previewIsText: false
+                property bool previewIsImage: false
+                property bool previewIsBinary: false
+                property string previewText: ""
+                property string previewMime: ""
+                property string previewSizeText: ""
+                property bool previewTruncated: false
+                property string previewParseError: ""
+                property string previewImagePath: ""
+                property var propertiesModel: []
+                function setActive(a) {}
+                function openVolume(n) {}
+                function closeVolume() {}
+                function refresh() {}
+                function openEntry(p) {}
+                function goBack() {}
+                function goUp() {}
+                function navigateTo(p) {}
+                function setSearchQuery(q) {}
+                function setShowHidden(s) {}
+                function toggleSort(c) {}
+                function selectEntry(p) {}
+                function loadProperties(p) {}
+                function retry() {}
+                function cancelPreview() {}
+                function downloadEntry(p, d) {}
+            }
+        }
+        VolumeFilesView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            filesModel: QtObject {
+                property string filesState: "error"
+                property string errorMessage: "Permission denied while listing the folder."
+                property bool canGoBack: false
+                property bool canGoUp: false
+                property bool showHidden: false
+                property string searchQuery: ""
+                property string sortColumn: "name"
+                property bool sortDescending: false
+                property string selectedEntryPath: ""
+                property int count: 0
+                property bool truncated: false
+                property var breadcrumbModel: [{ label: "vol", path: "/" }]
+                property bool previewLoading: false
+                property string previewName: ""
+                property string previewPath: ""
+                property bool previewIsText: false
+                property bool previewIsImage: false
+                property bool previewIsBinary: false
+                property string previewText: ""
+                property string previewMime: ""
+                property string previewSizeText: ""
+                property bool previewTruncated: false
+                property string previewParseError: ""
+                property string previewImagePath: ""
+                property var propertiesModel: []
+                function setActive(a) {}
+                function openVolume(n) {}
+                function closeVolume() {}
+                function refresh() {}
+                function openEntry(p) {}
+                function goBack() {}
+                function goUp() {}
+                function navigateTo(p) {}
+                function setSearchQuery(q) {}
+                function setShowHidden(s) {}
+                function toggleSort(c) {}
+                function selectEntry(p) {}
+                function loadProperties(p) {}
+                function retry() {}
+                function cancelPreview() {}
+                function downloadEntry(p, d) {}
+            }
+        }
+    }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/VolumeFilesStates.qml",
+        Some(volume_files_states),
     );
 
     // Keep every operation dialog alive against populated state, including a

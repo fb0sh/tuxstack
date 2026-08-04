@@ -133,6 +133,10 @@ QQC2.ItemDelegate {
                 }
 
                 Rectangle {
+                    // Show the platform badge only when a real value arrived.
+                    // While the background prefetch is running, show a subtle
+                    // ellipsis so the row never displays a fake "unknown" that
+                    // could be mistaken for a real platform value.
                     visible: root.architecture.length > 0
                     implicitWidth: architectureLabel.implicitWidth + Kirigami.Units.mediumSpacing
                     implicitHeight: architectureLabel.implicitHeight + Kirigami.Units.smallSpacing
@@ -146,7 +150,9 @@ QQC2.ItemDelegate {
                     QQC2.Label {
                         id: architectureLabel
                         anchors.centerIn: parent
-                        text: root.architecture
+                        text: root.architecture === "unknown"
+                              ? "…"
+                              : root.architecture
                         color: root.selected ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
                         font: Kirigami.Theme.smallFont
                     }

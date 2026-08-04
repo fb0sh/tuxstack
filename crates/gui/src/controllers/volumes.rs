@@ -7,7 +7,9 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use tuxstack_docker_core::{DockerError, VolumeDetail, VolumeSummary};
+use tuxstack_docker_core::{
+    DockerError, VolumeContainerReference, VolumeDetail, VolumeSummary, VolumeUsage,
+};
 
 use crate::models::volume_model::{VolumeDetailView, VolumeRow, VolumeSizeSummary};
 
@@ -254,7 +256,25 @@ impl VolumesState {
         }
 
         let previous = self.selected_volume_name.clone();
-        self.source_rows = summaries.iter().map(VolumeRow::from).collect();
+        // Stage A returns summaries without container association. Carry over
+        // the last known in-use state so the In Use / Unused grouping does not
+        // flash to all-Unused on every refresh before Stage B patches usage.
+        let known_in_use: HashMap<&str, bool> = self
+            .source_rows
+            .iter()
+            .map(|row| (row.volume_name.as_str(), row.in_use))
+            .collect();
+        self.source_rows = summaries
+            .iter()
+            .map(VolumeRow::from)
+            .map(|mut row| {
+                if let Some(&in_use) = known_in_use.get(row.volume_name.as_str()) {
+                    row.in_use = in_use;
+                    row.section = if in_use { "in_use" } else { "unused" }.to_string();
+                }
+                row
+            })
+            .collect();
         self.rebuild_visible();
         self.list_state = if self.source_rows.is_empty() {
             VolumesListState::Empty
@@ -299,6 +319,69 @@ impl VolumesState {
         self.list_error_kind = friendly.kind.to_string();
         self.list_error_message = friendly.message.to_string();
         true
+    }
+
+    /// Patch usage (size/ref-count) and container references for existing
+    /// rows after the background enrichment completes. Never replaces the
+    /// list or resets the selection; only values that changed are updated.
+    pub fn patch_usage(
+        &mut self,
+        references: &HashMap<String, Vec<VolumeContainerReference>>,
+        usage: &HashMap<String, VolumeUsage>,
+    ) -> usize {
+        let mut patched = 0usize;
+        for row in &mut self.source_rows {
+            let mut changed = false;
+            if let Some(container_refs) = references.get(&row.volume_name) {
+                let in_use = !container_refs.is_empty();
+                if row.in_use != in_use || row.used_by_count != container_refs.len() {
+                    row.in_use = in_use;
+                    row.section = if in_use { "in_use" } else { "unused" }.to_string();
+                    row.used_by_count = container_refs.len();
+                    row.containers = container_refs.clone();
+                    changed = true;
+                }
+            }
+            if let Some(usage_entry) = usage.get(&row.volume_name) {
+                let size_bytes = usage_entry.size_bytes;
+                let size_text = size_bytes
+                    .map(crate::models::volume_model::format_bytes)
+                    .unwrap_or_else(|| "Unknown size".to_string());
+                if row.size_bytes != size_bytes || row.size_text != size_text {
+                    row.size_bytes = size_bytes;
+                    row.size_known = size_bytes.is_some();
+                    row.size_text = size_text;
+                    changed = true;
+                }
+            }
+            if changed {
+                patched += 1;
+            }
+        }
+        for row in &mut self.visible_rows {
+            if let Some(container_refs) = references.get(&row.volume_name) {
+                let in_use = !container_refs.is_empty();
+                if row.in_use != in_use || row.used_by_count != container_refs.len() {
+                    row.in_use = in_use;
+                    row.section = if in_use { "in_use" } else { "unused" }.to_string();
+                    row.used_by_count = container_refs.len();
+                    row.containers = container_refs.clone();
+                }
+            }
+            if let Some(usage_entry) = usage.get(&row.volume_name) {
+                let size_bytes = usage_entry.size_bytes;
+                let size_text = size_bytes
+                    .map(crate::models::volume_model::format_bytes)
+                    .unwrap_or_else(|| "Unknown size".to_string());
+                if row.size_bytes != size_bytes || row.size_text != size_text {
+                    row.size_bytes = size_bytes;
+                    row.size_known = size_bytes.is_some();
+                    row.size_text = size_text;
+                }
+            }
+        }
+        self.rebuild_visible();
+        patched
     }
 
     /// Filtering is trim/case-insensitive and local. The returned generation,
@@ -1176,6 +1259,155 @@ mod tests {
         ));
         assert_eq!(state.selected_volume_name, "beta");
         assert_eq!(state.detail_state, VolumeDetailState::None);
+    }
+
+    #[test]
+    fn stage_a_list_without_container_association_keeps_known_in_use_sections() {
+        // Simulate the staged pipeline: the first refresh has full summaries
+        // (used_by populated), then a later Stage A list arrives with empty
+        // container association. The grouping must not flash to all-Unused.
+        let mut state = VolumesState::default();
+        let generation = state.begin_refresh();
+        assert!(state.apply_list(
+            generation,
+            &[
+                summary(
+                    "zulu",
+                    Some(100),
+                    Some(1),
+                    &[("running-full-id", "web", ContainerState::Running)],
+                ),
+                summary("alpha", Some(300), Some(3), &[]),
+            ]
+        ));
+        assert!(state.source_rows.iter().any(|row| row.in_use));
+        assert_eq!(state.in_use_count(), 1);
+        assert_eq!(state.unused_count(), 1);
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.section == "in_use")
+        );
+
+        // Stage A base list carries no container references; the previously
+        // known in-use state must be preserved until Stage B patches it.
+        let generation = state.begin_refresh();
+        assert!(state.apply_list(
+            generation,
+            &[
+                summary("zulu", Some(100), Some(1), &[]),
+                summary("alpha", Some(300), Some(3), &[]),
+            ]
+        ));
+        assert!(state.source_rows.iter().any(|row| row.in_use));
+        assert_eq!(state.in_use_count(), 1);
+        assert_eq!(state.unused_count(), 1);
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.section == "in_use")
+        );
+
+        // Stage B enrichment confirms the actual usage and updates the group.
+        let mut references = HashMap::new();
+        references.insert(
+            "zulu".to_string(),
+            vec![container("running-full-id", "web", ContainerState::Running)],
+        );
+        let patched = state.patch_usage(&references, &HashMap::new());
+        assert_eq!(patched, 1);
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.in_use)
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.section == "in_use")
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "alpha" && !row.in_use)
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "alpha" && row.section == "unused")
+        );
+    }
+
+    #[test]
+    fn patch_usage_updates_section_when_usage_flips() {
+        let mut state = VolumesState::default();
+        let generation = state.begin_refresh();
+        assert!(state.apply_list(
+            generation,
+            &[
+                summary("zulu", Some(100), Some(1), &[]),
+                summary("alpha", Some(300), Some(3), &[]),
+            ]
+        ));
+        assert!(state.source_rows.iter().all(|row| !row.in_use));
+        assert!(state.source_rows.iter().all(|row| row.section == "unused"));
+
+        // Stage B now reports alpha is used by two containers.
+        let mut references = HashMap::new();
+        references.insert(
+            "alpha".to_string(),
+            vec![
+                container("a-full-id", "web", ContainerState::Running),
+                container("b-full-id", "db", ContainerState::Exited),
+            ],
+        );
+        let patched = state.patch_usage(&references, &HashMap::new());
+        assert_eq!(patched, 1);
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "alpha" && row.in_use)
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "alpha" && row.section == "in_use")
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && !row.in_use)
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.section == "unused")
+        );
+
+        // Selecting a volume must never change its usage grouping.
+        state.select("zulu");
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && !row.in_use)
+        );
+        assert!(
+            state
+                .source_rows
+                .iter()
+                .any(|row| row.volume_name == "zulu" && row.section == "unused")
+        );
     }
 
     #[test]

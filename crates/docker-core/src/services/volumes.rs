@@ -58,10 +58,28 @@ impl VolumeService {
         Self { client }
     }
 
+    /// Stable endpoint fingerprint for cache isolation.
+    pub fn client_fingerprint(&self) -> Option<String> {
+        Some(self.client.endpoint_fingerprint())
+    }
+
     /// List volumes with usage information and references from all containers,
     /// including stopped containers. `/system/df` is attempted concurrently;
     /// an unavailable or incompatible usage schema leaves sizes unknown.
     pub async fn list_volumes(
+        &self,
+        options: &ListVolumesOptions,
+    ) -> Result<Vec<VolumeSummary>, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.list_volumes");
+        let result = self.list_volumes_inner(options).await;
+        match &result {
+            Ok(volumes) => timer.finish_ok(volumes.len(), "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn list_volumes_inner(
         &self,
         options: &ListVolumesOptions,
     ) -> Result<Vec<VolumeSummary>, DockerError> {
@@ -112,7 +130,83 @@ impl VolumeService {
         self.list_volumes(&ListVolumesOptions::default()).await
     }
 
+    /// Stage A: list only the base volume summaries — no container
+    /// association, no `/system/df`. Fastest possible first paint for the
+    /// Volumes page; enrichment runs separately via
+    /// [`Self::enrich_usage`].
+    pub async fn list_volume_summaries(&self) -> Result<Vec<VolumeSummary>, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.list_volumes.base");
+        let docker = self.client.inner().clone();
+        let timeout = self.client.config().request_timeout;
+        let list = async {
+            tokio::time::timeout(
+                timeout,
+                docker.list_volumes(None::<BollardListVolumesOptions>),
+            )
+            .await
+            .map_err(|_| DockerError::OperationTimeout)?
+            .map_err(|error| classify_volume_api_error(&error, "list"))
+        };
+        let volumes = match list.await {
+            Ok(response) => response
+                .volumes
+                .unwrap_or_default()
+                .into_iter()
+                .map(|volume| map_volume_summary(volume, None))
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                timer.finish_err(&error.to_string());
+                return Err(error);
+            }
+        };
+        timer.finish_ok(volumes.len(), "live");
+        Ok(volumes)
+    }
+
+    /// Stage B/C: associate containers and system-df usage to a base list.
+    /// Returns a map of volume name -> references and a map of volume name ->
+    /// usage, so the caller can patch rows without a second list call.
+    pub async fn enrich_usage(
+        &self,
+        volume_names: &[String],
+    ) -> (
+        HashMap<String, Vec<VolumeContainerReference>>,
+        HashMap<String, VolumeUsage>,
+    ) {
+        let timer = crate::instrument::Timer::start("docker.volumes.enrich_usage");
+        let (references, disk_usage) =
+            tokio::join!(self.container_references(), self.system_df_usage());
+        let references = references.unwrap_or_default();
+        let disk_usage = disk_usage.unwrap_or_default();
+        let wanted: std::collections::HashSet<&str> =
+            volume_names.iter().map(String::as_str).collect();
+        let mut reference_map = HashMap::new();
+        for (name, refs) in references {
+            if wanted.contains(name.as_str()) {
+                reference_map.insert(name, refs);
+            }
+        }
+        let mut usage_map = HashMap::new();
+        for (name, usage) in disk_usage {
+            if wanted.contains(name.as_str()) {
+                usage_map.insert(name, usage);
+            }
+        }
+        timer.finish_ok(reference_map.len(), "live");
+        (reference_map, usage_map)
+    }
+
     pub async fn inspect_volume(&self, name: &str) -> Result<VolumeDetail, DockerError> {
+        let timer = crate::instrument::Timer::start("docker.inspect_volume");
+        let result = self.inspect_volume_inner(name).await;
+        match &result {
+            Ok(_) => timer.finish_ok(1, "live"),
+            Err(error) => timer.finish_err(&error.to_string()),
+        }
+        result
+    }
+
+    async fn inspect_volume_inner(&self, name: &str) -> Result<VolumeDetail, DockerError> {
         let name = require_name(name)?;
         let docker = self.client.inner().clone();
         let timeout = self.client.config().request_timeout;

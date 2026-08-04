@@ -300,8 +300,7 @@ Item {
         text: I18n.i18nd("tuxstack", "Network details unavailable")
         explanation: root.networksModel && root.networksModel.detailError.length > 0
                      ? I18n.i18nd("tuxstack",
-                                  "Failed to load network information.\n\n%1")
-                       .arg(root.networksModel.detailError)
+                                  "Failed to load network information.\n\n%1", root.networksModel.detailError)
                      : I18n.i18nd("tuxstack",
                                   "Failed to load network information.")
 

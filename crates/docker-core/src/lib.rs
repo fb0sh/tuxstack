@@ -7,9 +7,11 @@
 //!
 //! [Bollard]: https://docs.rs/bollard
 
+pub mod cache;
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod instrument;
 pub mod mapping;
 pub mod models;
 pub mod services;
@@ -20,7 +22,8 @@ pub use config::ResolvedConfig;
 pub use error::DockerError;
 pub use models::*;
 pub use services::{
-    ContainerService, DockerServices, ImageService, NetworkService, SystemService, VolumeService,
+    ContainerService, DockerServices, ImageService, NetworkService, SystemService,
+    VolumeFileService, VolumeService,
 };
 pub use streams::{ImageExportStream, ImagePullStream};
 

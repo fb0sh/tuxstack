@@ -18,6 +18,11 @@ impl SystemService {
         Self { client }
     }
 
+    /// The shared client (crate-visible for services aggregation).
+    pub(crate) fn client(&self) -> Arc<DockerClient> {
+        self.client.clone()
+    }
+
     /// Verify the engine is reachable.
     pub async fn ping(&self) -> Result<(), DockerError> {
         self.client.ping().await

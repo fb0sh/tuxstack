@@ -124,8 +124,7 @@ Kirigami.Dialog {
             const equals = line.indexOf("=")
             if (equals <= 0)
                 return I18n.i18nd("tuxstack",
-                                  "Each label must use key=value format (line %1).")
-                       .arg(index + 1)
+                                  "Each label must use key=value format (line %1).", index + 1)
         }
         return ""
     }

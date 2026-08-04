@@ -38,7 +38,7 @@ Kirigami.Dialog {
 
         Kirigami.Heading {
             Layout.fillWidth: true
-            text: I18n.i18nd("tuxstack", "Remove volume “%1”?").arg(root.volumeName)
+            text: I18n.i18nd("tuxstack", "Remove volume “%1”?", root.volumeName)
             level: 3
             wrapMode: Text.WrapAnywhere
         }
@@ -69,7 +69,7 @@ Kirigami.Dialog {
                 label: I18n.i18nd("tuxstack", "Used by")
                 value: root.usedByCount === 1
                        ? I18n.i18nd("tuxstack", "1 container")
-                       : I18n.i18nd("tuxstack", "%1 containers").arg(root.usedByCount)
+                       : I18n.i18nd("tuxstack", "%1 containers", root.usedByCount)
             }
             PropertyRow {
                 Layout.fillWidth: true

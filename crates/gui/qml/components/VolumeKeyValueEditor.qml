@@ -47,7 +47,7 @@ ColumnLayout {
             if (key.length === 0)
                 return I18n.i18nd("tuxstack", "Keys cannot be empty.")
             if (seen[key])
-                return I18n.i18nd("tuxstack", "Duplicate key “%1”.").arg(key)
+                return I18n.i18nd("tuxstack", "Duplicate key “%1”.", key)
             seen[key] = true
         }
         return ""
@@ -112,7 +112,7 @@ ColumnLayout {
                 text: entryRow.key
                 placeholderText: root.keyPlaceholder
                 selectByMouse: true
-                Accessible.name: I18n.i18nd("tuxstack", "Entry %1 key").arg(entryRow.index + 1)
+                Accessible.name: I18n.i18nd("tuxstack", "Entry %1 key", entryRow.index + 1)
                 onTextEdited: {
                     entriesModel.setProperty(entryRow.index, "key", text)
                     root.contentChanged()
@@ -125,7 +125,7 @@ ColumnLayout {
                 text: entryRow.value
                 placeholderText: root.valuePlaceholder
                 selectByMouse: true
-                Accessible.name: I18n.i18nd("tuxstack", "Entry %1 value").arg(entryRow.index + 1)
+                Accessible.name: I18n.i18nd("tuxstack", "Entry %1 value", entryRow.index + 1)
                 onTextEdited: {
                     entriesModel.setProperty(entryRow.index, "value", text)
                     root.contentChanged()
@@ -133,7 +133,7 @@ ColumnLayout {
             }
             QQC2.ToolButton {
                 icon.name: "list-remove"
-                text: I18n.i18nd("tuxstack", "Remove entry %1").arg(entryRow.index + 1)
+                text: I18n.i18nd("tuxstack", "Remove entry %1", entryRow.index + 1)
                 display: QQC2.AbstractButton.IconOnly
                 enabled: root.editable
                 focusPolicy: Qt.StrongFocus

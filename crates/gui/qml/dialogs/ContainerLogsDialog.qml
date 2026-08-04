@@ -16,7 +16,7 @@ Kirigami.Dialog {
     property var detailController: null
     property bool autoScroll: true
 
-    title: I18n.i18nd("tuxstack", "Logs — %1").arg(root.containerName)
+    title: I18n.i18nd("tuxstack", "Logs — %1", root.containerName)
 
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.smallSpacing

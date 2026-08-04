@@ -89,7 +89,7 @@ Kirigami.Dialog {
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: I18n.i18nd("tuxstack", "Export volume “%1” through a restricted, read-only helper container.").arg(root.volumeName)
+            text: I18n.i18nd("tuxstack", "Export volume “%1” through a restricted, read-only helper container.", root.volumeName)
             wrapMode: Text.WrapAnywhere
         }
 

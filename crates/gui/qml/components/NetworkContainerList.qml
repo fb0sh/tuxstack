@@ -51,8 +51,7 @@ ColumnLayout {
                         }
                         QQC2.Label {
                             Layout.fillWidth: true
-                            text: I18n.i18nd("tuxstack", "Container ID: %1")
-                                  .arg(String(containerDelegate.model.shortId))
+                            text: I18n.i18nd("tuxstack", "Container ID: %1", String(containerDelegate.model.shortId))
                             color: Kirigami.Theme.disabledTextColor
                             font.family: "monospace"
                             font.pixelSize: Kirigami.Theme.smallFont.pixelSize
@@ -67,11 +66,9 @@ ColumnLayout {
                                 const ipv4Address = String(containerDelegate.model.ipv4Address)
                                 const ipv6Address = String(containerDelegate.model.ipv6Address)
                                 if (ipv4Address.length > 0)
-                                    addresses.push(I18n.i18nd("tuxstack", "IPv4: %1")
-                                                   .arg(ipv4Address))
+                                    addresses.push(I18n.i18nd("tuxstack", "IPv4: %1", ipv4Address))
                                 if (ipv6Address.length > 0)
-                                    addresses.push(I18n.i18nd("tuxstack", "IPv6: %1")
-                                                   .arg(ipv6Address))
+                                    addresses.push(I18n.i18nd("tuxstack", "IPv6: %1", ipv6Address))
                                 return addresses.join("  ·  ")
                             }
                             color: Kirigami.Theme.disabledTextColor
@@ -81,8 +78,7 @@ ColumnLayout {
                         QQC2.Label {
                             Layout.fillWidth: true
                             visible: String(containerDelegate.model.endpointId).length > 0
-                            text: I18n.i18nd("tuxstack", "Endpoint: %1")
-                                  .arg(String(containerDelegate.model.endpointId))
+                            text: I18n.i18nd("tuxstack", "Endpoint: %1", String(containerDelegate.model.endpointId))
                             color: Kirigami.Theme.disabledTextColor
                             font.family: "monospace"
                             font.pixelSize: Kirigami.Theme.smallFont.pixelSize

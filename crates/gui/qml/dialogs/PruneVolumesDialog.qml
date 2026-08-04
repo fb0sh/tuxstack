@@ -38,7 +38,7 @@ Kirigami.Dialog {
             Layout.fillWidth: true
             text: root.candidateCount === 1
                   ? I18n.i18nd("tuxstack", "The following volume is not referenced by any existing container:")
-                  : I18n.i18nd("tuxstack", "The following %1 volumes are not referenced by any existing container:").arg(root.candidateCount)
+                  : I18n.i18nd("tuxstack", "The following %1 volumes are not referenced by any existing container:", root.candidateCount)
             wrapMode: Text.Wrap
         }
 
@@ -102,10 +102,10 @@ Kirigami.Dialog {
                 if (root.candidateCount > 0 && unknown === root.candidateCount)
                     return I18n.i18nd("tuxstack", "Reclaimable size unavailable · all volume sizes are unknown")
                 if (unknown === 1)
-                    return I18n.i18nd("tuxstack", "Known reclaimable size: %1 · 1 volume has unknown size").arg(known)
+                    return I18n.i18nd("tuxstack", "Known reclaimable size: %1 · 1 volume has unknown size", known)
                 if (unknown > 1)
-                    return I18n.i18nd("tuxstack", "Known reclaimable size: %1 · %2 volumes have unknown size").arg(known).arg(unknown)
-                return I18n.i18nd("tuxstack", "Known reclaimable size: %1").arg(known)
+                    return I18n.i18nd("tuxstack", "Known reclaimable size: %1 · %2 volumes have unknown size", known, unknown)
+                return I18n.i18nd("tuxstack", "Known reclaimable size: %1", known)
             }
             font.bold: true
             wrapMode: Text.Wrap

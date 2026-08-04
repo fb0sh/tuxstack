@@ -21,10 +21,10 @@ Pull, remove, inspect, and streaming export are implemented with real
 Docker progress/data. Build, tag, push, and prune remain planned.
 
 ### Volume operations
-List, inspect, usage association, create, remove, prune, export, and clone are
-implemented against the real Docker Engine. Browsing or editing volume files,
-scheduled backups/snapshots, encryption, and volume-plugin administration
-remain future work.
+List, inspect, usage association, create, remove, prune, export, clone, and
+read-only file browsing/preview/download are implemented against the real
+Docker Engine. Editing volume files, uploads, scheduled backups/snapshots,
+encryption, and volume-plugin administration remain future work.
 
 ### Registry login
 `docker login`-style credential handling, careful with secrets.

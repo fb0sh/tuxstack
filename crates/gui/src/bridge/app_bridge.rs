@@ -44,6 +44,12 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "refreshOverview"]
         fn refresh_overview(self: Pin<&mut Self>);
+
+        /// Emitted when the Docker event monitor publishes a debounced change
+        /// batch; `kind` is one of images/containers/volumes/networks/daemon.
+        #[qsignal]
+        #[cxx_name = "dockerChanged"]
+        fn docker_changed(self: Pin<&mut Self>, kind: QString);
     }
 }
 
@@ -111,7 +117,84 @@ impl qobject::AppController {
                     }
                     match result {
                         Ok(services) => {
-                            app_state::set_services(services);
+                            app_state::set_services(services.clone());
+                            // Start the global Docker event monitor: it
+                            // debounces /events bursts and emits dockerChanged
+                            // so pages refresh only what changed.
+                            let monitor = app_state::get_store().events.clone();
+                            monitor.rebind_client(services.client());
+                            let watch_loop = monitor.clone();
+                            crate::runtime::spawn(async move {
+                                let stream = watch_loop.start();
+                                tuxstack_docker_core::cache::run_monitor(
+                                    &watch_loop,
+                                    stream,
+                                    tuxstack_docker_core::cache::DefaultEventClassifier,
+                                )
+                                .await;
+                            });
+                            let mut rx = monitor.subscribe();
+                            let qt_thread = controller.as_mut().qt_thread();
+                            crate::runtime::spawn(async move {
+                                while rx.changed().await.is_ok() {
+                                    let Some(notification) = rx.borrow_and_update().clone()
+                                    else {
+                                        continue;
+                                    };
+                                    tracing::debug!(
+                                        burst = notification.burst,
+                                        kinds = ?notification.kinds,
+                                        reconnected = notification.reconnected,
+                                        "dockerChanged notification forwarded"
+                                    );
+                                    let kinds = notification.kinds.clone();
+                                    qt_thread
+                                        .queue(move |mut controller| {
+                                            for kind in kinds {
+                                                let name = match kind {
+                                                    tuxstack_docker_core::cache::ChangeKind::Images => "images",
+                                                    tuxstack_docker_core::cache::ChangeKind::Containers => "containers",
+                                                    tuxstack_docker_core::cache::ChangeKind::Volumes => "volumes",
+                                                    tuxstack_docker_core::cache::ChangeKind::Networks => "networks",
+                                                    tuxstack_docker_core::cache::ChangeKind::Daemon => "daemon",
+                                                };
+                                                controller.as_mut().docker_changed(
+                                                    QString::from(name),
+                                                );
+                                            }
+                                        })
+                                        .unwrap_or_else(|error| {
+                                            tracing::debug!(
+                                                %error,
+                                                "Qt object destroyed before dockerChanged delivery"
+                                            )
+                                        });
+                                }
+                            });
+                            // Best-effort cleanup of orphaned volume-preview helpers
+                            // left by previous crashes. Never blocks the UI path.
+                            let cleanup_services = services.clone();
+                            crate::runtime::spawn(async move {
+                                match cleanup_services
+                                    .volume_files
+                                    .cleanup_orphan_sessions()
+                                    .await
+                                {
+                                    Ok(count) if count > 0 => {
+                                        tracing::debug!(
+                                            removed = count,
+                                            "cleaned orphan volume-preview helpers"
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(error) => {
+                                        tracing::debug!(
+                                            error = %error,
+                                            "orphan volume-preview cleanup failed"
+                                        );
+                                    }
+                                }
+                            });
                             controller.as_mut().set_docker_status(1); // ready
                             controller
                                 .as_mut()

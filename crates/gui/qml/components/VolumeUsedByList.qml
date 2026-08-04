@@ -30,10 +30,8 @@ ColumnLayout {
                 width: parent.width
                 hoverEnabled: true
                 focusPolicy: Qt.StrongFocus
-                Accessible.name: I18n.i18nd("tuxstack", "Open container %1").arg(String(containerDelegate.model.name))
-                Accessible.description: I18n.i18nd("tuxstack", "%1 mounted at %2")
-                                        .arg(String(containerDelegate.model.state))
-                                        .arg(String(containerDelegate.model.destination))
+                Accessible.name: I18n.i18nd("tuxstack", "Open container %1", String(containerDelegate.model.name))
+                Accessible.description: I18n.i18nd("tuxstack", "%1 mounted at %2", String(containerDelegate.model.state), String(containerDelegate.model.destination))
                 onClicked: root.containerRequested(String(containerDelegate.model.containerId))
 
                 contentItem: RowLayout {
