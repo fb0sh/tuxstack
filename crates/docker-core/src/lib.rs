@@ -19,22 +19,23 @@ pub mod streams;
 
 pub use client::{DockerClient, DockerConfig};
 pub use config::ResolvedConfig;
-pub use error::DockerError;
+pub use error::{ContainerError, DockerError};
 pub use models::*;
+pub use services::container_files::*;
+pub use services::container_terminal::*;
+pub use services::filesystem::FilesystemService;
+pub use services::filesystem::error::FilesystemError;
+pub use services::filesystem::types::{
+    FilesystemEntry, FilesystemEntryType, FilesystemSession, FilesystemSource, HashRequest,
+    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, PreviewResult, StatRequest,
+};
 pub use services::{
-    ContainerService, DockerServices, ImageService, NetworkService, SystemService,
+    ComposeService, ContainerService, DockerServices, ImageService, NetworkService, SystemService,
     VolumeService,
 };
-pub use services::filesystem::FilesystemService;
-pub use services::filesystem::types::{
-    FilesystemEntry, FilesystemEntryType, FilesystemSession, FilesystemSource,
-    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, PreviewResult,
-    StatRequest, HashRequest,
-};
-pub use services::filesystem::error::FilesystemError;
+pub use streams::{ImageExportStream, ImagePullStream};
 pub use tuxstack_fs_protocol::FilesystemPathToken;
 pub use tuxstack_fs_protocol::decode_base64 as filesystem_decode_base64;
-pub use streams::{ImageExportStream, ImagePullStream};
 
 /// Re-export of common formatting helpers for byte sizes.
 pub mod format {

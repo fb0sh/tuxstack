@@ -58,7 +58,7 @@ pub fn map_event(event: EventMessage) -> DockerEvent {
         actor_attributes: actor
             .map(|a| a.attributes.unwrap_or_default().into_iter().collect())
             .unwrap_or_default(),
-        time: event.time.map(from_unix_seconds),
+        time: event.time.and_then(from_unix_seconds),
     }
 }
 

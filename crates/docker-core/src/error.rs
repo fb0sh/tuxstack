@@ -27,6 +27,12 @@ pub enum DockerError {
     #[error("Container was not found: {0}")]
     ContainerNotFound(String),
 
+    #[error("Invalid container configuration: {0}")]
+    InvalidContainerConfig(String),
+
+    #[error(transparent)]
+    Container(ContainerError),
+
     #[error("Image was not found: {0}")]
     ImageNotFound(String),
 
@@ -94,7 +100,6 @@ pub enum DockerError {
     UnsupportedVolumeCompression(String),
 
     #[error("Docker operation conflicts with current state: {0}")]
-
     Conflict(String),
 
     #[error("Invalid Docker response: {0}")]
@@ -108,6 +113,155 @@ pub enum DockerError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+/// Stable container-focused error classification for UI action messages.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ContainerError {
+    #[error("Container was not found: {0}")]
+    NotFound(String),
+    #[error("Container is already running: {0}")]
+    AlreadyRunning(String),
+    #[error("Container is not running: {0}")]
+    NotRunning(String),
+    #[error("Container is paused: {0}")]
+    Paused(String),
+    #[error("Container removal is already in progress: {0}")]
+    RemovalInProgress(String),
+    #[error("A published port is already allocated: {0}")]
+    PortAlreadyAllocated(String),
+    #[error("Container name is already in use: {0}")]
+    NameAlreadyInUse(String),
+    #[error("Image was not found: {0}")]
+    ImageNotFound(String),
+    #[error("Volume was not found: {0}")]
+    VolumeNotFound(String),
+    #[error("Network was not found: {0}")]
+    NetworkNotFound(String),
+    #[error("Invalid container configuration: {0}")]
+    InvalidConfiguration(String),
+    #[error("Container start failed: {0}")]
+    StartFailed(String),
+    #[error("Container stop failed: {0}")]
+    StopFailed(String),
+    #[error("Container restart failed: {0}")]
+    RestartFailed(String),
+    #[error("Container kill failed: {0}")]
+    KillFailed(String),
+    #[error("Container pause failed: {0}")]
+    PauseFailed(String),
+    #[error("Container unpause failed: {0}")]
+    UnpauseFailed(String),
+    #[error("Container removal failed: {0}")]
+    RemoveFailed(String),
+    #[error("Container rename failed: {0}")]
+    RenameFailed(String),
+    #[error("Permission denied while accessing Docker")]
+    PermissionDenied,
+    #[error("Docker Engine is unavailable")]
+    DockerUnavailable,
+    #[error("Container operation timed out")]
+    OperationTimeout,
+    #[error("Container operation was cancelled")]
+    OperationCancelled,
+    #[error("Docker container API error: {0}")]
+    Api(String),
+}
+
+/// Classify action-specific Docker errors without changing global image,
+/// volume, or network behavior.
+pub(crate) fn classify_container_api_error(
+    err: &bollard::errors::Error,
+    operation: &str,
+) -> ContainerError {
+    if let bollard::errors::Error::DockerResponseServerError {
+        status_code,
+        message,
+    } = err
+    {
+        let lower = message.to_ascii_lowercase();
+        if *status_code == 404 {
+            if lower.contains("no such image")
+                || lower.contains("image") && lower.contains("not found")
+            {
+                return ContainerError::ImageNotFound(message.clone());
+            }
+            if lower.contains("network") {
+                return ContainerError::NetworkNotFound(message.clone());
+            }
+            if lower.contains("volume") {
+                return ContainerError::VolumeNotFound(message.clone());
+            }
+            return ContainerError::NotFound(message.clone());
+        }
+        if matches!(*status_code, 401 | 403) {
+            return ContainerError::PermissionDenied;
+        }
+        if *status_code == 408 {
+            return ContainerError::OperationTimeout;
+        }
+        if lower.contains("port is already allocated")
+            || lower.contains("address already in use")
+            || lower.contains("port already in use")
+        {
+            return ContainerError::PortAlreadyAllocated(message.clone());
+        }
+        if lower.contains("container name") && lower.contains("already in use") {
+            return ContainerError::NameAlreadyInUse(message.clone());
+        }
+        if lower.contains("already running") {
+            return ContainerError::AlreadyRunning(message.clone());
+        }
+        if lower.contains("is not running") || lower.contains("not running") {
+            return ContainerError::NotRunning(message.clone());
+        }
+        if lower.contains("is paused") || lower.contains("container paused") {
+            return ContainerError::Paused(message.clone());
+        }
+        if lower.contains("removal of container") && lower.contains("in progress") {
+            return ContainerError::RemovalInProgress(message.clone());
+        }
+        if operation == "create" && *status_code == 400 {
+            return ContainerError::InvalidConfiguration(message.clone());
+        }
+        return match operation {
+            "start" => ContainerError::StartFailed(message.clone()),
+            "stop" => ContainerError::StopFailed(message.clone()),
+            "restart" => ContainerError::RestartFailed(message.clone()),
+            "kill" => ContainerError::KillFailed(message.clone()),
+            "pause" => ContainerError::PauseFailed(message.clone()),
+            "unpause" => ContainerError::UnpauseFailed(message.clone()),
+            "remove" => ContainerError::RemoveFailed(message.clone()),
+            "rename" => ContainerError::RenameFailed(message.clone()),
+            _ => ContainerError::Api(format!("Docker API error ({status_code}): {message}")),
+        };
+    }
+    match classify_api_error(err, "container") {
+        DockerError::ContainerNotFound(message) => ContainerError::NotFound(message),
+        DockerError::PermissionDenied => ContainerError::PermissionDenied,
+        DockerError::EngineUnavailable => ContainerError::DockerUnavailable,
+        DockerError::OperationTimeout | DockerError::ConnectionTimeout => {
+            ContainerError::OperationTimeout
+        }
+        error => ContainerError::Api(error.to_string()),
+    }
+}
+
+impl From<ContainerError> for DockerError {
+    fn from(value: ContainerError) -> Self {
+        match value {
+            ContainerError::NotFound(message) => Self::ContainerNotFound(message),
+            ContainerError::ImageNotFound(message) => Self::ImageNotFound(message),
+            ContainerError::VolumeNotFound(message) => Self::VolumeNotFound(message),
+            ContainerError::NetworkNotFound(message) => Self::NetworkNotFound(message),
+            ContainerError::InvalidConfiguration(message) => Self::InvalidContainerConfig(message),
+            ContainerError::PermissionDenied => Self::PermissionDenied,
+            ContainerError::DockerUnavailable => Self::EngineUnavailable,
+            ContainerError::OperationTimeout => Self::OperationTimeout,
+            ContainerError::OperationCancelled => Self::OperationCancelled,
+            other => Self::Container(other),
+        }
+    }
 }
 
 /// Collect the full error chain text (self + sources) for classification.
@@ -373,6 +527,39 @@ mod tests {
                 DockerError::PermissionDenied
             ));
         }
+    }
+
+    #[test]
+    fn container_errors_are_operation_and_conflict_aware() {
+        assert!(matches!(
+            classify_container_api_error(
+                &response(
+                    409,
+                    "Bind for 0.0.0.0:8080 failed: port is already allocated"
+                ),
+                "start"
+            ),
+            ContainerError::PortAlreadyAllocated(_)
+        ));
+        assert!(matches!(
+            classify_container_api_error(
+                &response(409, "Conflict. The container name is already in use"),
+                "create"
+            ),
+            ContainerError::NameAlreadyInUse(_)
+        ));
+        assert!(matches!(
+            classify_container_api_error(&response(409, "container is not running"), "stop"),
+            ContainerError::NotRunning(_)
+        ));
+        assert!(matches!(
+            classify_container_api_error(&response(500, "runtime refused"), "restart"),
+            ContainerError::RestartFailed(_)
+        ));
+        assert!(matches!(
+            DockerError::from(ContainerError::RestartFailed("runtime refused".into())),
+            DockerError::Container(ContainerError::RestartFailed(_))
+        ));
     }
 
     #[test]
