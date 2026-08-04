@@ -171,26 +171,26 @@ impl qobject::AppController {
                                         });
                                 }
                             });
-                            // Best-effort cleanup of orphaned volume-preview helpers
+                            // Best-effort cleanup of orphaned filesystem preview helpers
                             // left by previous crashes. Never blocks the UI path.
                             let cleanup_services = services.clone();
                             crate::runtime::spawn(async move {
                                 match cleanup_services
-                                    .volume_files
+                                    .filesystem
                                     .cleanup_orphan_sessions()
                                     .await
                                 {
                                     Ok(count) if count > 0 => {
                                         tracing::debug!(
                                             removed = count,
-                                            "cleaned orphan volume-preview helpers"
+                                            "cleaned orphan filesystem preview helpers"
                                         );
                                     }
                                     Ok(_) => {}
                                     Err(error) => {
                                         tracing::debug!(
                                             error = %error,
-                                            "orphan volume-preview cleanup failed"
+                                            "orphan filesystem preview cleanup failed"
                                         );
                                     }
                                 }

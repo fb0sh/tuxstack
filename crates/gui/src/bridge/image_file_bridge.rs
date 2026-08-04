@@ -1,4 +1,4 @@
-//! CXX-Qt bridge for read-only volume file browsing.
+//! CXX-Qt bridge for read-only image file browsing.
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -7,16 +7,17 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::{
-    FilesystemError, FilesystemSession, FilesystemSource,
-    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, StatRequest,
-    VolumePath, FilesystemPathToken, filesystem_decode_base64,
+    FilesystemError, FilesystemSession, FilesystemSource, HashRequest,
+    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, StatRequest, VolumePath,
+    FilesystemPathToken, filesystem_decode_base64,
 };
 
 use crate::app_state::{get_services, get_store};
 use crate::bridge::resource_bridges::qobject;
-use crate::controllers::volume_files::{
-    VolumeFileSortColumn, VolumeFilesControllerState, VolumeFilesState,
+use crate::controllers::image_files::{
+    ImageFilesControllerState, ImageFilesState,
 };
+use crate::controllers::volume_files::VolumeFileSortColumn;
 use crate::models::volume_file_model::{VolumeFileRow, map_filesystem_row};
 
 type QVariantList = QList<QVariant>;
@@ -41,14 +42,14 @@ const ROLE_MODE_TEXT: i32 = 272;
 const ROLE_OWNER_TEXT: i32 = 273;
 
 #[derive(Default)]
-pub struct VolumeFileListModelRust {
-    pub(crate) state: VolumeFilesControllerState,
+pub struct ImageFileListModelRust {
+    pub(crate) state: ImageFilesControllerState,
     pub(crate) session: Option<FilesystemSession>,
 
     pub(crate) files_state: QString,
     pub(crate) error_kind: QString,
     pub(crate) error_message: QString,
-    pub(crate) volume_name: QString,
+    pub(crate) image_id: QString,
     pub(crate) current_path: QString,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_up: bool,
@@ -100,7 +101,7 @@ pub struct VolumeFileListModelRust {
     pub(crate) download_bridge_generation: u64,
 }
 
-impl VolumeFileListModelRust {
+impl ImageFileListModelRust {
     fn cancel_all(&mut self) {
         cancel(&mut self.session_cancel);
         cancel(&mut self.list_cancel);
@@ -116,7 +117,7 @@ impl VolumeFileListModelRust {
     }
 }
 
-impl qobject::VolumeFileListModel {
+impl qobject::ImageFileListModel {
     pub(crate) fn row_count(&self, _parent: &QModelIndex) -> i32 {
         self.visible_rows.len() as i32
     }
@@ -180,7 +181,7 @@ impl qobject::VolumeFileListModel {
         }
         // Engine is gone: stop the helper container and reset the browser.
         self.as_mut().teardown_session();
-        let pool = get_store().preview_sessions.clone();
+        let pool = get_store().image_preview_sessions.clone();
         crate::runtime::spawn(async move {
             let sessions = pool.drain_all().await;
             if let Some(services) = get_services() {
@@ -189,23 +190,23 @@ impl qobject::VolumeFileListModel {
                 }
             }
         });
-        self.as_mut().rust_mut().state.clear_volume();
+        self.as_mut().rust_mut().state.clear_image();
         self.as_mut().clear_preview_temp();
         self.as_mut().reset_preview_fields();
         self.as_mut().publish_state();
     }
 
     pub(crate) fn update_active(mut self: Pin<&mut Self>, active: bool) {
-        tracing::info!(active, "Files tab activated");
+        tracing::info!(active, "Image Files tab activated");
         self.as_mut().rust_mut().state.set_active(active);
         if self.active != active {
             self.as_mut().rust_mut().active = active;
             self.as_mut().active_changed();
         }
         if active {
-            let volume = self.state.volume_name.clone();
-            if !volume.is_empty() {
-                self.open_volume(&QString::from(&volume));
+            let image = self.state.image_id.clone();
+            if !image.is_empty() {
+                self.open_image(&QString::from(&image));
             } else {
                 self.as_mut().publish_state();
             }
@@ -217,11 +218,11 @@ impl qobject::VolumeFileListModel {
         }
     }
 
-    pub(crate) fn open_volume(mut self: Pin<&mut Self>, volume_name: &QString) {
-        let name = volume_name.to_string();
-        let name = name.trim().to_string();
-        if name.is_empty() {
-            self.close_volume();
+    pub(crate) fn open_image(mut self: Pin<&mut Self>, image_id: &QString) {
+        let id = image_id.to_string();
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            self.close_image();
             return;
         }
 
@@ -234,32 +235,32 @@ impl qobject::VolumeFileListModel {
             self.as_mut().active_changed();
         }
 
-        // Idempotent: same volume with a live session must not rebuild the helper.
-        if self.state.volume_name == name && self.session.is_some() {
-            tracing::debug!(volume = %name, "Reusing existing volume preview session");
+        // Idempotent: same image with a live session must not rebuild the helper.
+        if self.state.image_id == id && self.session.is_some() {
+            tracing::debug!(image = %id, "Reusing existing image preview session");
             match self.state.state {
-                VolumeFilesState::Idle
-                | VolumeFilesState::Error
-                | VolumeFilesState::HelperImageRequired => {
+                ImageFilesState::Idle
+                | ImageFilesState::Error
+                | ImageFilesState::Unsupported => {
                     self.load_current_directory();
                 }
-                VolumeFilesState::StartingSession | VolumeFilesState::Loading => {
+                ImageFilesState::StartingSession | ImageFilesState::Loading => {
                     self.as_mut().publish_state();
                 }
-                VolumeFilesState::Ready | VolumeFilesState::Empty => {
+                ImageFilesState::Ready | ImageFilesState::Empty => {
                     self.as_mut().publish_state();
                 }
             }
             return;
         }
 
-        tracing::info!(volume = %name, "Opening volume preview");
+        tracing::info!(image = %id, "Opening image preview");
         // Keep the previous helper alive in the session pool for reuse;
-        // never stop it just because the user switched volumes/tabs.
+        // never stop it just because the user switched images/tabs.
         self.as_mut().release_session_to_pool();
         let session_generation = {
             let mut rust = self.as_mut().rust_mut();
-            rust.state.begin_volume(&name)
+            rust.state.begin_image(&id)
         };
         let bridge_generation = bump(&mut self.as_mut().rust_mut().session_bridge_generation);
         self.as_mut().publish_state();
@@ -278,16 +279,16 @@ impl qobject::VolumeFileListModel {
         };
 
         // Try the session pool first: a live helper from a previous visit
-        // (same volume, earlier tab) is reused without any Docker calls.
-        let pool = get_store().preview_sessions.clone();
+        // (same image, earlier tab) is reused without any Docker calls.
+        let pool = get_store().image_preview_sessions.clone();
         let qt = self.qt_thread();
-        let volume = name.clone();
+        let image = id.clone();
         let token = CancellationToken::new();
         self.as_mut().rust_mut().session_cancel = Some(token.clone());
         crate::runtime::spawn(async move {
             let pooled = tokio::select! {
                 _ = token.cancelled() => None,
-                result = pool.acquire(&volume) => result,
+                result = pool.acquire(&image) => result,
             };
             if let Some(session) = pooled {
                 qt.queue(move |mut model| {
@@ -295,8 +296,8 @@ impl qobject::VolumeFileListModel {
                         return;
                     }
                     tracing::info!(
-                        volume = %volume,
-                        "Reusing pooled volume preview session"
+                        image = %image,
+                        "Reusing pooled image preview session"
                     );
                     model.as_mut().rust_mut().session = Some(session);
                     model.as_mut().load_current_directory();
@@ -311,7 +312,7 @@ impl qobject::VolumeFileListModel {
             tracing::debug!("Creating fresh helper session");
             let result = tokio::select! {
                 _ = token.cancelled() => return,
-                result = services.filesystem.start_volume_session(&volume, token.clone()) => result,
+                result = services.filesystem.start_image_session(&image, token.clone()) => result,
             };
             qt.queue(move |mut model| {
                 if bridge_generation != model.session_bridge_generation {
@@ -331,9 +332,9 @@ impl qobject::VolumeFileListModel {
                             container_id = %session.container_id,
                             "Helper container started"
                         );
-                        // Register the fresh helper so tab/volume switches
+                        // Register the fresh helper so tab/image switches
                         // reuse it instead of rebuilding.
-                        let pool = get_store().preview_sessions.clone();
+                        let pool = get_store().image_preview_sessions.clone();
                         let pooled = session.clone();
                         crate::runtime::spawn(async move {
                             pool.insert(pooled).await;
@@ -355,11 +356,11 @@ impl qobject::VolumeFileListModel {
         });
     }
 
-    pub(crate) fn close_volume(mut self: Pin<&mut Self>) {
-        // Keep the helper alive in the pool so reopening the same volume
+    pub(crate) fn close_image(mut self: Pin<&mut Self>) {
+        // Keep the helper alive in the pool so reopening the same image
         // reuses it instead of rebuilding the container.
         self.as_mut().release_session_to_pool();
-        self.as_mut().rust_mut().state.clear_volume();
+        self.as_mut().rust_mut().state.clear_image();
         self.as_mut().clear_preview_temp();
         self.as_mut().reset_preview_fields();
         self.as_mut().publish_state();
@@ -392,7 +393,7 @@ impl qobject::VolumeFileListModel {
             self.as_mut().open_symlink(&logical);
             return;
         }
-        // Files open with the host's default application — no in-app preview.
+        // Files open with the host’s default application — no in-app preview.
         self.open_with_system_default(&logical);
     }
 
@@ -560,11 +561,12 @@ impl qobject::VolumeFileListModel {
         let bridge_generation = bump(&mut self.as_mut().rust_mut().download_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().download_cancel = Some(token.clone());
-        let volume_name = self.state.volume_name.clone();
+        let image_id = self.state.image_id.clone();
         let qt = self.qt_thread();
         crate::runtime::spawn(async move {
             let path_token = volume_path_to_token(&logical);
             let request = StatRequest { path_token };
+            // Get file size first for progress tracking.
             let stat_result = tokio::select! {
                 _ = token.cancelled() => {
                     qt.queue(move |mut model| {
@@ -586,12 +588,14 @@ impl qobject::VolumeFileListModel {
                     return;
                 }
             };
+            let total_size = stat_entry.size_bytes.unwrap_or(0);
+            // Create parent directory.
             if let Some(parent) = dest.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
             let mut file = std::fs::File::create(&dest).ok();
             let mut offset = 0u64;
-            let chunk_limit = 4 * 1024 * 1024;
+            let chunk_limit = 4 * 1024 * 1024; // 4 MiB per chunk
             loop {
                 let preview_request = PreviewRequest {
                     path_token: stat_entry.path_token.clone(),
@@ -616,6 +620,7 @@ impl qobject::VolumeFileListModel {
                         if preview.chunks.is_empty() || preview.truncated {
                             break;
                         }
+                        // Check if we got an EOF.
                         let eof = preview.chunks.last().map(|c| c.eof).unwrap_or(false);
                         if eof {
                             break;
@@ -676,12 +681,12 @@ impl qobject::VolumeFileListModel {
     }
 
     pub(crate) fn retry(self: Pin<&mut Self>) {
-        let volume = self.state.volume_name.clone();
-        if volume.is_empty() {
+        let image = self.state.image_id.clone();
+        if image.is_empty() {
             return;
         }
         if self.session.is_none() {
-            self.open_volume(&QString::from(&volume));
+            self.open_image(&QString::from(&image));
         } else {
             self.load_current_directory();
         }
@@ -691,7 +696,7 @@ impl qobject::VolumeFileListModel {
         self.as_mut().teardown_session();
         // Drain the session pool: every pooled helper container must be
         // stopped before the app exits.
-        let pool = get_store().preview_sessions.clone();
+        let pool = get_store().image_preview_sessions.clone();
         crate::runtime::spawn(async move {
             let sessions = pool.drain_all().await;
             if let Some(services) = get_services() {
@@ -701,7 +706,7 @@ impl qobject::VolumeFileListModel {
             }
         });
         self.as_mut().clear_preview_temp();
-        self.as_mut().rust_mut().state.clear_volume();
+        self.as_mut().rust_mut().state.clear_image();
         self.as_mut().publish_state();
     }
 
@@ -717,6 +722,7 @@ impl qobject::VolumeFileListModel {
         let path = path.clone();
         let path_token = volume_path_to_token(&path);
         crate::runtime::spawn(async move {
+            // Resolve the symlink to its target token.
             let resolve_request = StatRequest {
                 path_token: path_token.clone(),
             };
@@ -726,6 +732,7 @@ impl qobject::VolumeFileListModel {
                 .await;
             match result {
                 Ok(resolved_token) => {
+                    // Stat the resolved target to check if it's a directory.
                     let stat_request = StatRequest {
                         path_token: resolved_token.clone(),
                     };
@@ -763,13 +770,13 @@ impl qobject::VolumeFileListModel {
         });
     }
 
-    /// Stream the volume file to a unique temp path, then hand it to the host
+    /// Stream the image file to a unique temp path, then hand it to the host
     /// desktop's default handler (`xdg-open` / `open` / `cmd start`). TuxStack
     /// does not implement an in-app file preview.
     fn open_with_system_default(mut self: Pin<&mut Self>, path: &VolumePath) {
         let Some(session) = self.session.clone() else {
             self.as_mut()
-                .preview_failed(qstring("Volume preview session is not available."));
+                .preview_failed(qstring("Image preview session is not available."));
             return;
         };
         let Some(services) = get_services() else {
@@ -783,7 +790,7 @@ impl qobject::VolumeFileListModel {
             .last()
             .cloned()
             .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| "volume-file".into());
+            .unwrap_or_else(|| "image-file".into());
         let destination = match unique_open_temp_path(&file_name) {
             Ok(path) => path,
             Err(message) => {
@@ -800,15 +807,16 @@ impl qobject::VolumeFileListModel {
         let bridge_generation = bump(&mut self.as_mut().rust_mut().preview_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().preview_cancel = Some(token.clone());
-        let volume_name = self.state.volume_name.clone();
+        let image_id = self.state.image_id.clone();
         let logical = path.clone();
         let qt = self.qt_thread();
-        tracing::info!(path = %logical.display(), "Opening volume file with system default app");
+        tracing::info!(path = %logical.display(), "Opening image file with system default app");
 
         crate::runtime::spawn(async move {
             let path_token = volume_path_to_token(&logical);
+            // Download file by streaming preview chunks to disk.
             let mut offset = 0u64;
-            let chunk_limit = 4 * 1024 * 1024;
+            let chunk_limit = 4 * 1024 * 1024; // 4 MiB per chunk
             if let Some(parent) = destination.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -880,8 +888,7 @@ impl qobject::VolumeFileListModel {
                         model.as_mut().preview_failed(qstring(&message));
                     }
                 }
-            })
-            .ok();
+            }).ok();
         });
     }
 
@@ -943,7 +950,7 @@ impl qobject::VolumeFileListModel {
                     }
                 }
                 model.as_mut().rust_mut().state = state;
-                tracing::debug!("Updating VolumeFileModel");
+                tracing::debug!("Updating ImageFileModel");
                 model.as_mut().publish_state();
             })
             .ok();
@@ -971,7 +978,7 @@ impl qobject::VolumeFileListModel {
         bump(&mut self.as_mut().rust_mut().list_bridge_generation);
         if let Some(session) = self.as_mut().rust_mut().session.take() {
             let pool_key = session_pool_key(&session);
-            let pool = get_store().preview_sessions.clone();
+            let pool = get_store().image_preview_sessions.clone();
             crate::runtime::spawn(async move {
                 pool.release(&pool_key).await;
             });
@@ -1002,7 +1009,7 @@ impl qobject::VolumeFileListModel {
         let count = rows.len() as i32;
         let loading = matches!(
             state.state,
-            VolumeFilesState::StartingSession | VolumeFilesState::Loading
+            ImageFilesState::StartingSession | ImageFilesState::Loading
         );
         let selected = state
             .selected_path
@@ -1023,7 +1030,7 @@ impl qobject::VolumeFileListModel {
         self.as_mut().set_error_kind(qstring(&state.error_kind));
         self.as_mut()
             .set_error_message(qstring(&state.error_message));
-        self.as_mut().set_volume_name(qstring(&state.volume_name));
+        self.as_mut().set_image_id(qstring(&state.image_id));
         self.as_mut()
             .set_current_path(qstring(&state.current_path.display()));
         self.as_mut().set_can_go_back(state.can_go_back());
@@ -1056,7 +1063,7 @@ impl qobject::VolumeFileListModel {
     }
 }
 
-impl qobject::VolumeFileListModel {
+impl qobject::ImageFileListModel {
     fn cancel_all(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().cancel_all();
     }
@@ -1066,7 +1073,7 @@ impl qobject::VolumeFileListModel {
     }
 }
 
-fn breadcrumb_list(state: &VolumeFilesControllerState) -> QVariantList {
+fn breadcrumb_list(state: &ImageFilesControllerState) -> QVariantList {
     let mut list = QVariantList::default();
     for (label, path) in state.breadcrumb_components() {
         let mut map = QVariantMap::default();
@@ -1098,6 +1105,8 @@ fn map_filesystem_error(error: &FilesystemError) -> (&'static str, String) {
         FilesystemError::UnsupportedPlatform(msg) => ("unsupported", msg.clone()),
         FilesystemError::HelperBinaryUnavailable(msg) => ("unsupported", msg.clone()),
         FilesystemError::HelperHandshakeFailed(msg) => ("session_failed", msg.clone()),
+        FilesystemError::HelperProtocolMismatch { .. } => ("protocol", error.to_string()),
+        FilesystemError::HelperProtocolError(msg) => ("protocol", msg.clone()),
         FilesystemError::PathNotFound(path) => {
             ("not_found", format!("Folder or file was not found: {path}"))
         }
@@ -1165,7 +1174,7 @@ fn unique_open_temp_path(file_name: &str) -> Result<PathBuf, String> {
         })
         .collect::<String>();
     let safe_name = if safe_name.trim().is_empty() {
-        "volume-file".into()
+        "image-file".into()
     } else {
         safe_name
     };

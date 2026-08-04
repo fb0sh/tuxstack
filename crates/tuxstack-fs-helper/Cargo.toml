@@ -1,0 +1,23 @@
+[package]
+name = "tuxstack-fs-helper"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+description = "Static, dependency-light helper binary injected into TuxStack preview containers for image/volume file browsing"
+
+# Built statically (musl) and embedded into tuxstack-docker-core. It is
+# uploaded into preview containers created from arbitrary user images
+# (alpine, distroless, scratch, busybox-only) and must not require a shell,
+# a libc loader, or any shared library. The only runtime dependency is
+# tuxstack-fs-protocol (pure serde); libc is used for signal handling only.
+
+[dependencies]
+libc = "0.2"
+serde_json = { workspace = true }
+tuxstack-fs-protocol = { path = "../tuxstack-fs-protocol" }
+
+[dev-dependencies]
+libc = "0.2"
+serde_json = { workspace = true }
+tuxstack-fs-protocol = { path = "../tuxstack-fs-protocol" }

@@ -23,8 +23,17 @@ pub use error::DockerError;
 pub use models::*;
 pub use services::{
     ContainerService, DockerServices, ImageService, NetworkService, SystemService,
-    VolumeFileService, VolumeService,
+    VolumeService,
 };
+pub use services::filesystem::FilesystemService;
+pub use services::filesystem::types::{
+    FilesystemEntry, FilesystemEntryType, FilesystemSession, FilesystemSource,
+    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, PreviewResult,
+    StatRequest, HashRequest,
+};
+pub use services::filesystem::error::FilesystemError;
+pub use tuxstack_fs_protocol::FilesystemPathToken;
+pub use tuxstack_fs_protocol::decode_base64 as filesystem_decode_base64;
 pub use streams::{ImageExportStream, ImagePullStream};
 
 /// Re-export of common formatting helpers for byte sizes.

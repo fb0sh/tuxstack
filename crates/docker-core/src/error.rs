@@ -93,46 +93,8 @@ pub enum DockerError {
     #[error("Unsupported volume compression: {0}")]
     UnsupportedVolumeCompression(String),
 
-    #[error("Volume preview helper image is missing")]
-    VolumePreviewHelperImageMissing,
-
-    #[error("Volume preview session failed: {0}")]
-    VolumePreviewSessionFailed(String),
-
-    #[error("Volume preview session is closed")]
-    VolumePreviewSessionClosed,
-
-    #[error("Invalid volume path: {0}")]
-    VolumePathInvalid(String),
-
-    #[error("Volume path escapes the volume root")]
-    VolumePathEscapesRoot,
-
-    #[error("Volume entry was not found: {0}")]
-    VolumeEntryNotFound(String),
-
-    #[error("Volume entry is unreadable: {0}")]
-    VolumeEntryUnreadable(String),
-
-    #[error("Symbolic link points outside the volume: {0}")]
-    VolumeSymlinkOutsideRoot(String),
-
-    #[error("Symbolic link loop detected: {0}")]
-    VolumeSymlinkLoop(String),
-
-    #[error("Volume file is too large to preview ({size} bytes; limit {limit})")]
-    VolumeFileTooLarge { size: u64, limit: u64 },
-
-    #[error("Volume preview is unsupported: {0}")]
-    VolumePreviewUnsupported(String),
-
-    #[error("Volume file download failed: {0}")]
-    VolumeDownloadFailed(String),
-
-    #[error("Volume helper protocol error: {0}")]
-    VolumeHelperProtocolError(String),
-
     #[error("Docker operation conflicts with current state: {0}")]
+
     Conflict(String),
 
     #[error("Invalid Docker response: {0}")]

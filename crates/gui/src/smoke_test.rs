@@ -12,6 +12,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// Serializes tests that create Qt GUI objects (QGuiApplication, QML
+/// engines). Creating a second `QGuiApplication` from another thread while
+/// one already exists is undefined behavior in Qt and reliably deadlocks
+/// the test process, so engine-backed smoke tests must never overlap.
+static QT_GUI_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn assert_qml_loads(url: &str) {
     assert_qml_source_loads(url, None);
 }
@@ -154,6 +160,32 @@ fn volume_files_view_uses_single_fill_height_content_area() {
 }
 
 #[test]
+fn image_detail_panel_has_info_and_files_tabs() {
+    let source = include_str!("../qml/components/ImageDetailPanel.qml");
+    assert!(source.contains("QQC2.TabBar"));
+    assert!(source.contains("StackLayout"));
+    assert!(source.contains("ImageFilesView"));
+    assert!(
+        source.contains("import org.tuxstack.app"),
+        "ImageDetailPanel uses I18n.i18nd, so it must import the module that provides the I18n singleton; otherwise the tab texts silently evaluate empty"
+    );
+    assert!(source.contains("I18n.i18nd(\"tuxstack\", \"Info\")"));
+    assert!(source.contains("I18n.i18nd(\"tuxstack\", \"Files\")"));
+    assert!(source.contains("openImage"));
+    assert!(source.contains("closeImage"));
+    assert!(source.contains("setActive"));
+    assert!(source.contains("filesTabActiveChanged"));
+    let images_page = include_str!("../qml/pages/ImagesPage.qml");
+    assert!(images_page.contains("filesModel: root.filesModel"));
+    let main = include_str!("../qml/Main.qml");
+    assert!(main.contains("ImageFileListModel {"));
+    assert!(main.contains("id: imageFilesModel"));
+    assert!(main.contains("imageFilesModel.shutdown()"));
+    assert!(main.contains("filesModel: imageFilesModel"));
+    assert!(main.contains("imageFilesModel.setConnectionState(appController.dockerStatus,"));
+}
+
+#[test]
 fn networks_page_keeps_a_permanent_detail_panel() {
     let source = include_str!("../qml/pages/NetworksPage.qml");
     assert!(source.contains("RowLayout {"));
@@ -169,6 +201,7 @@ fn networks_page_keeps_a_permanent_detail_panel() {
 
 #[test]
 fn all_qml_components_load_without_errors() {
+    let _qt_guard = QT_GUI_LOCK.lock().unwrap();
     unsafe {
         std::env::set_var("QT_QPA_PLATFORM", "offscreen");
     }
@@ -208,6 +241,7 @@ fn all_qml_components_load_without_errors() {
         "components/VolumeDetailPanel.qml",
         "components/VolumeInfoView.qml",
         "components/VolumeFilesView.qml",
+        "components/ImageFilesView.qml",
         "components/VolumeUsedByList.qml",
         "components/VolumeKeyValueEditor.qml",
         "dialogs/CreateNetworkDialog.qml",
@@ -248,6 +282,7 @@ fn all_qml_components_load_without_errors() {
         "AppController",
         "ContainerListModel",
         "ImageListModel",
+        "ImageFileListModel",
         "NetworkListModel",
         "VolumeListModel",
         "VolumeFileListModel",
@@ -282,6 +317,35 @@ Item {
     assert_qml_source_loads(
         "qrc:/qt/qml/org/tuxstack/app/tests/ImageModelApi.qml",
         Some(image_model_api),
+    );
+
+    let image_file_model_api = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    ImageFileListModel { id: filesModel }
+    property string state: filesModel.filesState
+    property string imageId: filesModel.imageId
+    property string currentPath: filesModel.currentPath
+    property bool canGoBack: filesModel.canGoBack
+    property bool canGoUp: filesModel.canGoUp
+    property bool showHidden: filesModel.showHidden
+    property string search: filesModel.searchQuery
+    property string sort: filesModel.sortColumn
+    property bool sortDesc: filesModel.sortDescending
+    property string selected: filesModel.selectedEntryPath
+    property int count: filesModel.count
+    property bool truncated: filesModel.truncated
+    property var crumbs: filesModel.breadcrumbModel
+    property bool active: filesModel.active
+    property string previewError: filesModel.previewError
+    property bool downloading: filesModel.downloadInProgress
+    property var properties: filesModel.propertiesModel
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/ImageFileModelApi.qml",
+        Some(image_file_model_api),
     );
 
     let network_model_api = r#"
@@ -994,6 +1058,227 @@ Item {
         Some(volume_files_states),
     );
 
+    // ImageFilesView reuses the volume browser layout but surfaces the
+    // image "unsupported" state and image-specific strings.
+    let image_files_states = r#"
+import QtQuick
+import QtQuick.Layouts
+import org.tuxstack.app
+Item {
+    width: 920
+    height: 720
+    ColumnLayout {
+        anchors.fill: parent
+        ImageFilesView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            filesModel: QtObject {
+                property string filesState: "unsupported"
+                property string errorMessage: ""
+                property bool canGoBack: false
+                property bool canGoUp: false
+                property bool showHidden: false
+                property string searchQuery: ""
+                property string sortColumn: "name"
+                property bool sortDescending: false
+                property string selectedEntryPath: ""
+                property int count: 0
+                property bool truncated: false
+                property var breadcrumbModel: [{ label: "sha256:abcdef", path: "/" }]
+                property bool previewLoading: false
+                property string previewName: ""
+                property string previewPath: ""
+                property bool previewIsText: false
+                property bool previewIsImage: false
+                property bool previewIsBinary: false
+                property string previewText: ""
+                property string previewMime: ""
+                property string previewSizeText: ""
+                property bool previewTruncated: false
+                property string previewParseError: ""
+                property string previewImagePath: ""
+                property var propertiesModel: []
+                function setActive(a) {}
+                function openImage(i) {}
+                function closeImage() {}
+                function refresh() {}
+                function openEntry(p) {}
+                function goBack() {}
+                function goUp() {}
+                function navigateTo(p) {}
+                function setSearchQuery(q) {}
+                function setShowHidden(s) {}
+                function toggleSort(c) {}
+                function selectEntry(p) {}
+                function loadProperties(p) {}
+                function retry() {}
+                function cancelPreview() {}
+                function downloadEntry(p, d) {}
+            }
+        }
+        ImageFilesView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            filesModel: QtObject {
+                property string filesState: "ready"
+                property string errorMessage: ""
+                property bool canGoBack: true
+                property bool canGoUp: true
+                property bool showHidden: false
+                property string searchQuery: ""
+                property string sortColumn: "name"
+                property bool sortDescending: false
+                property string selectedEntryPath: "/etc"
+                property int count: 2
+                property bool truncated: false
+                property var breadcrumbModel: [{ label: "ubuntu:24.04", path: "/" }, { label: "etc", path: "/etc" }]
+                property bool previewLoading: false
+                property string previewName: ""
+                property string previewPath: ""
+                property bool previewIsText: false
+                property bool previewIsImage: false
+                property bool previewIsBinary: false
+                property string previewText: ""
+                property string previewMime: ""
+                property string previewSizeText: ""
+                property bool previewTruncated: false
+                property string previewParseError: ""
+                property string previewImagePath: ""
+                property var propertiesModel: []
+                function setActive(a) {}
+                function openImage(i) {}
+                function closeImage() {}
+                function refresh() {}
+                function openEntry(p) {}
+                function goBack() {}
+                function goUp() {}
+                function navigateTo(p) {}
+                function setSearchQuery(q) {}
+                function setShowHidden(s) {}
+                function toggleSort(c) {}
+                function selectEntry(p) {}
+                function loadProperties(p) {}
+                function retry() {}
+                function cancelPreview() {}
+                function downloadEntry(p, d) {}
+            }
+        }
+    }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/ImageFilesStates.qml",
+        Some(image_files_states),
+    );
+
+    // Exercise the Image Files tab inside the detail panel: a selected image
+    // with a ready fake files model.
+    let image_files_tab = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    width: 920
+    height: 900
+    QtObject {
+        id: imageModel
+        property bool detailLoading: false
+        property string detailState: "ready"
+        property string detailError: ""
+        property string detailErrorKind: ""
+        property bool exporting: false
+        property string selectedImageId: "sha256:abcdef"
+        property var detail: ({
+            imageId: "sha256:abcdef", shortId: "abcdef",
+            displayName: "ubuntu:24.04", repoTags: ["ubuntu:24.04"],
+            tagsText: "ubuntu:24.04", createdText: "3 days ago",
+            createdFullText: "Jul 22, 2026 12:40 UTC", sizeText: "1.2 GiB",
+            platform: "linux/amd64", architecture: "amd64", os: "linux",
+            commandText: "[\"/bin/sh\"]", entrypointText: "—",
+            workingDir: "/", user: "root", stopSignal: "SIGTERM"
+        })
+        property var environmentRows: []
+        property var labelRows: []
+        property var environmentModel: []
+        property var labelModel: []
+        property var usageModel: []
+        function setEnvironmentSearchQuery(query) {}
+        function setEnvironmentSortAscending(ascending) {}
+        function setLabelSearchQuery(query) {}
+        function setLabelSortAscending(ascending) {}
+        function reloadSelectedImage() {}
+    }
+    QtObject {
+        id: filesModel
+        property string filesState: "ready"
+        property string errorMessage: ""
+        property string errorKind: ""
+        property string imageId: "sha256:abcdef"
+        property string currentPath: "/"
+        property bool canGoBack: false
+        property bool canGoUp: false
+        property bool showHidden: false
+        property string searchQuery: ""
+        property string sortColumn: "name"
+        property bool sortDescending: false
+        property bool directoriesFirst: true
+        property string selectedEntryPath: ""
+        property bool loading: false
+        property int count: 2
+        property bool truncated: false
+        property bool active: true
+        property var breadcrumbModel: [{ label: "sha256:abcdef", path: "/" }]
+        property bool previewLoading: false
+        property string previewName: ""
+        property string previewPath: ""
+        property string previewKind: ""
+        property string previewText: ""
+        property string previewMime: ""
+        property string previewSizeText: ""
+        property bool previewTruncated: false
+        property bool previewIsImage: false
+        property bool previewIsText: false
+        property bool previewIsBinary: false
+        property string previewParseError: ""
+        property string previewImagePath: ""
+        property string previewError: ""
+        property bool downloadInProgress: false
+        property var propertiesModel: []
+        function setActive(active) {}
+        function openImage(imageId) {}
+        function closeImage() {}
+        function refresh() {}
+        function openEntry(path) {}
+        function goBack() {}
+        function goUp() {}
+        function navigateTo(path) {}
+        function setSearchQuery(query) {}
+        function setShowHidden(show) {}
+        function setSort(column, descending) {}
+        function toggleSort(column) {}
+        function selectEntry(path) {}
+        function previewEntry(path) {}
+        function cancelPreview() {}
+        function downloadEntry(path, destination) {}
+        function cancelDownload() {}
+        function loadProperties(path) {}
+        function retry() {}
+        function rowCount() { return 2 }
+        function data(index, role) { return "" }
+    }
+    // Files tab selected so ImageFilesView layout is exercised.
+    ImageDetailPanel {
+        anchors.fill: parent
+        imagesModel: imageModel
+        filesModel: filesModel
+        detailTabIndex: 1
+    }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/ImageFilesTab.qml",
+        Some(image_files_tab),
+    );
+
     // Keep every operation dialog alive against populated state, including a
     // prune candidate and in-progress/error branches used by dialog bindings.
     let populated_volume_dialogs = r#"
@@ -1055,3 +1340,89 @@ Item {
 
     drop(app);
 }
+
+
+#[test]
+fn image_detail_tabs_render_text_at_runtime() {
+    let _qt_guard = QT_GUI_LOCK.lock().unwrap();
+    unsafe {
+        std::env::set_var("QT_QPA_PLATFORM", "offscreen");
+    }
+    crate::runtime::init();
+    let app = QGuiApplication::new();
+    assert!(!app.is_null());
+
+    let source = r#"
+import QtQuick
+import QtQuick.Controls as QQC2
+import org.tuxstack.app
+Item {
+    id: host
+    property QtObject fakeImages: QtObject {
+        property string selectedImageId: "sha256:abc"
+        property string detailState: "ready"
+        property var detail: null
+        function reloadSelectedImage() {}
+    }
+    ImageDetailPanel {
+        id: panel
+        anchors.fill: parent
+        imagesModel: host.fakeImages
+        filesModel: null
+    }
+    Component.onCompleted: {
+        let texts = []
+        function walk(o) {
+            for (let i = 0; i < o.children.length; i++) {
+                const c = o.children[i]
+                if (c instanceof QQC2.TabBar) {
+                    for (let j = 0; j < c.contentChildren.length; j++) {
+                        // Reading .text forces lazy binding evaluation, which
+                        // is where an unresolved I18n would surface.
+                        texts.push(String(c.contentChildren[j].text))
+                    }
+                }
+                walk(c)
+            }
+        }
+        walk(panel)
+        host.objectName = "TABTEXT:" + texts.join("|")
+    }
+}
+"#;
+    let mut engine = QQmlApplicationEngine::new();
+    let text = Arc::new(std::sync::Mutex::new(String::new()));
+    let captured = text.clone();
+    if let Some(mut engine) = engine.as_mut() {
+        {
+            let qml_engine: Pin<&mut QQmlEngine> = engine.as_mut().upcast_pin();
+            qml_engine.set_output_warnings_to_standard_error(true);
+        }
+        engine
+            .as_mut()
+            .on_object_created(move |_, object, _| {
+                if object.is_null() {
+                    return;
+                }
+                let qobject: &cxx_qt::QObject = unsafe { &*object };
+                use cxx_qt_lib::QObjectExt;
+                let name = qobject.object_name().to_string();
+                if name.starts_with("TABTEXT:") {
+                    *captured.lock().unwrap() = name;
+                }
+            })
+            .release();
+        engine.load_data(
+            &QByteArray::from(source),
+            &QUrl::from("qrc:/qt/qml/org/tuxstack/app/tests/ImageDetailTabsText.qml"),
+        );
+    }
+    let result = text.lock().unwrap().clone();
+    eprintln!("runtime tab texts: {result:?}");
+    assert!(
+        result.starts_with("TABTEXT:Info|Files"),
+        "Image detail tabs must render 'Info' and 'Files' text; got {result:?}. \
+         This usually means the I18n singleton is not in scope (missing `import org.tuxstack.app`)."
+    );
+}
+

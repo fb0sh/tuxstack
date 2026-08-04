@@ -20,7 +20,7 @@ still being added and the API may change.
 | Volume list             | Implemented   |
 | Compose                 | Planned       |
 | Terminal                | Planned       |
-| Files                   | Planned       |
+| Files                   | Implemented   |
 | Incus                   | Future consideration |
 
 What works today:
@@ -29,17 +29,22 @@ What works today:
   system fonts and colors). Pages for Overview, Containers (search,
   state filter, start/stop/restart/remove, details, logs, stats,
   inspect), Docker Images (usage grouping, search, sorting, typed details,
-  remove, pull progress, and streaming export), Networks, Volumes, plus
-  honest placeholders for later phases. Live log following uses a capped
-  line buffer; image operations never use mock progress or mock data.
+  remove, pull progress, streaming export, and read-only file browsing in
+  an Info/Files tab layout), Networks, Volumes (including read-only file
+  browsing with download/open/properties), plus honest placeholders for
+  later phases. Live log following uses a capped line buffer; image
+  operations never use mock progress or mock data. Browsing an image's
+  filesystem runs a hardened, read-only temporary container from the
+  selected image; images without a shell (scratch, distroless) show an
+  explanatory "cannot be browsed" state instead of failing silently.
 
 TuxStack is a GUI-only application. It does not install or maintain a
 separate command-line frontend.
 
 What is deliberately **not** included yet: Compose projects, container
-terminal, file browser, image build/tag/push/prune, persistent registry
-accounts, remote-engine UI, Incus, and Podman. No mock data is used for
-any of these.
+terminal, container-filesystem browsing, image build/tag/push/prune,
+persistent registry accounts, remote-engine UI, Incus, and Podman. No
+mock data is used for any of these.
 
 ## Screenshots
 
@@ -172,6 +177,9 @@ cargo test -p tuxstack-docker-core --test docker -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test containers -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test images -- --ignored --nocapture
 cargo test -p tuxstack-docker-core --test networks -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test volumes -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test volume_files -- --ignored --nocapture
+cargo test -p tuxstack-docker-core --test image_files -- --ignored --nocapture
 ```
 
 Test containers use the unique prefix `tuxstack-test-<uuid>` and are
@@ -193,8 +201,9 @@ removed even on failure.
 ## Roadmap
 
 See [docs/roadmap.md](docs/roadmap.md) for the planned direction:
-Compose, Terminal, Files, image build/tag/push/prune, persistent registry
-accounts, Docker contexts, remote engines, and a future Incus integration.
+Compose, Terminal, container file browsing, image build/tag/push/prune,
+persistent registry accounts, Docker contexts, remote engines, and a
+future Incus integration.
 
 ## Documentation
 

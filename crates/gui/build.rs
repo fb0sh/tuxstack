@@ -46,6 +46,7 @@ fn main() {
                 "qml/components/VolumeDetailPanel.qml",
                 "qml/components/VolumeInfoView.qml",
                 "qml/components/VolumeFilesView.qml",
+                "qml/components/ImageFilesView.qml",
                 "qml/components/VolumeUsedByList.qml",
                 "qml/components/VolumeKeyValueEditor.qml",
                 "qml/dialogs/CreateNetworkDialog.qml",

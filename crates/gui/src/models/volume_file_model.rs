@@ -1,7 +1,7 @@
 //! View mapping helpers for volume file rows and previews.
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::{VolumeFileEntry, VolumeFileType, format};
+use tuxstack_docker_core::{FilesystemEntry, FilesystemEntryType, format};
 
 #[derive(Debug, Clone)]
 pub struct VolumeFileRow {
@@ -23,19 +23,20 @@ pub struct VolumeFileRow {
     pub owner_text: String,
 }
 
-pub fn map_file_row(entry: &VolumeFileEntry) -> VolumeFileRow {
+/// Map a `FilesystemEntry` from the unified filesystem service to a GUI row.
+pub fn map_filesystem_row(entry: &FilesystemEntry) -> VolumeFileRow {
     let size_known = entry.size_bytes.is_some() && !entry.entry_type.is_directory();
     let size_bytes = entry.size_bytes.unwrap_or(0) as i64;
     VolumeFileRow {
-        name: entry.name.clone(),
-        display_name: entry.name.clone(),
-        path: entry.path.display(),
+        name: entry.display_name.clone(),
+        display_name: entry.display_name.clone(),
+        path: entry.path_display(),
         entry_type: entry.entry_type.as_str().into(),
-        icon_name: icon_for_entry(entry).into(),
+        icon_name: icon_for_filesystem_entry(entry).into(),
         size_bytes,
         size_known,
         size_text: if entry.entry_type.is_directory() {
-            "—".into()
+            "\u{2014}".into()
         } else if let Some(size) = entry.size_bytes {
             format::bytes(size)
         } else {
@@ -46,24 +47,24 @@ pub fn map_file_row(entry: &VolumeFileEntry) -> VolumeFileRow {
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
         modified_text: format_modified(entry.modified_at),
-        kind_text: kind_text(entry),
+        kind_text: kind_text_filesystem(entry),
         hidden: entry.hidden,
         readable: entry.readable,
-        symlink_target: entry.symlink_target.clone().unwrap_or_default(),
+        symlink_target: entry.symlink_target_display.clone().unwrap_or_default(),
         mode_text: format_mode(entry.mode),
         owner_text: format_owner(entry.uid, entry.gid),
     }
 }
 
-pub fn icon_for_entry(entry: &VolumeFileEntry) -> &'static str {
+fn icon_for_filesystem_entry(entry: &FilesystemEntry) -> &'static str {
     match entry.entry_type {
-        VolumeFileType::Directory => "folder",
-        VolumeFileType::SymbolicLink => "emblem-symbolic-link",
-        VolumeFileType::Socket => "network-server",
-        VolumeFileType::Fifo => "inode-fifo",
-        VolumeFileType::BlockDevice | VolumeFileType::CharacterDevice => "drive-harddisk",
-        VolumeFileType::Unknown => "unknown",
-        VolumeFileType::RegularFile => icon_for_name(&entry.name),
+        FilesystemEntryType::Directory => "folder",
+        FilesystemEntryType::SymbolicLink => "emblem-symbolic-link",
+        FilesystemEntryType::Socket => "network-server",
+        FilesystemEntryType::Fifo => "inode-fifo",
+        FilesystemEntryType::BlockDevice | FilesystemEntryType::CharacterDevice => "drive-harddisk",
+        FilesystemEntryType::Unknown => "unknown",
+        FilesystemEntryType::RegularFile => icon_for_name(&entry.display_name),
     }
 }
 
@@ -108,41 +109,43 @@ fn icon_for_name(name: &str) -> &'static str {
     }
 }
 
-pub fn kind_text(entry: &VolumeFileEntry) -> String {
+fn kind_text_filesystem(entry: &FilesystemEntry) -> String {
     match entry.entry_type {
-        VolumeFileType::Directory => "Folder".into(),
-        VolumeFileType::SymbolicLink => {
-            if let Some(target) = &entry.symlink_target {
-                format!("Symbolic Link → {target}")
+        FilesystemEntryType::Directory => "Folder".into(),
+        FilesystemEntryType::SymbolicLink => {
+            if let Some(target) = &entry.symlink_target_display {
+                format!("Symbolic Link \u{2192} {target}")
             } else {
                 "Symbolic Link".into()
             }
         }
-        VolumeFileType::Socket => "Socket".into(),
-        VolumeFileType::Fifo => "FIFO".into(),
-        VolumeFileType::BlockDevice => "Block Device".into(),
-        VolumeFileType::CharacterDevice => "Character Device".into(),
-        VolumeFileType::Unknown => "Unknown".into(),
-        VolumeFileType::RegularFile => {
-            let lower = entry.name.to_ascii_lowercase();
-            if lower.ends_with(".json") {
-                "JSON Document".into()
-            } else if lower.ends_with(".png") {
-                "PNG Image".into()
-            } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-                "JPEG Image".into()
-            } else if lower.ends_with(".gif") {
-                "GIF Image".into()
-            } else if lower.ends_with(".webp") {
-                "WebP Image".into()
-            } else if lower.ends_with(".svg") {
-                "SVG Image".into()
-            } else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".md") {
-                "Text Document".into()
-            } else {
-                "File".into()
-            }
-        }
+        FilesystemEntryType::Socket => "Socket".into(),
+        FilesystemEntryType::Fifo => "FIFO".into(),
+        FilesystemEntryType::BlockDevice => "Block Device".into(),
+        FilesystemEntryType::CharacterDevice => "Character Device".into(),
+        FilesystemEntryType::Unknown => "Unknown".into(),
+        FilesystemEntryType::RegularFile => kind_for_file_name(&entry.display_name),
+    }
+}
+
+fn kind_for_file_name(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".json") {
+        "JSON Document".into()
+    } else if lower.ends_with(".png") {
+        "PNG Image".into()
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "JPEG Image".into()
+    } else if lower.ends_with(".gif") {
+        "GIF Image".into()
+    } else if lower.ends_with(".webp") {
+        "WebP Image".into()
+    } else if lower.ends_with(".svg") {
+        "SVG Image".into()
+    } else if lower.ends_with(".txt") || lower.ends_with(".log") || lower.ends_with(".md") {
+        "Text Document".into()
+    } else {
+        "File".into()
     }
 }
 

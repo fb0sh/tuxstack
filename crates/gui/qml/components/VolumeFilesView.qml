@@ -29,6 +29,20 @@ Item {
     property var filesModel: null
     property var volumesModel: null
 
+    /**
+     * Which resource kind is being browsed: "volume" or "image". Only the
+     * user-facing strings differ between the two.
+     */
+    property string viewKind: "volume"
+    readonly property bool isImage: root.viewKind === "image"
+
+    // String overrides (ImageFilesView sets the image variants).
+    property string filesErrorTitle: I18n.i18nd("tuxstack", "Volume files could not be loaded.")
+    property string unsupportedTitle: I18n.i18nd("tuxstack", "A helper image is required to browse this volume.")
+    property string unsupportedExplanation: I18n.i18nd("tuxstack", "Pull alpine:3.20 to browse volume files.")
+    property string startingMessage: I18n.i18nd("tuxstack", "Preparing read-only volume access…")
+    property string saveAsTitle: I18n.i18nd("tuxstack", "Save Volume File As")
+
     readonly property string filesState: root.filesModel
                                         ? String(root.filesModel.filesState).toLowerCase()
                                         : "idle"
@@ -41,6 +55,7 @@ Item {
     readonly property bool showEmpty: root.filesState === "empty"
     readonly property bool showError: root.filesState === "error"
     readonly property bool showHelperRequired: root.filesState === "helper_image_required"
+                                               || (root.isImage && root.filesState === "unsupported")
 
     signal notificationRequested(string message)
 
@@ -470,7 +485,7 @@ Item {
                 height: Kirigami.Units.gridUnit * 8
                 visible: root.showStarting || root.showLoading
                 message: root.showStarting
-                         ? I18n.i18nd("tuxstack", "Preparing read-only volume access…")
+                         ? root.startingMessage
                          : I18n.i18nd("tuxstack", "Loading folder…")
             }
 
@@ -489,7 +504,7 @@ Item {
                                 Kirigami.Units.gridUnit * 24)
                 visible: root.showError
                 icon.name: "dialog-error"
-                text: I18n.i18nd("tuxstack", "Volume files could not be loaded.")
+                text: root.filesErrorTitle
                 explanation: root.filesModel ? root.filesModel.errorMessage : ""
                 helpfulAction: Kirigami.Action {
                     text: I18n.i18nd("tuxstack", "Retry")
@@ -504,10 +519,12 @@ Item {
                                 Kirigami.Units.gridUnit * 24)
                 visible: root.showHelperRequired
                 icon.name: "download"
-                text: I18n.i18nd("tuxstack", "A helper image is required to browse this volume.")
-                explanation: root.filesModel
-                             ? root.filesModel.errorMessage
-                             : I18n.i18nd("tuxstack", "Pull alpine:3.20 to browse volume files.")
+                text: root.unsupportedTitle
+                explanation: root.isImage
+                             ? root.unsupportedExplanation
+                             : (root.filesModel && root.filesModel.errorMessage.length > 0
+                                ? root.filesModel.errorMessage
+                                : root.unsupportedExplanation)
                 helpfulAction: Kirigami.Action {
                     text: I18n.i18nd("tuxstack", "Retry")
                     icon.name: "view-refresh"
@@ -536,7 +553,7 @@ Item {
     FileDialog {
         id: downloadDialog
         property string entryPath: ""
-        title: I18n.i18nd("tuxstack", "Save Volume File As")
+        title: root.saveAsTitle
         fileMode: FileDialog.SaveFile
         acceptLabel: I18n.i18nd("tuxstack", "Save")
         onAccepted: {

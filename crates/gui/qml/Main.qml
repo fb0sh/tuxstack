@@ -62,12 +62,17 @@ Kirigami.ApplicationWindow {
         id: volumeFilesModel
     }
 
+    ImageFileListModel {
+        id: imageFilesModel
+    }
+
     Component.onCompleted: appController.startup()
     onClosing: {
         imagesModel.shutdown()
         networksModel.shutdown()
         volumesModel.shutdown()
         volumeFilesModel.shutdown()
+        imageFilesModel.shutdown()
     }
 
     Connections {
@@ -82,6 +87,8 @@ Kirigami.ApplicationWindow {
                                             appController.dockerStatusText)
             volumeFilesModel.setConnectionState(appController.dockerStatus,
                                                 appController.dockerStatusText)
+            imageFilesModel.setConnectionState(appController.dockerStatus,
+                                               appController.dockerStatusText)
         }
 
         function onDockerStatusTextChanged() {
@@ -94,6 +101,8 @@ Kirigami.ApplicationWindow {
                                                 appController.dockerStatusText)
                 volumeFilesModel.setConnectionState(appController.dockerStatus,
                                                     appController.dockerStatusText)
+                imageFilesModel.setConnectionState(appController.dockerStatus,
+                                                   appController.dockerStatusText)
             }
         }
 
@@ -211,6 +220,7 @@ Kirigami.ApplicationWindow {
             ContainersPage { }
             ImagesPage {
                 imagesModel: imagesModel
+                filesModel: imageFilesModel
                 onContainerNavigationRequested: function(containerId) {
                     imagesModel.requestContainerNavigation(containerId)
                 }

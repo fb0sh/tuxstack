@@ -1,0 +1,18 @@
+[package]
+name = "tuxstack-fs-protocol"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+description = "JSON Lines protocol shared by the tuxstack-fs-helper binary and the TuxStack filesystem browsing service"
+
+# Pure protocol crate: no Docker, Qt, Tokio, or platform UI dependencies.
+# Both the static helper binary and the daemon-side service depend on it so
+# message shapes, file types, error codes and the path token format can never
+# drift apart.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]

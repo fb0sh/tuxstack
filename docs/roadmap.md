@@ -14,11 +14,17 @@ separately; no shell-command splicing. The GUI already shows an honest
 A real PTY-based terminal (planned); no fake terminal.
 
 ### Container files
-File browser/copy in/out (planned); no fake file manager.
+File browser/copy in/out (planned); no fake file manager. (Volume and
+image file browsing are already implemented; container filesystems remain
+a separate future feature.)
 
 ### Image operations
 Pull, remove, inspect, and streaming export are implemented with real
-Docker progress/data. Build, tag, push, and prune remain planned.
+Docker progress/data. Read-only image file browsing (list, open, save-as,
+properties) is implemented through a hardened temporary container created
+from the selected image; images without a shell or basic utilities
+(scratch, distroless, wrong-arch, windows) are reported as un-browsable.
+Build, tag, push, and prune remain planned.
 
 ### Volume operations
 List, inspect, usage association, create, remove, prune, export, clone, and

@@ -16,6 +16,7 @@ Kirigami.Page {
      * page and its components can be loaded before the CXX-Qt object is wired.
      */
     property var imagesModel: null
+    property var filesModel: null
     property bool controllerInitialized: false
     property string pendingExportImageId: ""
     property string pendingExportName: ""
@@ -96,6 +97,7 @@ Kirigami.Page {
             Layout.fillHeight: true
             Layout.minimumWidth: Kirigami.Units.gridUnit * 16
             imagesModel: root.imagesModel
+            filesModel: root.filesModel
 
             onExportRequested: function(imageId, displayName, shortId) {
                 root.pendingExportImageId = imageId
@@ -107,6 +109,9 @@ Kirigami.Page {
             }
             onContainerRequested: function(containerId) {
                 root.containerNavigationRequested(containerId)
+            }
+            onNotificationRequested: function(message) {
+                root.notify(message)
             }
         }
     }

@@ -1,11 +1,15 @@
-//! Volume preview session pool and per-directory cache.
+//! Preview session pool and per-directory cache.
 //!
 //! Creating a helper container is expensive (image check, container create,
-//! start). Switching between Info and Files tabs, or between volumes, should
-//! never rebuild a session that still exists. This pool keeps a bounded
-//! number of live sessions keyed by volume name with an idle TTL and LRU
-//! eviction, and caches recently listed directory contents (memory only —
-//! filenames are sensitive and never persisted).
+//! start). Switching between Info and Files tabs, or between resources,
+//! should never rebuild a session that still exists. This pool keeps a
+//! bounded number of live sessions keyed by resource name with an idle TTL
+//! and LRU eviction, and caches recently listed directory contents (memory
+//! only — filenames are sensitive and never persisted).
+//!
+//! The pool is generic over the session type so volume preview helpers and
+//! image preview helpers share the same bookkeeping; the default type
+//! parameter uses `FilesystemSession` from the unified filesystem service.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -13,8 +17,21 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-use crate::models::VolumeFileEntry;
-use crate::models::volume_file::VolumePreviewSession;
+use crate::services::filesystem::types::{FilesystemEntry, FilesystemSession};
+
+/// Derive the pool key (volume name / image id) from a preview session.
+pub trait PoolKey {
+    fn pool_key(&self) -> &str;
+}
+
+impl PoolKey for FilesystemSession {
+    fn pool_key(&self) -> &str {
+        match &self.source {
+            crate::services::filesystem::types::FilesystemSource::Image { image_id, .. } => image_id,
+            crate::services::filesystem::types::FilesystemSource::Volume { volume_name } => volume_name,
+        }
+    }
+}
 
 /// State of a pooled session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,16 +44,16 @@ pub enum PreviewSessionState {
 
 /// A cached preview session with its own directory cache.
 #[derive(Debug, Clone)]
-pub struct CachedPreviewSession {
-    pub session: VolumePreviewSession,
+pub struct CachedPreviewSession<S = FilesystemSession> {
+    pub session: S,
     pub state: PreviewSessionState,
     pub last_used_at: Instant,
 }
 
-/// Cached directory listing for one volume path.
+/// Cached directory listing for one path.
 #[derive(Debug, Clone)]
 pub struct CachedDirectory {
-    pub entries: Arc<Vec<VolumeFileEntry>>,
+    pub entries: Arc<Vec<FilesystemEntry>>,
     pub fetched_at: Instant,
     pub generation: u64,
 }
@@ -62,20 +79,30 @@ impl Default for PreviewSessionPoolConfig {
     }
 }
 
-/// Session pool + directory cache shared by the Volume Files page.
+/// Session pool + directory cache shared by the file-browsing pages.
 #[derive(Clone)]
-pub struct PreviewSessionPool {
-    inner: Arc<Mutex<PoolInner>>,
+pub struct PreviewSessionPool<S = FilesystemSession> {
+    inner: Arc<Mutex<PoolInner<S>>>,
     config: PreviewSessionPoolConfig,
 }
 
-#[derive(Default)]
-struct PoolInner {
-    sessions: HashMap<String, CachedPreviewSession>,
+struct PoolInner<S> {
+    sessions: HashMap<String, CachedPreviewSession<S>>,
     /// LRU order for idle eviction: front = least recently used.
     lru: VecDeque<String>,
     directories: HashMap<(String, String), CachedDirectory>,
     generation: u64,
+}
+
+impl<S> Default for PoolInner<S> {
+    fn default() -> Self {
+        Self {
+            sessions: HashMap::new(),
+            lru: VecDeque::new(),
+            directories: HashMap::new(),
+            generation: 0,
+        }
+    }
 }
 
 impl Default for PreviewSessionPool {
@@ -84,9 +111,9 @@ impl Default for PreviewSessionPool {
     }
 }
 
-impl PreviewSessionPool {
+impl<S> PreviewSessionPool<S> {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_config(PreviewSessionPoolConfig::default())
     }
 
     pub fn with_config(config: PreviewSessionPoolConfig) -> Self {
@@ -100,36 +127,42 @@ impl PreviewSessionPool {
         &self.config
     }
 
-    /// Return a live session for `volume_name`, marking it active.
-    pub async fn acquire(&self, volume_name: &str) -> Option<VolumePreviewSession> {
+    /// Return a live session for `key` (volume name or image id), marking it active.
+    pub async fn acquire(&self, key: &str) -> Option<S>
+    where
+        S: Clone,
+    {
         let mut inner = self.inner.lock().await;
-        let entry = inner.sessions.get_mut(volume_name)?;
+        let entry = inner.sessions.get_mut(key)?;
         entry.state = PreviewSessionState::Active;
         entry.last_used_at = Instant::now();
-        let name = entry.session.volume_name.clone();
-        let session = inner.sessions.get(&name)?.session.clone();
+        let session = inner.sessions.get(key)?.session.clone();
+        let name = key.to_string();
         inner.lru.retain(|existing| existing != &name);
         Some(session)
     }
 
     /// Check whether a live session exists without marking it active.
-    pub async fn contains(&self, volume_name: &str) -> bool {
-        self.inner.lock().await.sessions.contains_key(volume_name)
+    pub async fn contains(&self, key: &str) -> bool {
+        self.inner.lock().await.sessions.contains_key(key)
     }
 
     /// Insert a freshly created session.
-    pub async fn insert(&self, session: VolumePreviewSession) {
+    pub async fn insert(&self, session: S)
+    where
+        S: Clone + PoolKey,
+    {
         let mut inner = self.inner.lock().await;
-        let volume_name = session.volume_name.clone();
+        let key = session.pool_key().to_string();
         inner.sessions.insert(
-            volume_name.clone(),
+            key.clone(),
             CachedPreviewSession {
                 session,
                 state: PreviewSessionState::Active,
                 last_used_at: Instant::now(),
             },
         );
-        inner.lru.retain(|existing| existing != &volume_name);
+        inner.lru.retain(|existing| existing != &key);
         // Enforce the session cap: evict the least-recently-used idle session.
         while inner.sessions.len() > self.config.max_sessions {
             let evict = inner
@@ -152,30 +185,30 @@ impl PreviewSessionPool {
     }
 
     /// Mark a session idle (page switched away) without destroying it.
-    pub async fn release(&self, volume_name: &str) {
+    pub async fn release(&self, key: &str) {
         let mut inner = self.inner.lock().await;
-        if let Some(entry) = inner.sessions.get_mut(volume_name) {
+        if let Some(entry) = inner.sessions.get_mut(key) {
             entry.state = PreviewSessionState::Idle;
             entry.last_used_at = Instant::now();
         }
-        let name = volume_name.to_string();
+        let name = key.to_string();
         inner.lru.retain(|existing| existing != &name);
         inner.lru.push_back(name);
     }
 
     /// Remove a session from the pool; returns it for cleanup by the caller.
-    pub async fn take(&self, volume_name: &str) -> Option<VolumePreviewSession> {
+    pub async fn take(&self, key: &str) -> Option<S> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.remove(volume_name)?.session;
-        let name = volume_name.to_string();
+        let session = inner.sessions.remove(key)?.session;
+        let name = key.to_string();
         inner.lru.retain(|existing| existing != &name);
-        inner.directories.retain(|(name, _), _| name != volume_name);
+        inner.directories.retain(|(name, _), _| name != key);
         Some(session)
     }
 
     /// Stop idle sessions whose idle TTL has expired. Returns the list of
     /// sessions the caller must stop (containers to remove).
-    pub async fn evict_expired(&self) -> Vec<VolumePreviewSession> {
+    pub async fn evict_expired(&self) -> Vec<S> {
         let mut inner = self.inner.lock().await;
         let mut to_stop = Vec::new();
         let expired: Vec<String> = inner
@@ -197,9 +230,9 @@ impl PreviewSessionPool {
     }
 
     /// Return every live session for shutdown cleanup.
-    pub async fn drain_all(&self) -> Vec<VolumePreviewSession> {
+    pub async fn drain_all(&self) -> Vec<S> {
         let mut inner = self.inner.lock().await;
-        let sessions: Vec<VolumePreviewSession> = inner
+        let sessions: Vec<S> = inner
             .sessions
             .drain()
             .map(|(_, entry)| entry.session)
@@ -227,11 +260,11 @@ impl PreviewSessionPool {
     /// Return a cached directory listing if fresh within the directory TTL.
     pub async fn directory_hit(
         &self,
-        volume_name: &str,
+        resource_key: &str,
         path: &str,
-    ) -> Option<Arc<Vec<VolumeFileEntry>>> {
+    ) -> Option<Arc<Vec<FilesystemEntry>>> {
         let mut inner = self.inner.lock().await;
-        let key = (volume_name.to_string(), path.to_string());
+        let key = (resource_key.to_string(), path.to_string());
         let entry = inner.directories.get(&key)?;
         if entry.fetched_at.elapsed() >= self.config.directory_ttl {
             inner.directories.remove(&key);
@@ -243,15 +276,15 @@ impl PreviewSessionPool {
     /// Store a fresh directory listing and bump the generation.
     pub async fn directory_put(
         &self,
-        volume_name: &str,
+        resource_key: &str,
         path: &str,
-        entries: Vec<VolumeFileEntry>,
+        entries: Vec<FilesystemEntry>,
     ) {
         let mut inner = self.inner.lock().await;
         inner.generation = inner.generation.wrapping_add(1);
         let generation = inner.generation;
         inner.directories.insert(
-            (volume_name.to_string(), path.to_string()),
+            (resource_key.to_string(), path.to_string()),
             CachedDirectory {
                 entries: Arc::new(entries),
                 fetched_at: Instant::now(),
@@ -272,14 +305,22 @@ impl PreviewSessionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::filesystem::types::{FilesystemSource, FilesystemSession};
+    use chrono::Utc;
 
-    fn session(name: &str, id: u32) -> VolumePreviewSession {
-        VolumePreviewSession {
-            id: uuid::Uuid::new_v4(),
-            volume_name: name.to_string(),
+    fn session(name: &str, id: u32) -> FilesystemSession {
+        FilesystemSession {
             container_id: format!("container-{id}"),
-            container_name: format!("tuxstack-volume-preview-{id}"),
-            started_at: chrono::Utc::now(),
+            container_name: format!("tuxstack-fs-helper-{id}"),
+            source: FilesystemSource::Volume {
+                volume_name: name.to_string(),
+            },
+            root: "/volume".into(),
+            helper_path: "/usr/local/bin/tuxstack-fs-helper".into(),
+            protocol_version: 1,
+            helper_version: "0.1.0".into(),
+            read_only: true,
+            created_at: Utc::now(),
         }
     }
 
@@ -354,7 +395,7 @@ mod tests {
             directory_ttl: Duration::from_millis(40),
             ..Default::default()
         };
-        let pool = PreviewSessionPool::with_config(config);
+        let pool: PreviewSessionPool<FilesystemSession> = PreviewSessionPool::with_config(config);
         assert!(pool.directory_hit("data", "/").await.is_none());
         pool.directory_put("data", "/", vec![]).await;
         assert!(pool.directory_hit("data", "/").await.is_some());

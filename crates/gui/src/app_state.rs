@@ -11,7 +11,7 @@ use tuxstack_docker_core::cache::{
     DockerEventMonitor, EndpointKey, ImageMetadataCache, PersistentCache, PersistentCacheConfig,
     PreviewSessionPool, VolumeUsageCache,
 };
-use tuxstack_docker_core::{ContainerSummary, DockerError, DockerServices};
+use tuxstack_docker_core::{ContainerSummary, DockerError, DockerServices, FilesystemSession};
 
 use crate::error::AppError;
 use crate::settings::GuiSettings;
@@ -32,7 +32,9 @@ pub struct DockerStore {
     pub endpoint: Option<EndpointKey>,
     pub image_metadata: ImageMetadataCache,
     pub volume_usage: VolumeUsageCache,
-    pub preview_sessions: PreviewSessionPool,
+    pub preview_sessions: PreviewSessionPool<FilesystemSession>,
+    /// Pool of live image-browsing helper containers keyed by image id.
+    pub image_preview_sessions: PreviewSessionPool<FilesystemSession>,
     /// Watches `/events` and publishes debounced change notifications.
     pub events: DockerEventMonitor,
 }
@@ -50,7 +52,8 @@ impl DockerStore {
             endpoint: None,
             image_metadata: ImageMetadataCache::new(None, None),
             volume_usage: VolumeUsageCache::new(None, None),
-            preview_sessions: PreviewSessionPool::new(),
+            preview_sessions: PreviewSessionPool::<FilesystemSession>::new(),
+            image_preview_sessions: PreviewSessionPool::<FilesystemSession>::new(),
             events: DockerEventMonitor::new(),
         }
     }
@@ -82,7 +85,8 @@ impl DockerStore {
         self.endpoint = endpoint.clone();
         self.image_metadata = ImageMetadataCache::new(persistent.clone(), endpoint.clone());
         self.volume_usage = VolumeUsageCache::new(persistent, endpoint);
-        self.preview_sessions = PreviewSessionPool::new();
+        self.preview_sessions = PreviewSessionPool::<FilesystemSession>::new();
+        self.image_preview_sessions = PreviewSessionPool::<FilesystemSession>::new();
         match services {
             Some(services) => {
                 // Fresh token: a previous disconnect cancelled the old one.

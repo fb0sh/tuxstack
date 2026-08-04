@@ -1458,7 +1458,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuxstack"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "cxx",
@@ -1476,10 +1476,11 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-docker-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "bollard",
+ "bytes",
  "chrono",
  "futures-util",
  "rusqlite",
@@ -1492,7 +1493,25 @@ dependencies = [
  "tokio-util",
  "toml",
  "tracing",
+ "tuxstack-fs-protocol",
  "uuid",
+]
+
+[[package]]
+name = "tuxstack-fs-helper"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "tuxstack-fs-protocol",
+]
+
+[[package]]
+name = "tuxstack-fs-protocol"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
