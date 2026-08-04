@@ -48,9 +48,9 @@ Rules enforced by the design:
 - Background tasks never hold Qt object pointers; they hold a
   `CxxQtThread<T>` handle which is safe to use from any thread.
 - UI updates always return to the Qt event loop via queued closures.
-- Streams (logs/stats/events/image pull/image export) and outstanding image
-  refresh/detail requests own a `CancellationToken`; app shutdown cancels
-  everything.
+- Streams (logs/stats/events/image pull/image export), volume helper operations,
+  and outstanding resource refresh/detail requests own a `CancellationToken`;
+  app shutdown cancels everything.
 - Refresh operations carry a generation id; only the newest generation
   may update the UI, so stale responses cannot overwrite fresh data.
 
@@ -66,7 +66,8 @@ subclasses override `rowCount`/`data`/`roleNames` and use
 Bridges are thin: they delegate state transitions to pure Rust page-state
 machines. Shared/container state lives in `crates/gui/src/app_state.rs`;
 Docker Images state and view mapping live in `controllers/images.rs` and
-`models/image_model.rs`. These modules are unit tested without Qt.
+`models/image_model.rs`; Docker Volumes use `controllers/volumes.rs` and
+`models/volume_model.rs`. These modules are unit tested without Qt.
 
 ## Bollard data mapping
 
@@ -88,8 +89,11 @@ tests, so API drift in Bollard is caught by the test suite.
 - Image pull maps Docker's real layer status/current/total stream without
   inventing progress. Image export forwards TAR bytes without buffering the
   complete image.
-- GUI export writes a sibling temporary file asynchronously, removes it on
-  cancellation/failure, and atomically renames it after flush/sync.
+- GUI image export writes a sibling temporary file asynchronously, removes it
+  on cancellation/failure, and atomically renames it after flush/sync.
+- Volume export and clone use restricted temporary helper containers with the
+  source mounted read-only. Cancellation and application shutdown trigger task,
+  temporary-file, and helper-container cleanup.
 
 ## Error propagation
 

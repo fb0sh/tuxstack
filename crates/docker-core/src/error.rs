@@ -42,7 +42,7 @@ pub enum DockerError {
     #[error("Image pull failed: {0}")]
     PullFailed(String),
 
-    #[error("Image export failed: {0}")]
+    #[error("Export failed: {0}")]
     ExportFailed(String),
 
     #[error("Operation was cancelled")]
@@ -68,6 +68,30 @@ pub enum DockerError {
 
     #[error("Volume was not found: {0}")]
     VolumeNotFound(String),
+
+    #[error("Volume is still in use: {0}")]
+    VolumeInUse(String),
+
+    #[error("Volume already exists: {0}")]
+    VolumeAlreadyExists(String),
+
+    #[error("Volume driver is unavailable: {0}")]
+    VolumeDriverUnavailable(String),
+
+    #[error("Volume plugin returned an error: {0}")]
+    VolumePluginError(String),
+
+    #[error("Invalid volume name or options: {0}")]
+    InvalidVolumeName(String),
+
+    #[error("Volume clone failed: {0}")]
+    CloneFailed(String),
+
+    #[error("Cleanup failed: {0}")]
+    CleanupFailed(String),
+
+    #[error("Unsupported volume compression: {0}")]
+    UnsupportedVolumeCompression(String),
 
     #[error("Docker operation conflicts with current state: {0}")]
     Conflict(String),
@@ -168,6 +192,48 @@ pub(crate) fn classify_api_error(err: &bollard::errors::Error, resource: &str) -
 
 /// Apply network-only API classifications without changing conflict or
 /// validation behavior for images and other resources.
+/// Apply operation-aware volume classifications. Docker's status codes are
+/// not sufficient by themselves: conflicts may mean "in use" on remove or
+/// "already exists" on create, and plugin failures use several statuses.
+pub(crate) fn classify_volume_api_error(
+    err: &bollard::errors::Error,
+    operation: &str,
+) -> DockerError {
+    if let bollard::errors::Error::DockerResponseServerError {
+        status_code,
+        message,
+    } = err
+    {
+        if matches!(*status_code, 401 | 403) {
+            return DockerError::PermissionDenied;
+        }
+        let lower = message.to_ascii_lowercase();
+        if *status_code == 404 {
+            if operation == "create" && (lower.contains("driver") || lower.contains("plugin")) {
+                return DockerError::VolumeDriverUnavailable(message.clone());
+            }
+            return DockerError::VolumeNotFound(message.clone());
+        }
+        if operation == "remove"
+            && (*status_code == 409
+                || lower.contains("volume is in use")
+                || lower.contains("volume is used"))
+        {
+            return DockerError::VolumeInUse(message.clone());
+        }
+        if operation == "create" && (*status_code == 409 || lower.contains("already exists")) {
+            return DockerError::VolumeAlreadyExists(message.clone());
+        }
+        if operation == "create" && (*status_code == 400 || lower.contains("invalid volume")) {
+            return DockerError::InvalidVolumeName(message.clone());
+        }
+        if lower.contains("plugin") || lower.contains("driver") {
+            return DockerError::VolumePluginError(message.clone());
+        }
+    }
+    classify_api_error(err, "volume")
+}
+
 pub(crate) fn classify_network_api_error(
     err: &bollard::errors::Error,
     operation: &str,
@@ -306,6 +372,26 @@ mod tests {
                 DockerError::PermissionDenied
             ));
         }
+    }
+
+    #[test]
+    fn volume_errors_are_operation_aware() {
+        assert!(matches!(
+            classify_volume_api_error(&response(409, "volume is in use"), "remove"),
+            DockerError::VolumeInUse(_)
+        ));
+        assert!(matches!(
+            classify_volume_api_error(&response(409, "already exists"), "create"),
+            DockerError::VolumeAlreadyExists(_)
+        ));
+        assert!(matches!(
+            classify_volume_api_error(&response(404, "driver plugin not found"), "create"),
+            DockerError::VolumeDriverUnavailable(_)
+        ));
+        assert!(matches!(
+            classify_volume_api_error(&response(400, "invalid volume name"), "create"),
+            DockerError::InvalidVolumeName(_)
+        ));
     }
 
     #[test]

@@ -49,6 +49,8 @@ pub struct DockerClient {
     config: DockerConfig,
     /// The socket path in use, when connected over a local Unix socket.
     socket_path: Option<PathBuf>,
+    /// Host bind mounts used by volume export are only meaningful locally.
+    is_local: bool,
 }
 
 impl DockerClient {
@@ -66,6 +68,7 @@ impl DockerClient {
     pub fn connect_with_config(config: DockerConfig) -> Result<Self, DockerError> {
         let host = config.host.clone();
         let connect_timeout = config.connect_timeout;
+        let mut is_local = true;
 
         let docker = match host.as_deref() {
             Some(h) if h.starts_with("unix://") => {
@@ -82,6 +85,7 @@ impl DockerClient {
                     || h.starts_with("https://")
                     || h.starts_with("ssh://") =>
             {
+                is_local = false;
                 Docker::connect_with_http(h, connect_timeout.as_secs(), API_VERSION)
                     .map_err(|e| classify_connect_error(&e, None))?
             }
@@ -104,6 +108,7 @@ impl DockerClient {
                             || env.starts_with("https://")
                             || env.starts_with("ssh://")
                         {
+                            is_local = false;
                             Docker::connect_with_http(&env, connect_timeout.as_secs(), API_VERSION)
                                 .map_err(|e| classify_connect_error(&e, None))?
                         } else {
@@ -125,6 +130,7 @@ impl DockerClient {
                 .as_deref()
                 .filter(|h| h.starts_with("unix://"))
                 .map(|h| PathBuf::from(h.trim_start_matches("unix://"))),
+            is_local,
         })
     }
 
@@ -136,6 +142,12 @@ impl DockerClient {
     /// The socket path in use, when connected over a local Unix socket.
     pub fn socket_path(&self) -> Option<&PathBuf> {
         self.socket_path.as_ref()
+    }
+
+    /// Whether this client reaches a local Unix-socket Engine. Host bind
+    /// mounts must not be offered for remote engines.
+    pub fn is_local(&self) -> bool {
+        self.is_local
     }
 
     /// Access to the underlying Bollard client (internal use only).

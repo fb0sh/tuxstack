@@ -38,3 +38,7 @@ path = "../../tests/integration/images.rs"
 [[test]]
 name = "networks"
 path = "../../tests/integration/networks.rs"
+
+[[test]]
+name = "volumes"
+path = "../../tests/integration/volumes.rs"

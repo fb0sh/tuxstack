@@ -213,16 +213,6 @@ impl ContainerPageState {
     }
 }
 
-/// A single row of the volume list model.
-#[derive(Debug, Clone, PartialEq)]
-pub struct VolumeRow {
-    pub name: String,
-    pub driver: String,
-    pub mountpoint: String,
-    pub scope: String,
-    pub created_at: String,
-}
-
 /// Small wrapper for the services registry error mapping.
 pub fn map_docker_error(err: &DockerError) -> AppError {
     AppError::from(err)

@@ -6,8 +6,9 @@ import org.tuxstack.app
 /**
  * TuxStack application shell.
  *
- * The application shell owns the Docker connection and image controller while
- * the fixed StackLayout keeps page navigation responsive and predictable.
+ * The application shell owns the Docker connection and long-lived resource
+ * models while the fixed StackLayout keeps page navigation responsive and
+ * preserves page state.
  */
 Kirigami.ApplicationWindow {
     id: root
@@ -38,10 +39,15 @@ Kirigami.ApplicationWindow {
         id: networksModel
     }
 
+    VolumeListModel {
+        id: volumesModel
+    }
+
     Component.onCompleted: appController.startup()
     onClosing: {
         imagesModel.shutdown()
         networksModel.shutdown()
+        volumesModel.shutdown()
     }
 
     Connections {
@@ -52,6 +58,8 @@ Kirigami.ApplicationWindow {
                                            appController.dockerStatusText)
             networksModel.setConnectionState(appController.dockerStatus,
                                              appController.dockerStatusText)
+            volumesModel.setConnectionState(appController.dockerStatus,
+                                            appController.dockerStatusText)
         }
 
         function onDockerStatusTextChanged() {
@@ -60,6 +68,8 @@ Kirigami.ApplicationWindow {
                                                appController.dockerStatusText)
                 networksModel.setConnectionState(appController.dockerStatus,
                                                  appController.dockerStatusText)
+                volumesModel.setConnectionState(appController.dockerStatus,
+                                                appController.dockerStatusText)
             }
         }
     }
@@ -68,9 +78,21 @@ Kirigami.ApplicationWindow {
         target: imagesModel
 
         function onContainerNavigationRequested(containerId) {
-            root.pendingContainerId = containerId
-            root.currentPage = "containers"
+            root.navigateToContainer(containerId)
         }
+    }
+
+    Connections {
+        target: volumesModel
+
+        function onContainerNavigationRequested(containerId) {
+            root.navigateToContainer(containerId)
+        }
+    }
+
+    function navigateToContainer(containerId) {
+        root.pendingContainerId = containerId
+        root.currentPage = "containers"
     }
 
     function pageIndex(pageId) {
@@ -151,7 +173,17 @@ Kirigami.ApplicationWindow {
                 }
                 onRetryConnectionRequested: appController.startup()
             }
-            VolumesPage { }
+            VolumesPage {
+                volumesModel: volumesModel
+                onNotificationRequested: function(message) {
+                    root.showPassiveNotification(message)
+                }
+                onInitializationRequested: {
+                    volumesModel.setConnectionState(appController.dockerStatus,
+                                                    appController.dockerStatusText)
+                }
+                onRetryConnectionRequested: appController.startup()
+            }
             NetworksPage {
                 networksModel: networksModel
                 onNotificationRequested: function(message) {

@@ -15,7 +15,8 @@ src/
 │   ├── container.rs  ContainerSummary/Detail, states, ports, logs
 │   ├── image.rs      ImageSummary
 │   ├── network.rs    NetworkSummary/Detail
-│   ├── volume.rs     VolumeSummary
+│   ├── volume.rs     VolumeSummary/Detail, usage, container references,
+│   │                  create/remove/prune/export/clone requests
 │   ├── stats.rs      ContainerStats
 │   ├── event.rs      DockerEvent
 │   ├── system.rs     DockerSystemInfo, OverviewData
@@ -26,7 +27,7 @@ src/
 │   │                  kill/remove/rename/logs/stats + log/stats streams
 │   ├── images.rs      list/inspect/remove
 │   ├── networks.rs    list/inspect
-│   ├── volumes.rs     list/remove
+│   ├── volumes.rs     list/inspect/create/remove/prune/export/clone
 │   ├── system.rs      ping/info/overview
 │   └── compose.rs     planned placeholder (returns an explicit error)
 ├── mapping/      Bollard DTO → domain model (pure, tested)
@@ -61,6 +62,20 @@ Connection resolution order:
 all share one `Arc<DockerClient>` and are cheap to clone. There is no
 generic backend trait — Docker is modeled directly (Incus will get its
 own crate later).
+
+## Docker volumes
+
+The volume service combines Docker's volume inventory, all-container mount
+references, and system disk usage. A stopped/paused/created container still
+counts as a volume user. Bind and tmpfs mounts do not. Docker `-1` or missing
+usage values map to `None`, never `0` or a wrapped unsigned value.
+
+Volume export and clone are explicit helper-container operations because Docker
+has no native volume-export endpoint. Helpers have no Docker socket, privileged
+mode, or network access; source volumes are mounted read-only. Export writes a
+temporary sibling and renames it after success. Clone refuses an existing
+target and can clean up an incomplete target. Both operations support
+`CancellationToken` and always attempt helper cleanup.
 
 ## Timeouts and cancellation
 

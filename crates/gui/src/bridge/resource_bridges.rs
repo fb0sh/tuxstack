@@ -3,19 +3,9 @@
 //! These are read-mostly list models with a single `refresh` invokable
 //! each; Docker I/O runs on the Tokio runtime.
 
-use std::pin::Pin;
-
-use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QModelIndex, QString, QVariant};
-
-use crate::app_state::{VolumeRow, get_services, map_docker_error};
 pub use crate::bridge::image_bridge::ImageListModelRust;
 pub use crate::bridge::network_bridge::NetworkListModelRust;
-
-/// Build a QVariant from a string (String → QString → QVariant).
-fn qv(s: &str) -> QVariant {
-    QVariant::from(&QString::from(s))
-}
+pub use crate::bridge::volume_bridge::VolumeListModelRust;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -386,13 +376,79 @@ pub mod qobject {
     impl cxx_qt::Threading for VolumeListModel {}
 
     unsafe extern "RustQt" {
-        /// Volume list model.
+        /// Unified Docker volume state, controller, detail object and list model.
+        ///
+        /// Property names intentionally follow the existing QML contract rather
+        /// than CXX-Qt's default snake_case conversion.
         #[qobject]
         #[qml_element]
         #[base = QAbstractListModel]
-        #[qproperty(QString, search_text)]
-        #[qproperty(i32, status)]
-        #[qproperty(QString, status_text)]
+        #[qproperty(QString, search_query, cxx_name = "searchQuery", READ, NOTIFY)]
+        #[qproperty(QString, sort_mode, cxx_name = "sortMode", READ, NOTIFY)]
+        #[qproperty(QString, list_state, cxx_name = "listState")]
+        #[qproperty(QString, error_kind, cxx_name = "errorKind")]
+        #[qproperty(QString, error_message, cxx_name = "errorMessage")]
+        #[qproperty(bool, loading)]
+        #[qproperty(i32, count)]
+        #[qproperty(i32, volume_count, cxx_name = "volumeCount")]
+        #[qproperty(i32, in_use_count, cxx_name = "inUseCount")]
+        #[qproperty(i32, unused_count, cxx_name = "unusedCount")]
+        #[qproperty(i64, known_total_size_bytes, cxx_name = "knownTotalSizeBytes")]
+        #[qproperty(QString, known_total_size_text, cxx_name = "knownTotalSizeText")]
+        #[qproperty(i32, known_size_count, cxx_name = "knownSizeCount")]
+        #[qproperty(i32, unknown_size_count, cxx_name = "unknownSizeCount")]
+        #[qproperty(
+            bool,
+            global_operation_in_progress,
+            cxx_name = "globalOperationInProgress"
+        )]
+        #[qproperty(bool, operation_in_progress, cxx_name = "operationInProgress")]
+        #[qproperty(QString, selected_volume_name, cxx_name = "selectedVolumeName")]
+        #[qproperty(bool, selected_volume_busy, cxx_name = "selectedVolumeBusy")]
+        #[qproperty(QString, detail_state, cxx_name = "detailState")]
+        #[qproperty(QString, detail_error_kind, cxx_name = "detailErrorKind")]
+        #[qproperty(QString, detail_error, cxx_name = "detailError")]
+        #[qproperty(QString, detail_name, cxx_name = "detailName")]
+        #[qproperty(QString, detail_driver, cxx_name = "detailDriver")]
+        #[qproperty(QString, detail_scope, cxx_name = "detailScope")]
+        #[qproperty(QString, detail_mountpoint, cxx_name = "detailMountpoint")]
+        #[qproperty(QString, detail_created_text, cxx_name = "detailCreatedText")]
+        #[qproperty(i64, detail_size_bytes, cxx_name = "detailSizeBytes")]
+        #[qproperty(bool, detail_size_known, cxx_name = "detailSizeKnown")]
+        #[qproperty(QString, detail_size_text, cxx_name = "detailSizeText")]
+        #[qproperty(QString, detail_ref_count_text, cxx_name = "detailRefCountText")]
+        #[qproperty(bool, detail_anonymous, cxx_name = "detailAnonymous")]
+        #[qproperty(QVariant, detail)]
+        #[qproperty(QList_QVariant, general_model, cxx_name = "generalModel")]
+        #[qproperty(QList_QVariant, used_by_model, cxx_name = "usedByModel")]
+        #[qproperty(QList_QVariant, label_model, cxx_name = "labelModel")]
+        #[qproperty(QList_QVariant, option_model, cxx_name = "optionModel")]
+        #[qproperty(QList_QVariant, status_model, cxx_name = "statusModel")]
+        #[qproperty(i32, label_count, cxx_name = "labelCount")]
+        #[qproperty(i32, option_count, cxx_name = "optionCount")]
+        #[qproperty(i32, status_count, cxx_name = "statusCount")]
+        #[qproperty(bool, creating)]
+        #[qproperty(QString, create_error_message, cxx_name = "createErrorMessage")]
+        #[qproperty(bool, remove_preparation_active, cxx_name = "removePreparationActive")]
+        #[qproperty(QString, removing_volume_name, cxx_name = "removingVolumeName")]
+        #[qproperty(QString, remove_error_message, cxx_name = "removeErrorMessage")]
+        #[qproperty(bool, prune_preparation_active, cxx_name = "prunePreparationActive")]
+        #[qproperty(bool, pruning)]
+        #[qproperty(
+            QList_QVariant,
+            prune_candidate_model,
+            cxx_name = "pruneCandidateModel"
+        )]
+        #[qproperty(QString, prune_known_size_text, cxx_name = "pruneKnownSizeText")]
+        #[qproperty(i32, prune_unknown_size_count, cxx_name = "pruneUnknownSizeCount")]
+        #[qproperty(QString, prune_error_message, cxx_name = "pruneErrorMessage")]
+        #[qproperty(QString, exporting_volume_name, cxx_name = "exportingVolumeName")]
+        #[qproperty(QString, export_status, cxx_name = "exportStatus")]
+        #[qproperty(QString, export_error_message, cxx_name = "exportErrorMessage")]
+        #[qproperty(QString, cloning_source_name, cxx_name = "cloningSourceName")]
+        #[qproperty(QString, clone_status, cxx_name = "cloneStatus")]
+        #[qproperty(QString, clone_error_message, cxx_name = "cloneErrorMessage")]
+        #[qproperty(bool, zstd_available, cxx_name = "zstdAvailable")]
         type VolumeListModel = super::VolumeListModelRust;
 
         #[cxx_override]
@@ -414,111 +470,178 @@ pub mod qobject {
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut Self>);
 
-        /// Reload the volume list.
+        #[qsignal]
+        #[cxx_name = "removePrepared"]
+        fn remove_prepared(
+            self: Pin<&mut Self>,
+            volume_name: QString,
+            driver: QString,
+            size_text: QString,
+            used_by_count: i32,
+            mountpoint: QString,
+        );
+
+        #[qsignal]
+        #[cxx_name = "removePreparationFailed"]
+        fn remove_preparation_failed(self: Pin<&mut Self>, message: QString);
+
+        #[qsignal]
+        #[cxx_name = "prunePrepared"]
+        fn prune_prepared(self: Pin<&mut Self>);
+
+        #[qsignal]
+        #[cxx_name = "prunePreparationFailed"]
+        fn prune_preparation_failed(self: Pin<&mut Self>, message: QString);
+
+        #[qsignal]
+        #[cxx_name = "volumeCreated"]
+        fn volume_created(self: Pin<&mut Self>, volume_name: QString);
+
+        #[qsignal]
+        #[cxx_name = "volumeRemoved"]
+        fn volume_removed(self: Pin<&mut Self>, volume_name: QString);
+
+        #[qsignal]
+        #[cxx_name = "volumesPruned"]
+        fn volumes_pruned(
+            self: Pin<&mut Self>,
+            removed_count: i32,
+            reclaimed_size_text: QString,
+            unknown_size_count: i32,
+        );
+
+        #[qsignal]
+        #[cxx_name = "exportCompleted"]
+        fn export_completed(self: Pin<&mut Self>, volume_name: QString, destination_path: QString);
+
+        #[qsignal]
+        #[cxx_name = "cloneCompleted"]
+        fn clone_completed(self: Pin<&mut Self>, source_volume: QString, target_volume: QString);
+
+        #[qsignal]
+        #[cxx_name = "containerNavigationRequested"]
+        fn container_navigation_requested(self: Pin<&mut Self>, container_id: QString);
+
         #[qinvokable]
-        #[rust_name = "refresh"]
+        fn initialize(self: Pin<&mut Self>);
+
+        #[qinvokable]
         fn refresh(self: Pin<&mut Self>);
-    }
-}
 
-/// Rust state for [`qobject::VolumeListModel`].
-#[derive(Default)]
-pub struct VolumeListModelRust {
-    pub(crate) rows: Vec<VolumeRow>,
-    search_text: QString,
-    status: i32,
-    status_text: QString,
-}
+        #[qinvokable]
+        #[rust_name = "update_search_query"]
+        #[cxx_name = "setSearchQuery"]
+        fn set_search_query(self: Pin<&mut Self>, query: &QString);
 
-impl qobject::VolumeListModel {
-    fn row_count(&self, _parent: &QModelIndex) -> i32 {
-        self.rows.len() as i32
-    }
+        #[qinvokable]
+        #[rust_name = "update_sort_mode"]
+        #[cxx_name = "setSortMode"]
+        fn set_sort_mode(self: Pin<&mut Self>, mode: &QString);
 
-    fn data(&self, index: &QModelIndex, role: i32) -> QVariant {
-        let Some(row) = self.rows.get(index.row() as usize) else {
-            return QVariant::default();
-        };
-        match role {
-            0 => qv(&row.name),
-            1 => qv(&row.driver),
-            2 => qv(&row.mountpoint),
-            3 => qv(&row.scope),
-            4 => qv(&row.created_at),
-            _ => QVariant::default(),
-        }
-    }
+        #[qinvokable]
+        #[cxx_name = "selectVolume"]
+        fn select_volume(self: Pin<&mut Self>, volume_name: &QString);
 
-    fn role_names(&self) -> qobject::QHash_i32_QByteArray {
-        let mut hash = qobject::QHash_i32_QByteArray::default();
-        hash.insert(0, "name".into());
-        hash.insert(1, "driver".into());
-        hash.insert(2, "mountpoint".into());
-        hash.insert(3, "scope".into());
-        hash.insert(4, "createdAt".into());
-        hash
-    }
+        #[qinvokable]
+        #[cxx_name = "reloadSelectedVolume"]
+        fn reload_selected_volume(self: Pin<&mut Self>);
 
-    /// Reload the volume list.
-    pub fn refresh(mut self: Pin<&mut Self>) {
-        self.as_mut().refresh_kind();
-    }
-}
+        #[qinvokable]
+        #[cxx_name = "setConnectionState"]
+        fn set_connection_state(self: Pin<&mut Self>, docker_status: i32, message: &QString);
 
-impl qobject::VolumeListModel {
-    fn refresh_kind(mut self: Pin<&mut Self>) {
-        let Some(services) = get_services() else {
-            self.as_mut().set_status(5);
-            self.as_mut()
-                .set_status_text(QString::from("Not connected to Docker Engine."));
-            return;
-        };
-        self.as_mut().set_status(1); // loading
-        let search = self.search_text().to_string();
-        let qt_thread = self.qt_thread();
-        crate::runtime::spawn(async move {
-            let options = tuxstack_docker_core::services::volumes::ListVolumesOptions {
-                search: if search.is_empty() {
-                    None
-                } else {
-                    Some(search)
-                },
-            };
-            let result = services.volumes.list_volumes(&options).await;
-            qt_thread
-                .queue(move |mut model| match result {
-                    Ok(volumes) => {
-                        let rows: Vec<VolumeRow> = volumes
-                            .into_iter()
-                            .map(|v| VolumeRow {
-                                name: v.name,
-                                driver: v.driver,
-                                mountpoint: v.mountpoint,
-                                scope: v.scope,
-                                created_at: v
-                                    .created_at
-                                    .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                                    .unwrap_or_default(),
-                            })
-                            .collect();
-                        model.as_mut().apply_volumes(rows);
-                    }
-                    Err(e) => {
-                        model.as_mut().set_status(4);
-                        model
-                            .as_mut()
-                            .set_status_text(QString::from(map_docker_error(&e).user_message()));
-                    }
-                })
-                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
-        });
-    }
+        #[qinvokable]
+        #[cxx_name = "createVolume"]
+        fn create_volume(
+            self: Pin<&mut Self>,
+            name: &QString,
+            driver: &QString,
+            driver_options: &QList_QVariant,
+            labels: &QList_QVariant,
+        );
 
-    fn apply_volumes(mut self: Pin<&mut Self>, rows: Vec<VolumeRow>) {
-        self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().rows = rows;
-        self.as_mut().end_reset_model();
-        let status = if self.rows.is_empty() { 3 } else { 2 };
-        self.as_mut().set_status(status);
+        #[qinvokable]
+        #[cxx_name = "cancelCreate"]
+        fn cancel_create(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "prepareRemoveVolume"]
+        fn prepare_remove_volume(self: Pin<&mut Self>, volume_name: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "removeVolume"]
+        fn remove_volume(self: Pin<&mut Self>, volume_name: &QString, force: bool);
+
+        #[qinvokable]
+        #[cxx_name = "preparePruneVolumes"]
+        fn prepare_prune_volumes(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "pruneVolumes"]
+        fn prune_volumes(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "cancelPrune"]
+        fn cancel_prune(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "exportVolume"]
+        fn export_volume(
+            self: Pin<&mut Self>,
+            volume_name: &QString,
+            destination: &QString,
+            format: &QString,
+        );
+
+        #[qinvokable]
+        #[cxx_name = "cancelExport"]
+        fn cancel_export(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "cloneVolume"]
+        fn clone_volume(
+            self: Pin<&mut Self>,
+            source_volume: &QString,
+            target_name: &QString,
+            target_driver: &QString,
+            target_driver_options: &QList_QVariant,
+            copy_labels: bool,
+            cleanup_failed: bool,
+        );
+
+        #[qinvokable]
+        #[cxx_name = "cancelClone"]
+        fn cancel_clone(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "navigateToContainer"]
+        fn navigate_to_container(self: Pin<&mut Self>, container_id: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "setLabelSearchQuery"]
+        fn set_label_search_query(self: Pin<&mut Self>, query: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "setLabelSortAscending"]
+        fn set_label_sort_ascending(self: Pin<&mut Self>, ascending: bool);
+
+        #[qinvokable]
+        #[cxx_name = "setOptionSearchQuery"]
+        fn set_option_search_query(self: Pin<&mut Self>, query: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "setOptionSortAscending"]
+        fn set_option_sort_ascending(self: Pin<&mut Self>, ascending: bool);
+
+        #[qinvokable]
+        #[cxx_name = "setStatusSearchQuery"]
+        fn set_status_search_query(self: Pin<&mut Self>, query: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "setStatusSortAscending"]
+        fn set_status_sort_ascending(self: Pin<&mut Self>, ascending: bool);
+
+        #[qinvokable]
+        fn shutdown(self: Pin<&mut Self>);
     }
 }

@@ -20,8 +20,16 @@ Kirigami.ApplicationWindow (Main.qml)
     │       ├── environment
     │       ├── labels
     │       └── used-by containers
-    ├── VolumesPage           current phase placeholder
-    ├── NetworksPage          current phase placeholder
+    ├── VolumesPage           real Docker volume management
+    │   ├── VolumeListPanel
+    │   │   ├── search / sort / refresh / create / prune
+    │   │   └── In Use / Unused volume sections
+    │   └── VolumeDetailPanel
+    │       ├── general metadata / export / clone
+    │       ├── used-by containers
+    │       ├── labels / driver options
+    │       └── plugin status
+    ├── NetworksPage          real Docker network management
     ├── ActivityMonitorPage   future phase placeholder
     ├── CommandsPage          future phase placeholder
     ├── DevicesPage           future phase placeholder
@@ -34,6 +42,13 @@ contain Info, Terminal, or Files tabs.
 Image workflows use `PullImageDialog`, `RemoveImageDialog`, and
 `ExportImageDialog`. The save location is selected through Qt's native
 save-file dialog.
+
+Volume workflows use `CreateVolumeDialog`, `RemoveVolumeDialog`,
+`PruneVolumesDialog`, `ExportVolumeDialog`, and `CloneVolumeDialog`. The
+application shell owns one long-lived `VolumeListModel`, forwards Docker
+connection status into it, cancels it during shutdown, and routes page retries
+through `AppController.startup()`. The page initializes the model exactly once
+and reuses its inventory and selection when navigation changes.
 
 ## Images controller and model
 
@@ -63,6 +78,25 @@ Pure, Qt-free state lives in:
 Refresh and detail requests have independent generation IDs, so stale
 responses cannot overwrite newer state. Search and sorting operate only on
 the in-memory inventory and never issue another Docker request.
+
+## Volumes controller and model
+
+`VolumeListModel` combines the volume `QAbstractListModel`, detail state, and
+operation controller. The list and detail state machines are independent, and
+the detail panel is a permanent `RowLayout` child rather than a conditional
+`Loader`. Unknown Docker usage values remain unknown; aggregate text reports
+known bytes and unknown-volume counts without presenting unknown data as zero.
+
+The model associates volumes with all existing containers, including stopped
+containers. Search and all ten sort modes are local. Refresh/detail generations
+reject stale results, selection survives refresh where possible, and removing
+the selected volume chooses an adjacent row. Used-by rows request navigation
+through the model; `Main.qml` switches to Containers and records the full
+container ID, matching Images navigation.
+
+Export and clone run asynchronously through restricted helper containers and
+support cooperative cancellation. Create, remove, prune, export, and clone
+completion signals drive passive notifications and dialog lifecycle in QML.
 
 ## Image/container association
 
@@ -104,8 +138,11 @@ space is constrained.
   dangling images, details, environment parsing, usage association, unique
   sizes, error classes, progress, and cancellation.
 - GUI pure-state tests cover loading/error states, local search and sorting,
-  selection/race behavior, busy cleanup, pull progress, and export state.
+  selection/race behavior, busy cleanup, pull progress, image export, and all
+  volume-operation state.
 - `smoke_test.rs` loads every registered QML component and Rust QML type with
-  the offscreen Qt platform, then validates complete `Main.qml` creation.
+  the offscreen Qt platform, binds each model through its real camelCase API,
+  exercises selected/loading and populated image/network/volume details, loads
+  populated volume dialogs, and validates complete `Main.qml` creation.
 - Real Docker image lifecycle tests are marked ignored and cover pull, list,
   inspect, container usage association, export, remove, and cleanup.

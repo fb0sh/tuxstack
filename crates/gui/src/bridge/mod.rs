@@ -9,3 +9,4 @@ pub mod detail_bridge;
 pub mod image_bridge;
 pub mod network_bridge;
 pub mod resource_bridges;
+pub mod volume_bridge;

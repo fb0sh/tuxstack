@@ -80,6 +80,36 @@ fn images_page_keeps_a_permanent_detail_panel() {
 }
 
 #[test]
+fn main_wires_the_long_lived_volume_model() {
+    let source = include_str!("../qml/Main.qml");
+    assert!(source.contains("VolumeListModel {"));
+    assert!(source.contains("id: volumesModel"));
+    assert!(source.contains("volumesModel.shutdown()"));
+    assert!(source.contains("volumesModel.setConnectionState(appController.dockerStatus,"));
+    assert!(source.contains("VolumesPage {"));
+    assert!(source.contains("volumesModel: volumesModel"));
+    assert!(source.contains("onInitializationRequested:"));
+    assert!(source.contains("onRetryConnectionRequested: appController.startup()"));
+    assert!(source.contains("root.showPassiveNotification(message)"));
+    assert!(source.contains("target: volumesModel"));
+    assert!(source.contains("root.navigateToContainer(containerId)"));
+}
+
+#[test]
+fn volumes_page_keeps_a_permanent_detail_panel() {
+    let source = include_str!("../qml/pages/VolumesPage.qml");
+    assert!(source.contains("RowLayout {"));
+    assert!(source.contains("VolumeListPanel {"));
+    assert!(source.contains("VolumeDetailPanel {"));
+    assert!(
+        !source.contains("Loader {"),
+        "the volume detail layout node must never be conditionally unloaded"
+    );
+    assert!(source.contains("Component.onCompleted"));
+    assert!(source.contains("root.volumesModel.initialize()"));
+}
+
+#[test]
 fn networks_page_keeps_a_permanent_detail_panel() {
     let source = include_str!("../qml/pages/NetworksPage.qml");
     assert!(source.contains("RowLayout {"));
@@ -129,8 +159,18 @@ fn all_qml_components_load_without_errors() {
         "components/NetworkListItem.qml",
         "components/NetworkDetailPanel.qml",
         "components/NetworkContainerList.qml",
+        "components/VolumeListPanel.qml",
+        "components/VolumeListItem.qml",
+        "components/VolumeDetailPanel.qml",
+        "components/VolumeUsedByList.qml",
+        "components/VolumeKeyValueEditor.qml",
         "dialogs/CreateNetworkDialog.qml",
         "dialogs/RemoveNetworkDialog.qml",
+        "dialogs/CreateVolumeDialog.qml",
+        "dialogs/RemoveVolumeDialog.qml",
+        "dialogs/PruneVolumesDialog.qml",
+        "dialogs/ExportVolumeDialog.qml",
+        "dialogs/CloneVolumeDialog.qml",
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
@@ -218,6 +258,76 @@ Item {
     assert_qml_source_loads(
         "qrc:/qt/qml/org/tuxstack/app/tests/NetworkModelApi.qml",
         Some(network_model_api),
+    );
+
+    let volume_model_api = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    VolumeListModel { id: volumeModel }
+    property string query: volumeModel.searchQuery
+    property string sort: volumeModel.sortMode
+    property string listState: volumeModel.listState
+    property string errorKind: volumeModel.errorKind
+    property string error: volumeModel.errorMessage
+    property bool loading: volumeModel.loading
+    property int visibleCount: volumeModel.count
+    property int total: volumeModel.volumeCount
+    property int inUse: volumeModel.inUseCount
+    property int unused: volumeModel.unusedCount
+    property double totalBytes: volumeModel.knownTotalSizeBytes
+    property string totalSize: volumeModel.knownTotalSizeText
+    property int knownSizes: volumeModel.knownSizeCount
+    property int unknownSizes: volumeModel.unknownSizeCount
+    property bool globallyBusy: volumeModel.globalOperationInProgress
+    property bool anyBusy: volumeModel.operationInProgress
+    property string selected: volumeModel.selectedVolumeName
+    property bool selectedBusy: volumeModel.selectedVolumeBusy
+    property string detailState: volumeModel.detailState
+    property string detailErrorKind: volumeModel.detailErrorKind
+    property string detailError: volumeModel.detailError
+    property string detailName: volumeModel.detailName
+    property string detailDriver: volumeModel.detailDriver
+    property string detailScope: volumeModel.detailScope
+    property string detailMountpoint: volumeModel.detailMountpoint
+    property string detailCreated: volumeModel.detailCreatedText
+    property double detailBytes: volumeModel.detailSizeBytes
+    property bool detailSizeKnown: volumeModel.detailSizeKnown
+    property string detailSize: volumeModel.detailSizeText
+    property string detailReferences: volumeModel.detailRefCountText
+    property bool detailAnonymous: volumeModel.detailAnonymous
+    property var detail: volumeModel.detail
+    property var general: volumeModel.generalModel
+    property var usage: volumeModel.usedByModel
+    property var labels: volumeModel.labelModel
+    property var options: volumeModel.optionModel
+    property var pluginStatus: volumeModel.statusModel
+    property int labelCount: volumeModel.labelCount
+    property int optionCount: volumeModel.optionCount
+    property int statusCount: volumeModel.statusCount
+    property bool creating: volumeModel.creating
+    property string createError: volumeModel.createErrorMessage
+    property bool preparingRemove: volumeModel.removePreparationActive
+    property string removing: volumeModel.removingVolumeName
+    property string removeError: volumeModel.removeErrorMessage
+    property bool preparingPrune: volumeModel.prunePreparationActive
+    property bool pruning: volumeModel.pruning
+    property var pruneCandidates: volumeModel.pruneCandidateModel
+    property string pruneSize: volumeModel.pruneKnownSizeText
+    property int pruneUnknown: volumeModel.pruneUnknownSizeCount
+    property string pruneError: volumeModel.pruneErrorMessage
+    property string exporting: volumeModel.exportingVolumeName
+    property string exportStatus: volumeModel.exportStatus
+    property string exportError: volumeModel.exportErrorMessage
+    property string cloning: volumeModel.cloningSourceName
+    property string cloneStatus: volumeModel.cloneStatus
+    property string cloneError: volumeModel.cloneErrorMessage
+    property bool zstd: volumeModel.zstdAvailable
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/VolumeModelApi.qml",
+        Some(volume_model_api),
     );
 
     // AppController also crosses the CXX-Qt naming boundary. Bind every
@@ -455,6 +565,210 @@ Item {
     assert_qml_source_loads(
         "qrc:/qt/qml/org/tuxstack/app/tests/LoadedNetworkDetail.qml",
         Some(loaded_network_detail),
+    );
+
+    // Exercise the permanent volume detail panel while a selected volume is
+    // loading. The fake implements the same camelCase API consumed by QML.
+    let selected_volume_page = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    width: 760
+    height: 760
+    ListModel {
+        id: volumeModel
+        property string searchQuery: ""
+        property string sortMode: "in_use_first"
+        property string listState: "ready"
+        property string errorMessage: ""
+        property bool loading: false
+        property int volumeCount: 1
+        property int inUseCount: 1
+        property int unusedCount: 0
+        property string knownTotalSizeText: "1.0 GiB"
+        property int knownSizeCount: 1
+        property int unknownSizeCount: 0
+        property string selectedVolumeName: "postgres-data"
+        property string detailState: "loading"
+        property string detailError: ""
+        property string detailName: ""
+        property string detailDriver: ""
+        property string detailScope: ""
+        property string detailMountpoint: ""
+        property string detailCreatedText: ""
+        property string detailSizeText: ""
+        property string detailRefCountText: ""
+        property bool detailAnonymous: false
+        property bool selectedVolumeBusy: false
+        property var usedByModel: []
+        property var labelModel: []
+        property var optionModel: []
+        property var statusModel: []
+        property int labelCount: 0
+        property int optionCount: 0
+        property int statusCount: 0
+        property bool globalOperationInProgress: false
+        property bool creating: false
+        property string createErrorMessage: ""
+        property string removingVolumeName: ""
+        property string removeErrorMessage: ""
+        property bool pruning: false
+        property var pruneCandidateModel: []
+        property string pruneKnownSizeText: "0 B"
+        property int pruneUnknownSizeCount: 0
+        property string pruneErrorMessage: ""
+        property string exportingVolumeName: ""
+        property string exportStatus: ""
+        property string exportErrorMessage: ""
+        property string cloningSourceName: ""
+        property string cloneStatus: ""
+        property string cloneErrorMessage: ""
+        property bool zstdAvailable: false
+        ListElement {
+            volumeName: "postgres-data"; displayName: "postgres-data"; driver: "local"
+            scope: "local"; mountpoint: "/var/lib/docker/volumes/postgres-data/_data"
+            sizeBytes: 1073741824; sizeKnown: true; sizeText: "1.0 GiB"
+            createdAt: "2026-07-22T12:40:00Z"; createdText: "3 days ago"
+            inUse: true; usedByCount: 1; anonymous: false; selected: true
+            busy: false; operation: ""; section: "in_use"
+        }
+        function initialize() {}
+        function refresh() {}
+        function setSearchQuery(query) { searchQuery = query }
+        function setSortMode(mode) { sortMode = mode }
+        function selectVolume(name) { selectedVolumeName = name }
+        function reloadSelectedVolume() {}
+        function prepareRemoveVolume(name) {}
+        function preparePruneVolumes() {}
+        function createVolume(name, driver, options, labels) {}
+        function cancelCreate() {}
+        function removeVolume(name, force) {}
+        function pruneVolumes() {}
+        function cancelPrune() {}
+        function exportVolume(name, destination, format) {}
+        function cancelExport() {}
+        function cloneVolume(source, target, driver, options, copyLabels, cleanupFailed) {}
+        function cancelClone() {}
+        function navigateToContainer(containerId) {}
+        function setLabelSearchQuery(query) {}
+        function setLabelSortAscending(ascending) {}
+        function setOptionSearchQuery(query) {}
+        function setOptionSortAscending(ascending) {}
+        function setStatusSearchQuery(query) {}
+        function setStatusSortAscending(ascending) {}
+    }
+    VolumesPage { anchors.fill: parent; volumesModel: volumeModel }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/SelectedVolumePage.qml",
+        Some(selected_volume_page),
+    );
+
+    // Exercise every populated volume-detail section: general values, Used By,
+    // labels, driver options, and plugin status.
+    let loaded_volume_detail = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    width: 920
+    height: 900
+    QtObject {
+        id: volumeModel
+        property string selectedVolumeName: "postgres-data"
+        property string detailState: "ready"
+        property string detailError: ""
+        property string detailName: "postgres-data"
+        property string detailDriver: "local"
+        property string detailScope: "local"
+        property string detailMountpoint: "/var/lib/docker/volumes/postgres-data/_data"
+        property string detailCreatedText: "Jul 22, 2026 12:40 UTC"
+        property string detailSizeText: "1.0 GiB"
+        property string detailRefCountText: "1"
+        property bool detailAnonymous: false
+        property bool selectedVolumeBusy: false
+        property var usedByModel: [{
+            containerId: "container-full-id", shortId: "container123", name: "postgres",
+            state: "running", destination: "/var/lib/postgresql/data",
+            readOnly: false, accessText: "Read/Write", propagation: "rprivate"
+        }]
+        property var labelModel: [{ key: "com.example.environment", value: "development" }]
+        property var optionModel: [{ key: "type", value: "nfs" }, { key: "device", value: ":/exports/data" }]
+        property var statusModel: [{ key: "availability", value: "online" }]
+        property int labelCount: 1
+        property int optionCount: 2
+        property int statusCount: 1
+        function reloadSelectedVolume() {}
+        function setLabelSearchQuery(query) {}
+        function setLabelSortAscending(ascending) {}
+        function setOptionSearchQuery(query) {}
+        function setOptionSortAscending(ascending) {}
+        function setStatusSearchQuery(query) {}
+        function setStatusSortAscending(ascending) {}
+    }
+    VolumeDetailPanel { anchors.fill: parent; volumesModel: volumeModel }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/LoadedVolumeDetail.qml",
+        Some(loaded_volume_detail),
+    );
+
+    // Keep every operation dialog alive against populated state, including a
+    // prune candidate and in-progress/error branches used by dialog bindings.
+    let populated_volume_dialogs = r#"
+import QtQuick
+import org.tuxstack.app
+Item {
+    width: 920
+    height: 900
+    QtObject {
+        id: volumeModel
+        property bool creating: true
+        property string createErrorMessage: "create fixture error"
+        property string detailDriver: "local"
+        property string removingVolumeName: "postgres-data"
+        property string removeErrorMessage: "remove fixture error"
+        property bool pruning: true
+        property var pruneCandidateModel: [{ volumeName: "unused-cache", sizeText: "Unknown" }]
+        property string pruneKnownSizeText: "128.0 MiB"
+        property int pruneUnknownSizeCount: 1
+        property string pruneErrorMessage: "prune fixture error"
+        property string exportingVolumeName: "postgres-data"
+        property string exportStatus: "Writing archive…"
+        property string exportErrorMessage: "export fixture error"
+        property string cloningSourceName: "postgres-data"
+        property string cloneStatus: "Copying volume data…"
+        property string cloneErrorMessage: "clone fixture error"
+        property bool zstdAvailable: true
+        function createVolume(name, driver, options, labels) {}
+        function cancelCreate() {}
+        function removeVolume(name, force) {}
+        function pruneVolumes() {}
+        function cancelPrune() {}
+        function exportVolume(name, destination, format) {}
+        function cancelExport() {}
+        function cloneVolume(source, target, driver, options, copyLabels, cleanupFailed) {}
+        function cancelClone() {}
+    }
+    CreateVolumeDialog { volumesModel: volumeModel }
+    RemoveVolumeDialog {
+        volumesModel: volumeModel
+        volumeName: "postgres-data"
+        driver: "local"
+        sizeText: "1.0 GiB"
+        usedByCount: 1
+        mountpoint: "/var/lib/docker/volumes/postgres-data/_data"
+        submitted: true
+    }
+    PruneVolumesDialog { volumesModel: volumeModel; submitted: true }
+    ExportVolumeDialog { volumesModel: volumeModel; volumeName: "postgres-data"; submitted: true }
+    CloneVolumeDialog { volumesModel: volumeModel; sourceVolume: "postgres-data"; submitted: true }
+}
+"#;
+    assert_qml_source_loads(
+        "qrc:/qt/qml/org/tuxstack/app/tests/PopulatedVolumeDialogs.qml",
+        Some(populated_volume_dialogs),
     );
 
     assert_qml_loads(&format!("{base}/Main.qml"));
