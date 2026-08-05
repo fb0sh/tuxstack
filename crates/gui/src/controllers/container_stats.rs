@@ -7,7 +7,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::ContainerStats;
+use tuxstack_domain::ContainerStats;
 
 pub const STATS_HISTORY_CAPACITY: usize = 600;
 pub const MAX_CONCURRENT_STATS_REQUESTS: usize = 8;

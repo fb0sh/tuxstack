@@ -31,7 +31,5 @@ pub mod system {
 pub mod volume {
     pub use tuxstack_domain::volume::*;
 }
-pub mod volume_file;
 
 pub use tuxstack_domain::*;
-pub use volume_file::*;

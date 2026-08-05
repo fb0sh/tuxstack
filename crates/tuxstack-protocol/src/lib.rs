@@ -18,9 +18,9 @@ use tuxstack_domain::{
     ContainerSummary, CreateContainerRequest, CreateContainerResult, CreateNetworkOptions,
     CreateNetworkResult, CreateVolumeRequest, DockerSystemInfo, ImageDeleteResult, ImageDetail,
     ImagePullProgress, ImageSummary, KillContainerOptions, LogLine, NetworkDetail, NetworkSummary,
-    OverviewData, PruneVolumeFilters, PullImageOptions, RemoveContainerOptions, RemoveImageOptions,
-    RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions, VolumeDetail,
-    VolumePruneResult, VolumeSummary,
+    OverviewData, PruneVolumeFilters, RemoveContainerOptions, RemoveImageOptions,
+    RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions, VolumeContainerReference,
+    VolumeDetail, VolumePruneResult, VolumeSummary, VolumeUsage,
 };
 
 /// Current wire protocol version. Incompatible changes require a new value.
@@ -272,7 +272,10 @@ pub enum DockerRequest {
         options: RemoveImageOptions,
     },
     PullImage {
-        options: PullImageOptions,
+        options: tuxstack_domain::PullImageOptions,
+    },
+    PullImageAuthenticated {
+        request: PullImageRequest,
     },
     ListNetworks {
         search: Option<String>,
@@ -305,6 +308,20 @@ pub enum DockerRequest {
     CloneVolume {
         request: CloneVolumeRequest,
     },
+    EnrichVolumes {
+        names: Vec<String>,
+    },
+    /// Export an image to a daemon-local destination. Image bytes are never
+    /// carried in an IPC frame.
+    ExportImage {
+        id: String,
+        destination: PathBuf,
+    },
+    /// Export a volume to a daemon-local destination. Archive bytes are never
+    /// carried in an IPC frame.
+    ExportVolume {
+        request: tuxstack_domain::ExportVolumeRequest,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -334,14 +351,66 @@ pub enum DockerResponse {
     Images(Vec<ImageSummary>),
     ImageDetail(ImageDetail),
     ImagesRemoved(Vec<ImageDeleteResult>),
-    ImagePullAccepted { subscription_id: SubscriptionId },
+    ImagePullAccepted {
+        subscription_id: SubscriptionId,
+    },
     Networks(Vec<NetworkSummary>),
     NetworkDetail(NetworkDetail),
     NetworkCreated(CreateNetworkResult),
     Volumes(Vec<VolumeSummary>),
     VolumeDetail(VolumeDetail),
     VolumesPruned(VolumePruneResult),
+    VolumesEnriched(VolumeEnrichment),
+    ExportCompleted {
+        destination: PathBuf,
+        bytes_written: Option<u64>,
+    },
     Acknowledged,
+}
+
+/// Registry credentials are wire-only because the domain model deliberately
+/// skips secret serialization for persistence/logging safety. Debug output is
+/// redacted while CBOR still carries credentials to the local authenticated
+/// daemon for this one pull request.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryAuthRequest {
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub server_address: Option<String>,
+    pub identity_token: Option<String>,
+    pub registry_token: Option<String>,
+}
+
+impl fmt::Debug for RegistryAuthRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RegistryAuthRequest")
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("server_address", &self.server_address)
+            .field(
+                "identity_token",
+                &self.identity_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field(
+                "registry_token",
+                &self.registry_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullImageRequest {
+    pub reference: String,
+    pub platform: Option<String>,
+    pub registry_auth: Option<RegistryAuthRequest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VolumeEnrichment {
+    pub references: Vec<(String, Vec<VolumeContainerReference>)>,
+    pub usage: Vec<(String, VolumeUsage)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -535,7 +604,10 @@ pub enum SubscriptionRequest {
         options: ContainerLogsOptions,
     },
     ImagePull {
-        options: PullImageOptions,
+        options: tuxstack_domain::PullImageOptions,
+    },
+    ImagePullAuthenticated {
+        request: PullImageRequest,
     },
     ContainerTerminal {
         container_id: String,
@@ -554,6 +626,7 @@ pub struct SubscriptionAccepted {
 pub enum ResourceKind {
     Container,
     Image,
+    Network,
     Volume,
 }
 

@@ -18,6 +18,7 @@ pub enum VfsError {
     SymlinkEscape,
     SpecialFile,
     TimedOut,
+    Unsupported(String),
     Unavailable(String),
     Io(String),
 }
@@ -38,6 +39,7 @@ impl VfsError {
             Self::SymlinkLoop => libc::ELOOP,
             Self::SymlinkEscape | Self::SpecialFile => libc::ENXIO,
             Self::TimedOut => libc::ETIMEDOUT,
+            Self::Unsupported(_) => libc::EOPNOTSUPP,
             Self::Unavailable(_) => libc::ENOTCONN,
             Self::Io(_) => libc::EIO,
         }
@@ -48,6 +50,7 @@ impl fmt::Display for VfsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(message) => write!(formatter, "invalid input: {message}"),
+            Self::Unsupported(message) => write!(formatter, "operation unsupported: {message}"),
             Self::Unavailable(message) => write!(formatter, "provider unavailable: {message}"),
             Self::Io(message) => write!(formatter, "I/O error: {message}"),
             other => write!(formatter, "{other:?}"),

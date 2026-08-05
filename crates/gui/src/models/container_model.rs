@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::{
+use tuxstack_domain::{
     ContainerDetail, ContainerGroupSection, ContainerGroupSummary, ContainerHealthState,
     ContainerMountType, ContainerOperationState, ContainerRuntimeState, ContainerSummary,
 };
@@ -734,7 +734,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use chrono::TimeZone;
-    use tuxstack_docker_core::{
+    use tuxstack_domain::{
         COMPOSE_PROJECT_LABEL, ContainerStateDetail, EnvironmentVariable, MountInfo,
         NetworkAttachment, PortBinding, ResourceLimits, RestartPolicy, group_compose_containers,
     };

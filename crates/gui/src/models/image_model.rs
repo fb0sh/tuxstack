@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::{ImageContainerReference, ImageDetail, ImageSummary};
+use tuxstack_domain::{ImageContainerReference, ImageDetail, ImageSummary};
 
 /// One row in the image list. This type deliberately contains no Qt values.
 #[derive(Debug, Clone, PartialEq)]
@@ -265,7 +265,7 @@ fn value_or_dash(value: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone};
-    use tuxstack_docker_core::{ContainerState, EnvironmentVariable};
+    use tuxstack_domain::{ContainerState, EnvironmentVariable};
 
     use super::*;
 

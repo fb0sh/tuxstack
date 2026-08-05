@@ -13,13 +13,16 @@ use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use futures_util::StreamExt;
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::services::ComposeGroupAction;
-use tuxstack_docker_core::{
-    ContainerOperationState, ContainerSortMode, DockerError, GroupOperationState, PullImageOptions,
-    RemoveContainerOptions, RestartContainerOptions, StopContainerOptions,
+use tuxstack_client::{
+    ComposeGroupAction, DaemonError as DockerError, DaemonServices, ListContainersOptions,
+};
+use tuxstack_domain::{
+    ContainerGroupId, ContainerGroupOperationResult, ContainerOperationState, ContainerSortMode,
+    GroupOperationState, PullImageOptions, RemoveContainerOptions, RestartContainerOptions,
+    StopContainerOptions,
 };
 
-use crate::app_state::{get_services, get_store};
+use crate::app_state::daemon_services;
 use crate::controllers::containers::{
     ContainersListState, ContainersState, GroupOperationResult, GroupTargetResult, SelectionAction,
     group_operation_name,
@@ -63,7 +66,6 @@ pub struct ContainersListModelRust {
     pub(crate) error_message: QString,
     pub(crate) loading: bool,
     pub(crate) refreshing: bool,
-    pub(crate) using_cache: bool,
     pub(crate) local_endpoint: bool,
     pub(crate) count: i32,
     pub(crate) total_count: i32,
@@ -154,7 +156,6 @@ pub mod qobject {
         #[qproperty(QString, error_message, cxx_name = "errorMessage")]
         #[qproperty(bool, loading)]
         #[qproperty(bool, refreshing)]
-        #[qproperty(bool, using_cache, cxx_name = "usingCache")]
         #[qproperty(bool, local_endpoint, cxx_name = "localEndpoint")]
         #[qproperty(i32, count)]
         #[qproperty(i32, total_count, cxx_name = "totalCount")]
@@ -479,7 +480,7 @@ impl qobject::ContainersListModel {
             return;
         }
         self.as_mut().apply_state(state);
-        if get_services().is_some() {
+        if daemon_services().is_some() {
             self.as_mut().rust_mut().docker_ready = true;
             self.as_mut().refresh();
         }
@@ -489,21 +490,15 @@ impl qobject::ContainersListModel {
         if let Some(cancel) = self.as_mut().rust_mut().refresh_cancel.take() {
             cancel.cancel();
         }
-        let store = get_store();
-        let endpoint = store.endpoint.clone();
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             let generation = state.begin_refresh();
             state.apply_list_error(generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
             return;
         };
-        let endpoint_key = services
-            .volumes
-            .client_fingerprint()
-            .unwrap_or_else(|| "local".to_string());
-        self.as_mut()
-            .set_local_endpoint(services.client().is_local());
+        let endpoint_key = "tuxstackd".to_string();
+        self.as_mut().set_local_endpoint(true);
         let generation = {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.set_endpoint_key(&endpoint_key);
@@ -515,37 +510,7 @@ impl qobject::ContainersListModel {
         self.as_mut().rust_mut().refresh_cancel = Some(cancel.clone());
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
-            let mut cached_ids = Vec::new();
-            if let (Some(cache), Some(endpoint)) = (store.persistent.clone(), endpoint.clone()) {
-                let cached = tokio::task::spawn_blocking(move || {
-                    cache.hydrate::<tuxstack_docker_core::ContainerSummary>(
-                        "container_summaries",
-                        &endpoint,
-                    )
-                })
-                .await
-                .unwrap_or_default();
-                cached_ids = cached.iter().map(|(id, _)| id.clone()).collect();
-                let cached = cached
-                    .into_iter()
-                    .map(|(_, summary)| summary)
-                    .collect::<Vec<_>>();
-                if !cached.is_empty() && !cancel.is_cancelled() {
-                    let thread = qt_thread.clone();
-                    if thread
-                        .queue(move |mut model| {
-                            let mut state = model.as_mut().rust_mut().state.clone();
-                            if state.apply_cached(generation, &cached) {
-                                model.as_mut().apply_state(state);
-                            }
-                        })
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
-            }
-            let options = tuxstack_docker_core::services::containers::ListContainersOptions {
+            let options = ListContainersOptions {
                 all: true,
                 ..Default::default()
             };
@@ -553,23 +518,6 @@ impl qobject::ContainersListModel {
                 _ = cancel.cancelled() => return,
                 result = services.containers.list_containers(&options) => result,
             };
-            if let (Ok(summaries), Some(cache), Some(endpoint)) =
-                (&result, store.persistent.as_ref(), endpoint.as_ref())
-            {
-                let live_ids = summaries
-                    .iter()
-                    .map(|summary| summary.id.as_str())
-                    .collect::<std::collections::HashSet<_>>();
-                for stale_id in cached_ids
-                    .iter()
-                    .filter(|id| !live_ids.contains(id.as_str()))
-                {
-                    cache.remove_key("container_summaries", endpoint, stale_id);
-                }
-                for summary in summaries {
-                    cache.put("container_summaries", endpoint, &summary.id, summary);
-                }
-            }
             qt_thread
                 .queue(move |mut model| {
                     let mut state = model.as_mut().rust_mut().state.clone();
@@ -707,7 +655,7 @@ impl qobject::ContainersListModel {
                 return;
             }
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_create_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -780,7 +728,7 @@ impl qobject::ContainersListModel {
                 return;
             }
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_create_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -956,7 +904,7 @@ impl qobject::ContainersListModel {
         if id.is_empty() {
             return;
         }
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().remove_container_preparation_failed(
                 QString::from(&id),
                 QString::from("Docker Engine is unavailable."),
@@ -1166,7 +1114,7 @@ impl qobject::ContainersListModel {
             return;
         };
         let container_id = self.state.selection_id();
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.apply_detail_error(generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -1199,7 +1147,7 @@ impl qobject::ContainersListModel {
     fn run_container_action(mut self: Pin<&mut Self>, id: &QString, action: BridgeAction) {
         let id = id.to_string();
         let operation = action.operation();
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_operation_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -1269,7 +1217,7 @@ impl qobject::ContainersListModel {
     fn run_group_action(mut self: Pin<&mut Self>, id: &QString, action: GroupBridgeAction) {
         let id = id.to_string();
         let operation = action.operation();
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_operation_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -1413,7 +1361,6 @@ impl qobject::ContainersListModel {
         self.as_mut()
             .set_loading(state.list_state == ContainersListState::Loading);
         self.as_mut().set_refreshing(state.refresh_in_progress);
-        self.as_mut().set_using_cache(state.using_cache);
         self.as_mut()
             .set_count(saturating_i32(state.visible_rows.len()));
         self.as_mut()
@@ -1627,11 +1574,11 @@ impl GroupBridgeAction {
 }
 
 async fn execute_compose_action(
-    services: &tuxstack_docker_core::DockerServices,
-    group_id: &tuxstack_docker_core::ContainerGroupId,
+    services: &DaemonServices,
+    group_id: &ContainerGroupId,
     targets: &[String],
     action: &GroupBridgeAction,
-) -> Result<tuxstack_docker_core::ContainerGroupOperationResult, DockerError> {
+) -> Result<ContainerGroupOperationResult, DockerError> {
     services
         .compose
         .execute_group_targets(group_id, targets, action.compose_action())
@@ -1639,7 +1586,7 @@ async fn execute_compose_action(
 }
 
 async fn execute_container_action(
-    services: &tuxstack_docker_core::DockerServices,
+    services: &DaemonServices,
     id: &str,
     action: &BridgeAction,
 ) -> Result<(), DockerError> {
@@ -1790,7 +1737,7 @@ fn sort_mode_name(mode: ContainerSortMode) -> &'static str {
 }
 
 fn summary_port_rows(
-    summary: &tuxstack_docker_core::ContainerSummary,
+    summary: &tuxstack_domain::ContainerSummary,
     endpoint_key: &str,
 ) -> QVariantList {
     summary
@@ -1985,13 +1932,11 @@ fn qv(value: &str) -> QVariant {
 
 fn parse_create_request(
     json: &str,
-) -> Result<tuxstack_docker_core::CreateContainerRequest, serde_json::Error> {
+) -> Result<tuxstack_domain::CreateContainerRequest, serde_json::Error> {
     serde_json::from_str(json)
 }
 
-fn validated_create_request(
-    json: &str,
-) -> Result<tuxstack_docker_core::CreateContainerRequest, String> {
+fn validated_create_request(json: &str) -> Result<tuxstack_domain::CreateContainerRequest, String> {
     let request =
         parse_create_request(json).map_err(|_| "Invalid create request JSON.".to_string())?;
     request.validate().map_err(|error| error.to_string())?;
@@ -2001,7 +1946,7 @@ fn validated_create_request(
 fn queue_create_result(
     qt_thread: cxx_qt::CxxQtThread<qobject::ContainersListModel>,
     generation: u64,
-    result: Result<tuxstack_docker_core::CreateContainerResult, DockerError>,
+    result: Result<tuxstack_domain::CreateContainerResult, DockerError>,
 ) {
     qt_thread
         .queue(move |mut model| {

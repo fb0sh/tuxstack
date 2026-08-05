@@ -12,9 +12,10 @@ use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{DockerError, LogLine};
+use tuxstack_client::DaemonError as DockerError;
+use tuxstack_domain::LogLine;
 
-use crate::app_state::get_services;
+use crate::app_state::daemon_services;
 use crate::controllers::container_logs::{ContainerLogsState, DISCARDED_NOTICE, LogViewportLine};
 use crate::controllers::container_stats::{
     ContainerStatsState, MAX_CONCURRENT_STATS_REQUESTS, StatsHistoryPoint, StatsReading,
@@ -385,7 +386,7 @@ impl qobject::ContainerStatsModel {
             self.as_mut().publish_stats();
             return;
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .rust_mut()
                 .state
@@ -769,7 +770,7 @@ impl qobject::ContainerLogsModel {
             self.as_mut().publish_logs();
             return;
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .rust_mut()
                 .state
@@ -988,9 +989,9 @@ fn role_hash(pairs: &[(i32, &'static str)]) -> qobject::QHash_i32_QByteArray {
 
 fn live_error(error: &DockerError) -> String {
     match error {
-        DockerError::EngineUnavailable | DockerError::SocketNotFound(_) => {
-            "Docker Engine is unavailable.".into()
-        }
+        DockerError::EngineUnavailable
+        | DockerError::SocketNotFound(_)
+        | DockerError::DaemonUnavailable(_) => "Docker Engine is unavailable.".into(),
         DockerError::PermissionDenied => "Permission denied while reading container data.".into(),
         DockerError::ContainerNotFound(_) => "The selected container no longer exists.".into(),
         DockerError::OperationCancelled => "The live stream was cancelled.".into(),

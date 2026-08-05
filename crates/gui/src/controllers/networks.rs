@@ -2,7 +2,8 @@
 
 use std::cmp::Ordering;
 
-use tuxstack_docker_core::{DockerError, NetworkDetail, NetworkSummary};
+use tuxstack_client::DaemonError as DockerError;
+use tuxstack_domain::{NetworkDetail, NetworkSummary};
 
 use crate::models::network_model::{NetworkDetailView, NetworkRow};
 
@@ -534,7 +535,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use chrono::{TimeZone, Utc};
-    use tuxstack_docker_core::{NetworkContainer, NetworkIpam, NetworkSubnet};
+    use tuxstack_domain::{NetworkContainer, NetworkIpam, NetworkSubnet};
 
     use super::*;
 

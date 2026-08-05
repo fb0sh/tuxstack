@@ -6,9 +6,9 @@ import org.tuxstack.app
 /**
  * TuxStack application shell.
  *
- * The application shell owns the Docker connection and long-lived resource
- * models while the fixed StackLayout keeps page navigation responsive and
- * preserves page state.
+ * The application shell owns the typed tuxstackd connection and long-lived
+ * presentation models while the fixed StackLayout keeps page navigation
+ * responsive and preserves page state.
  */
 Kirigami.ApplicationWindow {
     id: root
@@ -111,7 +111,7 @@ Kirigami.ApplicationWindow {
         id: containerTerminalModel
     }
 
-    ContainerFileListModel {
+    LocalFuseFileListModel {
         id: containerFilesModel
     }
 
@@ -127,11 +127,11 @@ Kirigami.ApplicationWindow {
         id: volumesModel
     }
 
-    VolumeFileListModel {
+    LocalFuseFileListModel {
         id: volumeFilesModel
     }
 
-    ImageFileListModel {
+    LocalFuseFileListModel {
         id: imageFilesModel
     }
 
@@ -162,10 +162,8 @@ Kirigami.ApplicationWindow {
                                              appController.dockerStatusText)
             volumesModel.setConnectionState(appController.dockerStatus,
                                             appController.dockerStatusText)
-            volumeFilesModel.setConnectionState(appController.dockerStatus,
-                                                appController.dockerStatusText)
-            imageFilesModel.setConnectionState(appController.dockerStatus,
-                                               appController.dockerStatusText)
+            volumeFilesModel.setConnectionState(appController.dockerStatus)
+            imageFilesModel.setConnectionState(appController.dockerStatus)
         }
 
         function onDockerStatusTextChanged() {
@@ -179,10 +177,8 @@ Kirigami.ApplicationWindow {
                                                  appController.dockerStatusText)
                 volumesModel.setConnectionState(appController.dockerStatus,
                                                 appController.dockerStatusText)
-                volumeFilesModel.setConnectionState(appController.dockerStatus,
-                                                    appController.dockerStatusText)
-                imageFilesModel.setConnectionState(appController.dockerStatus,
-                                                   appController.dockerStatusText)
+                volumeFilesModel.setConnectionState(appController.dockerStatus)
+                imageFilesModel.setConnectionState(appController.dockerStatus)
             }
         }
 

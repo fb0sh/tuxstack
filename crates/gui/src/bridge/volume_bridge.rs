@@ -12,12 +12,13 @@ use std::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{
-    CloneVolumeRequest, CreateVolumeRequest, DockerError, ExportVolumeRequest, PruneVolumeFilters,
+use tuxstack_client::DaemonError as DockerError;
+use tuxstack_domain::{
+    CloneVolumeRequest, CreateVolumeRequest, ExportVolumeRequest, PruneVolumeFilters,
     RemoveVolumeOptions, VolumeExportCompression,
 };
 
-use crate::app_state::{get_services, get_store};
+use crate::app_state::daemon_services;
 use crate::bridge::resource_bridges::qobject;
 use crate::controllers::volumes::{VolumeSortMode, VolumesListState, VolumesState};
 use crate::models::volume_model::{
@@ -215,7 +216,7 @@ impl qobject::VolumeListModel {
         self.as_mut().rust_mut().option_ascending = true;
         self.as_mut().rust_mut().status_ascending = true;
         self.as_mut().apply_state(state);
-        if get_services().is_some() {
+        if daemon_services().is_some() {
             self.as_mut().rust_mut().docker_ready = true;
             self.as_mut().refresh();
         } else {
@@ -234,7 +235,7 @@ impl qobject::VolumeListModel {
             self.as_mut().apply_state(state);
             generation
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.apply_list_error(state_generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -252,39 +253,11 @@ impl qobject::VolumeListModel {
                 _ = token.cancelled() => return,
                 result = services.volumes.list_volume_summaries() => result,
             };
-            // Stale-while-revalidate: apply cached usage (persistent snapshot
-            // or short-TTL memory) to the rows before the first model update.
-            let store = get_store();
-            let cached_usage: HashMap<String, tuxstack_docker_core::cache::CachedVolumeUsage> =
-                match &result {
-                    Ok(volumes) => {
-                        let mut map = HashMap::new();
-                        for volume in volumes {
-                            if let Some(usage) = store.volume_usage.get(&volume.name).await {
-                                map.insert(volume.name.clone(), usage);
-                            }
-                        }
-                        map
-                    }
-                    Err(_) => HashMap::new(),
-                };
-            // Stage B uses the base names later; extract before moving `result`.
             let base_names: Vec<String> = match &result {
                 Ok(volumes) => volumes.iter().map(|v| v.name.clone()).collect(),
                 Err(_) => Vec::new(),
             };
-            let base_result = match result {
-                Ok(mut volumes) => {
-                    for volume in &mut volumes {
-                        if let Some(usage) = cached_usage.get(&volume.name) {
-                            volume.usage.size_bytes = usage.size_bytes;
-                            volume.usage.ref_count = usage.ref_count;
-                        }
-                    }
-                    Ok(volumes)
-                }
-                Err(error) => Err(error),
-            };
+            let base_result = result;
             qt_thread
                 .queue(move |mut model| {
                     if bridge_generation != model.refresh_bridge_generation {
@@ -325,18 +298,6 @@ impl qobject::VolumeListModel {
                 return;
             }
             let (references, usage) = services.volumes.enrich_usage(&base_names).await;
-            // Record fresh measurements into the usage cache (short TTL).
-            for (name, usage_entry) in &usage {
-                store
-                    .volume_usage
-                    .put(
-                        name,
-                        usage_entry.size_bytes,
-                        usage_entry.ref_count,
-                        tuxstack_docker_core::cache::VolumeUsageSource::SystemDf,
-                    )
-                    .await;
-            }
             qt_thread
                 .queue(move |mut model| {
                     if bridge_generation != model.refresh_bridge_generation {
@@ -409,7 +370,7 @@ impl qobject::VolumeListModel {
     fn start_detail_request(mut self: Pin<&mut Self>, name: String, state_generation: u64) {
         cancel(&mut self.as_mut().rust_mut().detail_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().detail_bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.apply_detail_error(state_generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -528,7 +489,7 @@ impl qobject::VolumeListModel {
         };
         cancel(&mut self.as_mut().rust_mut().create_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().create_bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().finish_create_error(
                 bridge_generation,
                 state_generation,
@@ -636,7 +597,7 @@ impl qobject::VolumeListModel {
         if name.trim().is_empty() {
             return;
         }
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .remove_preparation_failed(QString::from("Docker Engine is not available."));
             return;
@@ -700,7 +661,7 @@ impl qobject::VolumeListModel {
             .rust_mut()
             .remove_bridge_generations
             .insert(name.clone(), bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().finish_remove_error(
                 bridge_generation,
                 state_generation,
@@ -795,7 +756,7 @@ impl qobject::VolumeListModel {
         cancel(&mut self.as_mut().rust_mut().prune_prepare_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().prune_prepare_generation);
         self.as_mut().set_prune_preparation_active(false);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .prune_preparation_failed(QString::from("Docker Engine is not available."));
             return;
@@ -876,7 +837,7 @@ impl qobject::VolumeListModel {
         };
         cancel(&mut self.as_mut().rust_mut().prune_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().prune_bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().finish_prune_error(
                 bridge_generation,
                 state_generation,
@@ -1032,7 +993,7 @@ impl qobject::VolumeListModel {
             .set_export_status(QString::from("Exporting volume…"));
         cancel(&mut self.as_mut().rust_mut().export_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().export_bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().finish_export_error(
                 bridge_generation,
                 state_generation,
@@ -1160,7 +1121,7 @@ impl qobject::VolumeListModel {
             .set_clone_status(QString::from("Cloning volume…"));
         cancel(&mut self.as_mut().rust_mut().clone_cancel);
         let bridge_generation = bump(&mut self.as_mut().rust_mut().clone_bridge_generation);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut().finish_clone_error(
                 bridge_generation,
                 state_generation,
@@ -1719,9 +1680,9 @@ fn safe_connection_message(status: i32) -> &'static str {
 
 fn safe_operation_error(error: &DockerError) -> &'static str {
     match error {
-        DockerError::SocketNotFound(_) | DockerError::EngineUnavailable => {
-            "Docker Engine is not available."
-        }
+        DockerError::SocketNotFound(_)
+        | DockerError::DaemonUnavailable(_)
+        | DockerError::EngineUnavailable => "Docker Engine is not available.",
         DockerError::PermissionDenied => "Permission denied while accessing Docker volumes.",
         DockerError::VolumeNotFound(_) => "This volume no longer exists.",
         DockerError::VolumeInUse(_) | DockerError::Conflict(_) => {

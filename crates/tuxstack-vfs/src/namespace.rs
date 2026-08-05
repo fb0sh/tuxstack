@@ -30,6 +30,7 @@ struct OpenRoute {
 pub struct ResolvedNamespaceProvider {
     pub key: String,
     pub provider: Arc<dyn ReadOnlyFilesystemProvider>,
+    pub mount_path: VirtualPath,
     pub relative_path: VirtualPath,
 }
 
@@ -129,6 +130,7 @@ impl NamespaceProvider {
                     .map(|relative_path| ResolvedNamespaceProvider {
                         key: mounted.key.clone(),
                         provider: Arc::clone(&mounted.provider),
+                        mount_path: prefix.clone(),
                         relative_path,
                     })
             }))
@@ -287,7 +289,23 @@ impl ReadOnlyFilesystemProvider for NamespaceProvider {
         let Some(route) = self.provider_at(path)? else {
             return Err(VfsError::InvalidInput("node is not a symlink"));
         };
-        route.provider.read_link(&route.relative_path, ctx).await
+        let target = route.provider.read_link(&route.relative_path, ctx).await?;
+        if !target.is_absolute() {
+            return Ok(target);
+        }
+
+        // Absolute Docker links are rooted in this provider mount, never in
+        // the host or the global TuxStack namespace.
+        let provider_target = VirtualPath::from_absolute(target.as_bytes())?;
+        let anchored = VirtualPath::from_components(
+            route
+                .mount_path
+                .components()
+                .iter()
+                .chain(provider_target.components())
+                .cloned(),
+        )?;
+        VirtualPathBytes::new(anchored.as_bytes())
     }
 
     async fn open(

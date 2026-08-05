@@ -1,7 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=TuxStack
-Comment=Native Docker management for KDE Plasma
+Comment=Docker and Incus desktop management for Linux
+Comment[zh_CN]=Linux 上的 Docker 与 Incus 桌面管理工具
 Exec=tuxstack
 Icon=io.github.tuxstack.TuxStack
 Categories=System;Utility;

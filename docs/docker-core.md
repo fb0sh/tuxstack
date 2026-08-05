@@ -1,8 +1,8 @@
 # tuxstack-docker-core
 
-The internal Docker core library used directly by the GUI. Keeping Docker
-I/O and domain mapping independent of Qt makes it reusable within the GUI
-and straightforward to test without introducing another product frontend.
+The internal Docker core library used by `tuxstackd`. Keeping Docker
+I/O and domain mapping independent of Qt makes it testable without a product
+frontend; the GUI never imports it and only uses `tuxstack-client`.
 
 ## Module structure
 
@@ -29,9 +29,10 @@ src/
 │   ├── images.rs      list/inspect/remove
 │   ├── networks.rs    list/inspect
 │   ├── volumes.rs     list/inspect/create/remove/prune/export/clone
-│   ├── volume_files/  read-only volume file browse via helper session
+│   ├── container_terminal.rs  interactive TTY exec sessions
+│   ├── filesystem/    unified injected static Rust helper (volume + bind)
 │   ├── system.rs      ping/info/overview
-│   └── compose.rs     planned placeholder (returns an explicit error)
+│   └── compose.rs     Compose project actions
 ├── mapping/      Bollard DTO → domain model (pure, tested)
 │   ├── containers.rs
 │   ├── images.rs
@@ -39,7 +40,9 @@ src/
 │   ├── volumes.rs
 │   ├── stats.rs       CPU/memory math
 │   └── system.rs
-└── streams/      event stream service
+├── streams/      event/pull/export stream services
+└── vfs_providers/ Docker-backed read-only FUSE providers (snapshot,
+                   named volume, local/helper bind, archive, image index)
 ```
 
 ## DockerClient
@@ -60,7 +63,7 @@ Connection resolution order:
 
 ## Services
 
-`DockerServices { system, containers, images, networks, volumes, volume_files, compose }`
+`DockerServices { system, containers, images, networks, volumes, compose, container_terminal, filesystem }`
 all share one `Arc<DockerClient>` and are cheap to clone. There is no
 generic backend trait — Docker is modeled directly (Incus will get its
 own crate later).
@@ -79,18 +82,13 @@ temporary sibling and renames it after success. Clone refuses an existing
 target and can clean up an incomplete target. Both operations support
 `CancellationToken` and always attempt helper cleanup.
 
-### Volume file browsing
+## Filesystem helper
 
-`VolumeFileService` provides read-only directory listing and bounded file
-preview through a long-lived sleep helper (`tuxstack-volume-preview-<uuid>`).
-The selected volume is mounted at `/volume:ro`. Paths are validated
-`VolumePath` values (no `..`, no host paths). Symlinks are resolved with
-`realpath` and rejected when they escape `/volume`. Listings use a fixed
-shell script with argv-only paths and base64-encoded names. Previews are
-byte-limited (default 1 MiB text, 16 MiB images). Downloads stream via
-`cat` argv into a temporary sibling file then rename. Orphan helpers labeled
-`io.github.tuxstack.managed=true` + `purpose=volume-preview` are cleaned on
-application connect.
+`services/filesystem/` runs the bundled static Rust helper (`tuxstack-fs-helper`,
+JSON-lines protocol from `tuxstack-fs-protocol`) in restricted scratch helper
+containers for named-volume and fallback bind providers. It no longer serves
+the GUI directly: the GUI browses the daemon's FUSE namespace, and the old
+`volume_files/` shell-script service was deleted.
 
 ## Timeouts and cancellation
 

@@ -3,7 +3,8 @@ use std::io::Cursor;
 use tuxstack_domain::{CreateContainerRequest, CreateEnvironmentVariable};
 use tuxstack_protocol::{
     ClientHello, DockerRequest, FrameError, PROTOCOL_VERSION, ProtocolBody, ProtocolEnvelope,
-    Request, decode_frame, encode_frame, encode_frame_with_limit, read_frame,
+    PullImageRequest, RegistryAuthRequest, Request, decode_frame, encode_frame,
+    encode_frame_with_limit, read_frame,
 };
 
 fn ping() -> ProtocolEnvelope {
@@ -52,6 +53,47 @@ fn typed_docker_request_round_trips_without_untyped_payloads() {
     );
     let encoded = encode_frame(&envelope).unwrap();
     assert_eq!(decode_frame(&encoded).unwrap(), envelope);
+}
+
+#[test]
+fn authenticated_pull_round_trips_but_redacts_debug_output() {
+    let secret = "registry-secret";
+    let request = PullImageRequest {
+        reference: "registry.example/app:latest".into(),
+        platform: None,
+        registry_auth: Some(RegistryAuthRequest {
+            username: Some("alice".into()),
+            password: Some(secret.into()),
+            server_address: Some("registry.example".into()),
+            ..Default::default()
+        }),
+    };
+    assert!(!format!("{request:?}").contains(secret));
+    let envelope = ProtocolEnvelope::new(
+        44,
+        ProtocolBody::Request(Box::new(Request::Docker(Box::new(
+            DockerRequest::PullImageAuthenticated { request },
+        )))),
+    );
+    let encoded = encode_frame(&envelope).unwrap();
+    assert_eq!(decode_frame(&encoded).unwrap(), envelope);
+}
+
+#[test]
+fn export_requests_carry_paths_but_never_file_bodies() {
+    let envelope = ProtocolEnvelope::new(
+        45,
+        ProtocolBody::Request(Box::new(Request::Docker(Box::new(
+            DockerRequest::ExportImage {
+                id: "sha256:abc".into(),
+                destination: "/tmp/image.tar".into(),
+            },
+        )))),
+    );
+    assert_eq!(
+        decode_frame(&encode_frame(&envelope).unwrap()).unwrap(),
+        envelope
+    );
 }
 
 #[test]

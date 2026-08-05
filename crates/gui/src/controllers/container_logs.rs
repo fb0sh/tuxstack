@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
-use tuxstack_docker_core::{ContainerLogsOptions, LogLine, LogStream};
+use tuxstack_domain::{ContainerLogsOptions, LogLine, LogStream};
 
 pub const DEFAULT_LOG_TAIL: usize = 1000;
 pub const LOG_TAIL_VALUES: &[usize] = &[100, 500, 1000, 5000];

@@ -14,17 +14,14 @@
 //!   Docker endpoint, with write-behind flushing.
 //! * [`DockerEventMonitor`] — a `/events` watcher with debouncing and
 //!   exponential-backoff reconnect.
-//! * [`PreviewSessionPool`] — a pool of reusable helper sessions plus
-//!   per-directory TTL caching for volume file browsing.
 //!
-//! Everything in this module is pure Rust with no Qt dependency; GUI
-//! bridges use these types directly.
+//! Everything in this module is pure Rust with no Qt dependency; daemon
+//! services own these caches and event streams.
 
 mod coordinator;
 mod events;
 mod image_metadata;
 mod persistent;
-mod session_pool;
 mod volume_usage;
 
 pub use coordinator::{FlightOutcome, RequestCoordinator, TtlCache, TtlEntry};
@@ -36,9 +33,5 @@ pub use image_metadata::{CachedImageMetadata, ImageMetadataCache};
 pub use persistent::{
     CACHE_SCHEMA_VERSION, EndpointKey, PersistentCache, PersistentCacheConfig, SENSITIVE_KEYS,
     default_cache_path,
-};
-pub use session_pool::{
-    CachedDirectory, CachedPreviewSession, PreviewSessionPool, PreviewSessionPoolConfig,
-    PreviewSessionState,
 };
 pub use volume_usage::{CachedVolumeUsage, VolumeUsageCache, VolumeUsageSource};

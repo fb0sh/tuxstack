@@ -13,12 +13,12 @@ use cxx_qt_lib::{QModelIndex, QString, QVariant};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{
+use tuxstack_client::{
     ContainerTerminalError, ContainerTerminalOptions, ContainerTerminalOutput,
     ContainerTerminalOutputStream, ContainerTerminalSession, ContainerTerminalState,
 };
 
-use crate::app_state::get_services;
+use crate::app_state::daemon_services;
 use crate::controllers::container_terminal::{
     ContainerTerminalControllerState, ContainerTerminalRenderer, TerminalSelectionAction,
     terminal_key_bytes, terminal_paste_bytes,
@@ -392,7 +392,7 @@ impl qobject::ContainerTerminalModel {
             .reset(generation, rows, columns);
         self.as_mut().publish_all();
 
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .rust_mut()
                 .state
@@ -409,7 +409,7 @@ impl qobject::ContainerTerminalModel {
                 .container_terminal
                 .connect(
                     &container_id,
-                    ContainerTerminalOptions::default(),
+                    ContainerTerminalOptions,
                     cancellation.clone(),
                 )
                 .await;
@@ -711,10 +711,7 @@ enum TerminalEnd {
 
 fn into_output_bytes(output: ContainerTerminalOutput) -> Vec<u8> {
     match output {
-        ContainerTerminalOutput::StdOut(bytes)
-        | ContainerTerminalOutput::StdErr(bytes)
-        | ContainerTerminalOutput::StdIn(bytes)
-        | ContainerTerminalOutput::Console(bytes) => bytes,
+        ContainerTerminalOutput::Console(bytes) => bytes,
     }
 }
 

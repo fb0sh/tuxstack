@@ -4,29 +4,44 @@
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <name>TuxStack</name>
-  <summary>Native Docker management for KDE Plasma</summary>
+  <summary>Docker and Incus desktop management for Linux</summary>
+  <summary xml:lang="zh-CN">Linux 上的 Docker 与 Incus 桌面管理工具</summary>
   <description>
     <p>
-      TuxStack is a native Docker management application for Linux desktops,
-      designed for KDE Plasma and built with Rust, Qt, Kirigami, and Bollard.
+      TuxStack is a native Linux desktop manager for Docker and, in future
+      releases, Incus. It is designed for KDE Plasma and built with Rust,
+      Qt Quick, Kirigami, and a typed local daemon protocol.
     </p>
     <p>
-      It manages local Docker Engine containers, images, networks and volumes
-      from a lightweight, fast, native interface that follows the system
-      theme. The GUI talks directly to the internal Docker core library.
+      The unprivileged tuxstackd user service is the sole Docker Engine client.
+      The GUI communicates over authenticated local Unix-socket IPC, while a
+      persistent read-only FUSE namespace exposes containers, images, and
+      volumes as ordinary directories under ~/TuxStack/docker.
     </p>
     <p>
-      Current status: alpha. Compose projects, container terminal and file
-      browsing are planned but not yet implemented. Incus is a future
-      consideration and not currently supported.
+      Container lifecycle, Compose-label grouping, live stats and logs,
+      interactive TTY terminals, image/network/volume operations, and unified
+      read-only Files browsing are implemented. Incus support remains planned.
     </p>
   </description>
   <launchable type="desktop-id">io.github.tuxstack.TuxStack.desktop</launchable>
+  <icon type="stock">io.github.tuxstack.TuxStack</icon>
   <releases>
+    <release version="0.3.0" date="2026-08-05">
+      <description>
+        <p>Docker Containers workflows, typed tuxstackd IPC, and unified
+        read-only FUSE filesystem browsing.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-08-04">
+      <description>
+        <p>Read-only image and volume filesystem browsing with a bundled
+        static Rust helper.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-08-03">
       <description>
-        <p>Alpha release: Docker container lifecycle, logs, stats, image,
-        network, and volume management through the native Kirigami GUI.</p>
+        <p>Initial alpha release for Docker resource management.</p>
       </description>
     </release>
   </releases>

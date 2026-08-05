@@ -3,9 +3,9 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use tuxstack_docker_core::{ImageDetail, ImagePullProgress, ImageSummary};
+use tuxstack_domain::{ImageDetail, ImagePullProgress, ImageSummary};
 
-use crate::app_state::map_docker_error;
+use crate::error::AppError;
 use crate::models::image_model::{ImageDetailView, ImageRow, format_bytes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +99,6 @@ pub struct ExportState {
     pub active: bool,
     pub image_id: String,
     pub destination: String,
-    pub bytes_written: u64,
 }
 
 /// Pure, Qt-free state machine backing `ImageListModel`.
@@ -226,12 +225,12 @@ impl ImagesState {
     pub fn apply_list_error(
         &mut self,
         generation: u64,
-        error: &tuxstack_docker_core::DockerError,
+        error: &tuxstack_client::DaemonError,
     ) -> bool {
         if generation != self.refresh_generation {
             return false;
         }
-        let error = map_docker_error(error);
+        let error = AppError::from(error.clone());
         self.source_rows.clear();
         self.visible_rows.clear();
         self.clear_selection();
@@ -257,14 +256,6 @@ impl ImagesState {
             }
         }
         changed
-    }
-
-    /// Count rows whose architecture is still the unknown placeholder.
-    pub fn missing_metadata_count(&self) -> usize {
-        self.source_rows
-            .iter()
-            .filter(|row| row.architecture == "unknown")
-            .count()
     }
 
     pub fn set_search_query(&mut self, query: &str) {
@@ -460,18 +451,9 @@ impl ImagesState {
             active: true,
             image_id: id.to_string(),
             destination: destination.to_string(),
-            bytes_written: 0,
         };
         self.operation_in_progress = true;
         Some(self.export_generation)
-    }
-
-    pub fn update_export_bytes(&mut self, generation: u64, bytes: u64) -> bool {
-        if generation != self.export_generation || !self.export.active {
-            return false;
-        }
-        self.export.bytes_written = bytes;
-        true
     }
 
     pub fn finish_export(&mut self, generation: u64) -> bool {
@@ -498,7 +480,7 @@ impl ImagesState {
     pub fn total_size_bytes(&self) -> u64 {
         let mut unique = HashMap::<String, u64>::new();
         for row in &self.source_rows {
-            let id = tuxstack_docker_core::mapping::images::normalize_image_id(&row.image_id);
+            let id = tuxstack_domain::normalize_image_id(&row.image_id);
             unique
                 .entry(id)
                 .and_modify(|size| *size = (*size).max(row.size_bytes))
@@ -616,7 +598,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use chrono::{TimeZone, Utc};
-    use tuxstack_docker_core::{DockerError, ImageDetail, ImageSummary};
+    use tuxstack_client::DaemonError as DockerError;
+    use tuxstack_domain::{ImageDetail, ImageSummary};
 
     use super::*;
 
@@ -687,7 +670,7 @@ mod tests {
         let generation = state.begin_refresh();
         assert!(state.apply_list_error(generation, &DockerError::Api("boom".into())));
         assert_eq!(state.status, ImagesPageStatus::DockerError);
-        assert_eq!(state.error_kind, "docker");
+        assert_eq!(state.error_kind, "daemon");
     }
 
     #[test]
@@ -881,8 +864,6 @@ mod tests {
         assert!(state.finish_pull(newer_pull, false));
 
         let export_generation = state.begin_export("sha256:a", "/tmp/a.tar").unwrap();
-        assert!(state.update_export_bytes(export_generation, 42));
-        assert_eq!(state.export.bytes_written, 42);
         assert!(state.finish_export(export_generation));
         assert!(!state.operation_in_progress);
         let newer_export = state.begin_export("sha256:b", "/tmp/b.tar").unwrap();

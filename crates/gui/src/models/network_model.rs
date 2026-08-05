@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::{NetworkContainer, NetworkDetail, NetworkSubnet, NetworkSummary};
+use tuxstack_domain::{NetworkContainer, NetworkDetail, NetworkSubnet, NetworkSummary};
 
 /// One row in the network list. This type deliberately contains no Qt values.
 #[derive(Debug, Clone, PartialEq)]
@@ -247,7 +247,7 @@ fn dash() -> String {
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone};
-    use tuxstack_docker_core::NetworkIpam;
+    use tuxstack_domain::NetworkIpam;
 
     use super::*;
 

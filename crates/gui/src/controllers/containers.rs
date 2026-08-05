@@ -6,9 +6,10 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use tuxstack_docker_core::{
+use tuxstack_client::DaemonError as DockerError;
+use tuxstack_domain::{
     ContainerDetail, ContainerGroupId, ContainerGroupSummary, ContainerOperationState,
-    ContainerRuntimeState, ContainerSelection, ContainerSortMode, ContainerSummary, DockerError,
+    ContainerRuntimeState, ContainerSelection, ContainerSortMode, ContainerSummary,
     GroupOperationState, container_matches_search, group_compose_containers,
 };
 
@@ -144,7 +145,6 @@ pub struct ContainersState {
     pub operation_generation: u64,
     pub initialized: bool,
     pub refresh_in_progress: bool,
-    pub using_cache: bool,
     pub list_state: ContainersListState,
     pub list_error_kind: String,
     pub list_error_message: String,
@@ -183,7 +183,6 @@ impl ContainersState {
             operation_generation: 0,
             initialized: false,
             refresh_in_progress: false,
-            using_cache: false,
             list_state: ContainersListState::Loading,
             list_error_kind: String::new(),
             list_error_message: String::new(),
@@ -229,29 +228,11 @@ impl ContainersState {
         self.refresh_generation
     }
 
-    /// Apply a stale cache snapshot while the same generation continues its
-    /// live request. Existing content is replaced immediately but the bridge
-    /// must still call `apply_live` or `apply_list_error`.
-    pub fn apply_cached(&mut self, generation: u64, summaries: &[ContainerSummary]) -> bool {
-        if generation != self.refresh_generation {
-            return false;
-        }
-        self.replace_source(summaries);
-        self.using_cache = true;
-        self.list_state = if summaries.is_empty() {
-            ContainersListState::Loading
-        } else {
-            ContainersListState::Ready
-        };
-        true
-    }
-
     pub fn apply_live(&mut self, generation: u64, summaries: &[ContainerSummary]) -> bool {
         if generation != self.refresh_generation {
             return false;
         }
         self.replace_source(summaries);
-        self.using_cache = false;
         self.refresh_in_progress = false;
         self.list_state = if self.source_rows.is_empty() {
             ContainersListState::Empty
@@ -269,16 +250,11 @@ impl ContainersState {
         }
         self.refresh_in_progress = false;
         let (state, kind, message) = friendly_error(error, ErrorContext::List);
-        // A useful cached list remains visible if live revalidation fails.
-        if self.using_cache && !self.source_rows.is_empty() {
-            self.list_state = ContainersListState::Ready;
-        } else {
-            self.source_rows.clear();
-            self.groups.clear();
-            self.visible_rows.clear();
-            self.set_selection(ContainerSelection::None);
-            self.list_state = state;
-        }
+        self.source_rows.clear();
+        self.groups.clear();
+        self.visible_rows.clear();
+        self.set_selection(ContainerSelection::None);
+        self.list_state = state;
         self.list_error_kind = kind.to_string();
         self.list_error_message = message;
         true
@@ -1101,7 +1077,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use chrono::{TimeZone, Utc};
-    use tuxstack_docker_core::{
+    use tuxstack_domain::{
         COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, ContainerStateDetail, EnvironmentVariable,
         MountInfo, NetworkAttachment, ResourceLimits, RestartPolicy,
     };
@@ -1216,27 +1192,14 @@ mod tests {
     }
 
     #[test]
-    fn cached_then_live_uses_same_generation_and_live_wins() {
-        let mut state = ContainersState::new("endpoint");
-        let generation = state.begin_refresh();
-        assert!(state.apply_cached(generation, &[rows()[0].clone()]));
-        assert!(state.using_cache);
-        assert!(state.refresh_in_progress);
-        assert_eq!(state.total_count(), 1);
-        assert!(state.apply_live(generation, &rows()));
-        assert!(!state.using_cache);
-        assert!(!state.refresh_in_progress);
-        assert_eq!(state.total_count(), 5);
-    }
-
-    #[test]
-    fn stale_cache_and_live_results_are_ignored() {
+    fn stale_and_live_results_are_generation_guarded() {
         let mut state = ContainersState::default();
         let stale = state.begin_refresh();
         let current = state.begin_refresh();
-        assert!(!state.apply_cached(stale, &rows()));
         assert!(!state.apply_live(stale, &rows()));
         assert!(state.apply_live(current, &rows()));
+        assert!(!state.refresh_in_progress);
+        assert_eq!(state.total_count(), 5);
     }
 
     #[test]
@@ -1532,17 +1495,6 @@ mod tests {
         assert_eq!(state.paused_count(), 1);
         assert_eq!(state.stopped_count(), 3);
         assert!(state.visible_rows.len() >= state.total_count());
-    }
-
-    #[test]
-    fn live_error_preserves_nonempty_cached_rows() {
-        let mut state = ContainersState::new("endpoint");
-        let generation = state.begin_refresh();
-        state.apply_cached(generation, &rows());
-        state.apply_list_error(generation, &DockerError::EngineUnavailable);
-        assert_eq!(state.list_state, ContainersListState::Ready);
-        assert_eq!(state.total_count(), 5);
-        assert_eq!(state.list_error_kind, "docker_unavailable");
     }
 
     #[test]

@@ -8,9 +8,12 @@ description = "Typed Tokio Unix socket client for the TuxStack daemon"
 publish = false
 
 [dependencies]
+futures-util.workspace = true
 libc.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+tuxstack-domain.workspace = true
 tuxstack-protocol = { path = "../tuxstack-protocol", version = "0.3.0" }
 
 [dev-dependencies]

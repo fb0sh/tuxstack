@@ -5,7 +5,6 @@
 //! current version targets Docker only.
 
 pub mod compose;
-pub mod container_files;
 pub mod container_terminal;
 pub mod containers;
 pub mod filesystem;
@@ -15,7 +14,6 @@ pub mod system;
 pub mod volumes;
 
 pub use compose::*;
-pub use container_files::*;
 pub use container_terminal::*;
 pub use containers::*;
 pub use filesystem::FilesystemService;
@@ -39,7 +37,6 @@ pub struct DockerServices {
     pub networks: NetworkService,
     pub volumes: VolumeService,
     pub compose: ComposeService,
-    pub container_files: ContainerFilesystemService,
     pub container_terminal: ContainerTerminalService,
     pub filesystem: FilesystemService,
 }
@@ -54,7 +51,6 @@ impl DockerServices {
             networks: NetworkService::new(client.clone()),
             volumes: VolumeService::new(client.clone()),
             compose: ComposeService::new(client.clone()),
-            container_files: ContainerFilesystemService::new(client.clone()),
             container_terminal: ContainerTerminalService::new(client.clone()),
             filesystem: FilesystemService::new(client),
         }

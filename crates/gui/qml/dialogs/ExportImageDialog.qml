@@ -52,9 +52,8 @@ Kirigami.Dialog {
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: root.imagesModel && root.imagesModel.exportBytesText.length > 0
-                  ? qsTr("%1 written").arg(root.imagesModel.exportBytesText)
-                  : qsTr("Waiting for Docker Engine…")
+            text: qsTr("The TuxStack service writes the archive atomically at the selected destination.")
+            wrapMode: Text.WordWrap
             color: Kirigami.Theme.disabledTextColor
         }
 

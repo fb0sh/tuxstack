@@ -18,12 +18,11 @@ TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux�
 | Compose 标签分组 / 批量操作 | ✅ 已实现 |
 | 容器日志 / 实时监控 / Docker Events | ✅ 已实现 |
 | 容器终端（真实 Docker TTY + VT100） | ✅ 已实现 |
-| 容器文件系统快照 / 预览 / 另存为 | ✅ 已实现 |
+| 统一只读文件浏览（FUSE，容器/镜像/卷） | ✅ 已实现 |
 | 创建容器（端口、挂载、网络、资源） | ✅ 已实现 |
 | 镜像管理 / 拉取 / 导出 | ✅ 已实现 |
 | 网络管理 | ✅ 已实现 |
-| 卷管理 / 文件浏览 | ✅ 已实现 |
-| 镜像文件浏览 | ✅ 已实现 |
+| 卷管理 | ✅ 已实现 |
 | 独立 Compose 项目页面 / up/down | 🔜 计划中 |
 | 镜像构建 / 推送 | 🔜 计划中 |
 
@@ -43,33 +42,37 @@ TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux�
 │               tuxstack                  │
 │  QML + Kirigami UI                      │
 │  CXX-Qt Rust⇄Qt 桥接                   │
-│  GUI 控制器 / 应用状态                   │
+│  只依赖 tuxstack-client（typed IPC）    │
 └───────┬─────────────────────────────────┘
-        │
-        ├───────────────────────┐
-        ▼                       ▼
+        │  Unix socket（$XDG_RUNTIME_DIR/tuxstack/control.sock）
+        ▼
+┌─────────────────────────────────────────┐
+│              tuxstackd                  │
+│  唯一 Docker Engine 客户端（Bollard）   │
+│  容器/镜像/网络/卷/Compose/终端/流      │
+│  只读 FUSE namespace 生命周期           │
+└───────┬─────────────────────┬──────────┘
+        ▼                     ▼
 ┌───────────────────┐  ┌───────────────────┐
-│   Docker Core     │  │   Incus Core      │
-│  Bollard 客户端   │  │  Incus API 客户端  │
-│  文件系统服务     │  │  虚拟机管理        │
-│  统计/日志/事件   │  │  网络/存储管理     │
-└───────┬───────────┘  └───────┬───────────┘
-        │                      │
-        ▼                      ▼
-┌───────────────────┐  ┌───────────────────┐
-│  Docker Engine    │  │  Incus Server     │
-│  /var/run/docker.sock │  /var/lib/incus/unix.socket │
+│  Docker Engine    │  │  FUSE 只读挂载     │
+│  /var/run/docker.sock │  ~/TuxStack/docker │
 └───────────────────┘  └───────────────────┘
 ```
 
-无守护进程、CLI 前端或 REST/JSON-RPC 层。GUI 直接链接核心库，通过原生 API 与后端通信。
+GUI 和 CLI 不直接持有 Docker 客户端。无特权用户服务 `tuxstackd` 是唯一与
+Docker Engine 通信的进程，通过带鉴权的本地 Unix socket 提供 typed IPC；同时
+维护一个只读 FUSE namespace（`~/TuxStack/docker`），把容器、镜像、卷暴露为
+普通目录。旧的文件浏览后端（helper 会话/export tar 解析）已删除。
 
 ## 技术栈
 
 - **语言**：Rust (edition 2024)
 - **UI**：Qt 6 / Qt Quick / QML + Kirigami (KF6)
 - **桥接**：CXX-Qt
-- **Docker 客户端**：Bollard + Tokio 异步运行时
+- **后台服务**：`tuxstackd`（systemd user service，唯一 Docker 客户端）
+- **IPC**：tuxstack-protocol / tuxstack-client（typed CBOR，Unix socket）
+- **文件系统**：tuxstack-vfs（只读 FUSE，fuser）
+- **Docker 客户端**：Bollard + Tokio 异步运行时（仅 daemon）
 - **Incus 客户端**：Incus API (计划中)
 - **序列化**：Serde、thiserror、tracing
 
@@ -106,10 +109,18 @@ cargo build --workspace
 ## 运行
 
 ```bash
+# 启动 tuxstackd（仅需要 Docker 管理时）
+systemctl --user start tuxstackd
+
+# 或一次性后台服务
+systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
+
+# 运行 GUI
 cargo run
 ```
 
-等价于 `cargo run -p tuxstack`。启动时连接本地 Docker/Incus socket，不可用时在概览页显示错误并提供重试按钮。
+等价于 `cargo run -p tuxstack`。GUI 通过 `$XDG_RUNTIME_DIR/tuxstack/control.sock`
+连接 tuxstackd；服务或 Docker Engine 不可用时在概览页显示状态并提供重试按钮。
 
 ## 配置
 
@@ -209,12 +220,11 @@ TuxStack is a native container and virtual machine desktop management applicatio
 | Compose label grouping/group actions | ✅ Implemented |
 | Container logs/live stats/Docker Events | ✅ Implemented |
 | Container terminal (real Docker TTY + VT100) | ✅ Implemented |
-| Container filesystem snapshots/preview/save-as | ✅ Implemented |
+| Unified read-only Files browsing (FUSE, container/image/volume) | ✅ Implemented |
 | Create container (ports, mounts, networks, resources) | ✅ Implemented |
 | Image management/pull/export | ✅ Implemented |
 | Network management | ✅ Implemented |
-| Volume management/file browsing | ✅ Implemented |
-| Image file browsing | ✅ Implemented |
+| Volume management | ✅ Implemented |
 | Dedicated Compose projects page/up/down | 🔜 Planned |
 | Image build/push | 🔜 Planned |
 
@@ -234,33 +244,38 @@ TuxStack is a native container and virtual machine desktop management applicatio
 │               tuxstack                  │
 │  QML + Kirigami UI                      │
 │  CXX-Qt Rust⇄Qt bridge                 │
-│  GUI controllers / app state            │
+│  depends only on tuxstack-client (IPC)  │
 └───────┬─────────────────────────────────┘
-        │
-        ├───────────────────────┐
-        ▼                       ▼
+        │  Unix socket ($XDG_RUNTIME_DIR/tuxstack/control.sock)
+        ▼
+┌─────────────────────────────────────────┐
+│              tuxstackd                  │
+│  sole Docker Engine client (Bollard)    │
+│  containers/images/network/volumes/…    │
+│  read-only FUSE namespace lifecycle     │
+└───────┬─────────────────────┬──────────┘
+        ▼                     ▼
 ┌───────────────────┐  ┌───────────────────┐
-│   Docker Core     │  │   Incus Core      │
-│  Bollard client   │  │  Incus API client │
-│  Filesystem svc   │  │  VM management    │
-│  Stats/logs/events│  │  Network/storage  │
-└───────┬───────────┘  └───────┬───────────┘
-        │                      │
-        ▼                      ▼
-┌───────────────────┐  ┌───────────────────┐
-│  Docker Engine    │  │  Incus Server     │
-│  /var/run/docker.sock │  /var/lib/incus/unix.socket │
+│  Docker Engine    │  │  read-only FUSE    │
+│  /var/run/docker.sock │  ~/TuxStack/docker │
 └───────────────────┘  └───────────────────┘
 ```
 
-No daemon, CLI frontend, or REST/JSON-RPC layer. The GUI links directly against core libraries, communicating with backends through native APIs.
+Neither the GUI nor the CLI owns a Docker client. The unprivileged user
+service `tuxstackd` is the only process that talks to Docker Engine, serving
+typed IPC over an authenticated local Unix socket and a persistent read-only
+FUSE namespace at `~/TuxStack/docker`. The legacy file-browsing backends
+(helper sessions / export tar parsing) were removed.
 
 ## Tech Stack
 
 - **Language**: Rust (edition 2024)
 - **UI**: Qt 6 / Qt Quick / QML + Kirigami (KF6)
 - **Bridge**: CXX-Qt
-- **Docker client**: Bollard + Tokio async runtime
+- **Background service**: `tuxstackd` (systemd user service, sole Docker client)
+- **IPC**: tuxstack-protocol / tuxstack-client (typed CBOR over Unix socket)
+- **Filesystem**: tuxstack-vfs (read-only FUSE via fuser)
+- **Docker client**: Bollard + Tokio async runtime (daemon only)
 - **Incus client**: Incus API (planned)
 - **Serialization**: Serde, thiserror, tracing
 
@@ -297,10 +312,19 @@ cargo build --workspace
 ## Running
 
 ```bash
+# Start tuxstackd (required for Docker management)
+systemctl --user start tuxstackd
+
+# Enable it as a user service
+systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
+
+# Run the GUI
 cargo run
 ```
 
-Equivalent to `cargo run -p tuxstack`. Connects to local Docker/Incus socket on startup; shows error with retry button on Overview page when unavailable.
+Equivalent to `cargo run -p tuxstack`. The GUI connects to tuxstackd over
+`$XDG_RUNTIME_DIR/tuxstack/control.sock`; when the service or Docker Engine is
+unavailable it shows a status with a retry button on the Overview page.
 
 ## Configuration
 

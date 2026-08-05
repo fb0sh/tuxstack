@@ -8,18 +8,15 @@ Kirigami.Dialog {
     id: root
 
     property var filesModel: null
-    signal saveAsRequested(string path)
+    signal saveAsRequested(string pathToken, string name)
 
     title: root.filesModel && root.filesModel.previewName.length > 0
            ? root.filesModel.previewName
-           : I18n.i18nd("tuxstack", "Container File Preview")
+           : I18n.i18nd("tuxstack", "File Preview")
     preferredWidth: Kirigami.Units.gridUnit * 38
     preferredHeight: Kirigami.Units.gridUnit * 28
 
-    onClosed: {
-        if (root.filesModel)
-            root.filesModel.cancelPreview()
-    }
+    onClosed: root.filesModel && root.filesModel.cancelPreview()
 
     ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
@@ -28,9 +25,8 @@ Kirigami.Dialog {
             Layout.fillWidth: true
             visible: root.filesModel && root.filesModel.previewTruncated
             type: Kirigami.MessageType.Information
-            text: I18n.i18nd("tuxstack", "Preview truncated. Save the file to retrieve the complete content.")
+            text: I18n.i18nd("tuxstack", "Preview truncated. Save As reads the complete file through FUSE.")
         }
-
         Kirigami.InlineMessage {
             Layout.fillWidth: true
             visible: root.filesModel && root.filesModel.previewBinary
@@ -53,13 +49,27 @@ Kirigami.Dialog {
             }
         }
 
-        QQC2.Label {
+        ColumnLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: true
             visible: root.filesModel && root.filesModel.previewBinary
-            text: I18n.i18nd("tuxstack", "Path: %1\nSize: %2",
-                             root.filesModel ? root.filesModel.previewPath : "",
-                             root.filesModel ? root.filesModel.previewSizeText : "")
-            wrapMode: Text.WrapAnywhere
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                source: "application-octet-stream"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+                Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: I18n.i18nd("tuxstack", "Path: %1\nMIME: %2\nSize: %3",
+                                 root.filesModel ? root.filesModel.previewPath : "",
+                                 root.filesModel ? root.filesModel.previewMime : "",
+                                 root.filesModel ? root.filesModel.previewSizeText : "")
+                wrapMode: Text.WrapAnywhere
+                horizontalAlignment: Text.AlignHCenter
+            }
         }
     }
 
@@ -70,7 +80,8 @@ Kirigami.Dialog {
             QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.ActionRole
             onClicked: {
                 if (root.filesModel)
-                    root.saveAsRequested(root.filesModel.previewPath)
+                    root.saveAsRequested(root.filesModel.selectedEntryPath,
+                                         root.filesModel.previewName)
             }
         }
         QQC2.Button {

@@ -3,7 +3,7 @@
 //! Docker TTY bytes are interpreted here with `vt100`; QML receives only
 //! rendered screen rows and cursor metadata, never ANSI escape sequences.
 
-use tuxstack_docker_core::{ContainerTerminalError, ContainerTerminalState};
+use tuxstack_client::{ContainerTerminalError, ContainerTerminalState};
 
 pub const DEFAULT_TERMINAL_ROWS: u16 = 24;
 pub const DEFAULT_TERMINAL_COLUMNS: u16 = 80;

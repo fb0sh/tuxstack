@@ -108,6 +108,34 @@ async fn aliases_are_links_and_handles_stay_with_the_opened_provider() {
     namespace.close(handle).await.unwrap();
 }
 
+#[tokio::test]
+async fn provider_absolute_links_are_anchored_inside_the_resource_mount() {
+    let provider = Arc::new(InMemoryProvider::new());
+    provider
+        .add_file(path(b"/inside"), b"inside", b"safe".as_slice())
+        .unwrap();
+    provider
+        .add_symlink(
+            path(b"/absolute"),
+            b"absolute",
+            VirtualPathBytes::new(b"/inside").unwrap(),
+        )
+        .unwrap();
+    let namespace = NamespaceProvider::new();
+    namespace
+        .mount(path(b"/containers/c"), "container", provider)
+        .unwrap();
+
+    assert_eq!(
+        namespace
+            .read_link(&path(b"/containers/c/absolute"), &context())
+            .await
+            .unwrap()
+            .as_bytes(),
+        b"/containers/c/inside"
+    );
+}
+
 #[test]
 fn aliases_require_absolute_non_root_targets() {
     let namespace = NamespaceProvider::new();

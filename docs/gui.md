@@ -9,17 +9,15 @@ Kirigami.ApplicationWindow (Main.qml)
 ├── AppSidebar                 responsive KDE navigation
 ├── Kirigami.Separator
 └── StackLayout
-    ├── ContainersPage        current phase placeholder
+    ├── ContainersPage        real grouped Docker container management
     ├── ImagesPage            real Docker image management
     │   ├── ImageListPanel
     │   │   ├── search / sort / refresh / pull
     │   │   └── In Use / Unused image sections
     │   └── ImageDetailPanel
-    │       ├── basic information / export
-    │       ├── config
-    │       ├── environment
-    │       ├── labels
-    │       └── used-by containers
+    │       ├── Info / Files tabs
+    │       ├── Info: basic information / export / config / environment / labels / used-by
+    │       └── Files: unified FUSE browser
     ├── VolumesPage           real Docker volume management
     │   ├── VolumeListPanel
     │   │   ├── search / sort / refresh / create / prune
@@ -27,7 +25,7 @@ Kirigami.ApplicationWindow (Main.qml)
     │   └── VolumeDetailPanel
     │       ├── Info / Files tabs
     │       ├── Info: metadata / export / clone / used-by / labels
-    │       └── Files: read-only helper-session browser + preview
+    │       └── Files: unified FUSE browser
     ├── NetworksPage          real Docker network management
     ├── ActivityMonitorPage   future phase placeholder
     ├── CommandsPage          future phase placeholder
@@ -93,20 +91,25 @@ the selected volume chooses an adjacent row. Used-by rows request navigation
 through the model; `Main.qml` switches to Containers and records the full
 container ID, matching Images navigation.
 
-Export and clone run asynchronously through restricted helper containers and
-support cooperative cancellation. Create, remove, prune, export, and clone
-completion signals drive passive notifications and dialog lifecycle in QML.
+Export and clone run asynchronously through daemon-side restricted helper
+containers and support cooperative cancellation. Create, remove, prune,
+export, and clone completion signals drive passive notifications and dialog
+lifecycle in QML.
 
-## Volume files browser
+## Unified FUSE files browser
 
-`VolumeFileListModel` owns a separate read-only preview session per selected
-volume. Switching to the Files tab starts a constrained helper container
-(`alpine:3.20`, volume mounted at `/volume:ro`, no network, no privileges,
-dropped capabilities). Directory listings, bounded text/JSON/image previews,
-properties, and streaming Save As use Docker exec with validated
-`VolumePath` values. Leaving Files or changing volumes tears the session down;
-application startup also cleans orphan helpers labeled
-`io.github.tuxstack.purpose=volume-preview`.
+Container, Image, and Volume Files tabs all share one
+`LocalFuseFileListModel` over `LocalFuseFilesView.qml`. The model resolves the
+daemon status, the mounted resource path, and its provider descriptor over
+typed IPC, then performs ordinary local directory I/O on the FUSE namespace
+at `~/TuxStack/docker` (`tokio::fs`). Bounded previews, Save As (unique
+sibling `.part` + atomic rename), properties, breadcrumbs, hidden filtering,
+search, and sorting are all local. “Open in File Manager” uses
+`Qt.openUrlExternally`; there is no `xdg-open` process bridge.
+
+The three resource wrappers (`ContainerFilesView.qml`, `ImageFilesView.qml`,
+`VolumeFilesView.qml`) only override strings and provider actions; the legacy
+helper-session models and their preview/properties/save dialogs were deleted.
 
 ## Image/container association
 

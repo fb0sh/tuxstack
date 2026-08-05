@@ -1729,7 +1729,9 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "tuxstack-docker-core",
+ "tuxstack-client",
+ "tuxstack-domain",
+ "tuxstack-protocol",
  "vt100",
 ]
 
@@ -1747,10 +1749,13 @@ dependencies = [
 name = "tuxstack-client"
 version = "0.3.0"
 dependencies = [
+ "futures-util",
  "libc",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
+ "tuxstack-domain",
  "tuxstack-protocol",
 ]
 

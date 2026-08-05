@@ -1,30 +1,28 @@
-//! App-level bridge: connection state and overview data.
-//!
-//! This QObject owns the connection lifecycle. On success it stores the
-//! shared `DockerServices` in the global registry so every page model
-//! can use them.
+//! App-level bridge for the tuxstackd connection, status, overview, and
+//! daemon-owned Docker resource events.
 
 use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use tuxstack_docker_core::DockerServices;
+use tuxstack_protocol::{
+    DaemonStatus, DockerConnectionStatus, DockerResourceRef, MountState, Request, ResourceChange,
+    ResourceKind, Response, ServerEvent, SubscriptionRequest,
+};
 
 use crate::app_state;
-use crate::settings;
+use crate::error::AppError;
 
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
-        /// An alias to the QString type
         type QString = cxx_qt_lib::QString;
     }
 
     impl cxx_qt::Threading for AppController {}
 
     extern "RustQt" {
-        /// Global app controller: docker connection + overview.
         #[qobject]
         #[qml_element]
         #[qproperty(i32, docker_status, cxx_name = "dockerStatus")]
@@ -35,32 +33,22 @@ pub mod qobject {
         #[qproperty(QString, overview_json, cxx_name = "overviewJson")]
         type AppController = super::AppControllerRust;
 
-        /// Connect to Docker and load the overview (called from QML).
         #[qinvokable]
         #[cxx_name = "startup"]
         fn startup(self: Pin<&mut Self>);
-
-        /// Re-run the overview aggregation.
         #[qinvokable]
         #[cxx_name = "refreshOverview"]
         fn refresh_overview(self: Pin<&mut Self>);
 
-        /// Emitted once per changed non-container resource kind in a
-        /// debounced batch; `kind` is images/volumes/networks/daemon.
         #[qsignal]
         #[cxx_name = "dockerChanged"]
         fn docker_changed(self: Pin<&mut Self>, kind: QString);
-
-        /// Emitted for each distinct `(actorId, action)` container event in
-        /// first-seen order within the debounced batch.
         #[qsignal]
         #[cxx_name = "containerChanged"]
         fn container_changed(self: Pin<&mut Self>, actor_id: QString, action: QString);
-
     }
 }
 
-/// Rust state backing [`qobject::AppController`].
 #[derive(Default)]
 pub struct AppControllerRust {
     connection_generation: u64,
@@ -73,226 +61,282 @@ pub struct AppControllerRust {
 }
 
 impl qobject::AppController {
-    /// Start connecting to Docker asynchronously.
     pub fn startup(mut self: Pin<&mut Self>) {
-        app_state::clear_services();
+        app_state::clear_client();
         let generation = {
             let mut state = self.as_mut().rust_mut();
             state.connection_generation = state.connection_generation.wrapping_add(1);
             state.connection_generation
         };
-        self.as_mut().set_docker_status(0); // loading
+        self.as_mut().set_docker_status(0);
         self.as_mut()
-            .set_docker_status_text(QString::from("Connecting to Docker Engine..."));
+            .set_docker_status_text(QString::from("Connecting to TuxStack service…"));
+        self.as_mut()
+            .set_docker_host(QString::from("$XDG_RUNTIME_DIR/tuxstack/control.sock"));
 
-        let (settings, warning) = settings::load_settings();
-        app_state::set_settings(settings.clone());
-        self.as_mut().set_docker_host(QString::from(
-            settings
-                .docker_host
-                .clone()
-                .unwrap_or_else(|| "default (DOCKER_HOST or /var/run/docker.sock)".to_string()),
-        ));
-
-        if let Some(w) = warning {
-            self.as_mut().set_docker_status_text(QString::from(w));
-        }
-
-        let qt_thread = self.qt_thread();
+        let qt = self.qt_thread();
         crate::runtime::spawn(async move {
-            let config = tuxstack_docker_core::DockerConfig {
-                host: settings.docker_host.clone(),
-                connect_timeout: std::time::Duration::from_secs(settings.connect_timeout_seconds),
-                request_timeout: std::time::Duration::from_secs(settings.operation_timeout_seconds),
-            };
-
-            let result = match tuxstack_docker_core::DockerClient::connect_with_config(config) {
-                Ok(client) => {
-                    let services = DockerServices::new(std::sync::Arc::new(client));
-                    match services.system.ping().await {
-                        Ok(()) => Ok(services),
-                        Err(e) => Err(e),
+            let result = async {
+                let config = tuxstack_client::ClientConfig::from_env(env!("CARGO_PKG_VERSION"))?;
+                let client = tuxstack_client::Client::connect(config).await?;
+                let status = match client.request(Request::GetDaemonStatus).await? {
+                    Response::DaemonStatus(status) => status,
+                    Response::Error(error) => {
+                        return Err(tuxstack_client::DaemonError::Internal(error.message));
                     }
+                    _ => {
+                        return Err(tuxstack_client::DaemonError::Internal(
+                            "daemon returned an unexpected status response".into(),
+                        ));
+                    }
+                };
+                Ok::<_, tuxstack_client::DaemonError>((client, status))
+            }
+            .await;
+
+            qt.queue(move |mut controller| {
+                if controller.connection_generation != generation {
+                    return;
                 }
-                Err(e) => Err(e),
-            };
-
-            qt_thread
-                .queue(move |mut controller| {
-                    if controller.rust().connection_generation != generation {
-                        return;
-                    }
-                    match result {
-                        Ok(services) => {
-                            app_state::set_services(services.clone());
-                            // Start the global Docker event monitor: it
-                            // debounces /events bursts and forwards precise
-                            // resource and container change signals.
-                            let monitor = app_state::get_store().events.clone();
-                            monitor.rebind_client(services.client());
-                            let watch_loop = monitor.clone();
-                            crate::runtime::spawn(async move {
-                                let stream = watch_loop.start();
-                                tuxstack_docker_core::cache::run_monitor(
-                                    &watch_loop,
-                                    stream,
-                                    tuxstack_docker_core::cache::DefaultEventClassifier,
-                                )
-                                .await;
-                            });
-                            let mut rx = monitor.subscribe();
-                            let qt_thread = controller.as_mut().qt_thread();
-                            crate::runtime::spawn(async move {
-                                while rx.changed().await.is_ok() {
-                                    let Some(notification) = rx.borrow_and_update().clone()
-                                    else {
-                                        continue;
-                                    };
-                                    tracing::debug!(
-                                        burst = notification.burst,
-                                        kinds = ?notification.kinds,
-                                        reconnected = notification.reconnected,
-                                        "dockerChanged notification forwarded"
-                                    );
-                                    let kinds = notification.kinds.clone();
-                                    let container_changes = notification.container_changes.clone();
-                                    let container_batch_fallback = kinds.contains(
-                                        &tuxstack_docker_core::cache::ChangeKind::Containers,
-                                    ) && (notification.reconnected
-                                        || notification.container_changes_truncated);
-                                    qt_thread
-                                        .queue(move |mut controller| {
-                                            for kind in kinds {
-                                                let name = match kind {
-                                                    tuxstack_docker_core::cache::ChangeKind::Images => "images",
-                                                    tuxstack_docker_core::cache::ChangeKind::Containers => continue,
-                                                    tuxstack_docker_core::cache::ChangeKind::Volumes => "volumes",
-                                                    tuxstack_docker_core::cache::ChangeKind::Networks => "networks",
-                                                    tuxstack_docker_core::cache::ChangeKind::Daemon => "daemon",
-                                                };
-                                                controller.as_mut().docker_changed(
-                                                    QString::from(name),
-                                                );
-                                            }
-                                            for change in container_changes {
-                                                controller.as_mut().container_changed(
-                                                    QString::from(change.actor_id),
-                                                    QString::from(change.action),
-                                                );
-                                            }
-                                            if container_batch_fallback {
-                                                controller.as_mut().container_changed(
-                                                    QString::default(),
-                                                    QString::default(),
-                                                );
-                                            }
-                                        })
-                                        .unwrap_or_else(|error| {
-                                            tracing::debug!(
-                                                %error,
-                                                "Qt object destroyed before dockerChanged delivery"
-                                            )
-                                        });
-                                }
-                            });
-                            // Best-effort cleanup of orphaned filesystem preview helpers
-                            // left by previous crashes. Never blocks the UI path.
-                            let cleanup_services = services.clone();
-                            crate::runtime::spawn(async move {
-                                match cleanup_services
-                                    .filesystem
-                                    .cleanup_orphan_sessions()
-                                    .await
-                                {
-                                    Ok(count) if count > 0 => {
-                                        tracing::debug!(
-                                            removed = count,
-                                            "cleaned orphan filesystem preview helpers"
-                                        );
-                                    }
-                                    Ok(_) => {}
-                                    Err(error) => {
-                                        tracing::debug!(
-                                            error = %error,
-                                            "orphan filesystem preview cleanup failed"
-                                        );
-                                    }
-                                }
-                            });
-                            controller.as_mut().set_docker_status(1); // ready
-                            controller
-                                .as_mut()
-                                .set_docker_status_text(QString::from("Connected"));
+                match result {
+                    Ok((client, status)) => {
+                        app_state::set_client(client);
+                        controller.as_mut().apply_daemon_status(&status);
+                        controller.as_mut().start_daemon_subscriptions(generation);
+                        if matches!(status.docker, DockerConnectionStatus::Connected { .. }) {
                             controller.as_mut().refresh_overview();
                         }
-                        Err(e) => {
-                            tracing::debug!(error = %e, "docker connect failed");
-                            let app_err = app_state::map_docker_error(&e);
-                            controller.as_mut().set_docker_status(match app_err.kind() {
-                                "permission_denied" => 3,
-                                "docker_unavailable" => 2,
-                                _ => 4,
-                            });
-                            controller
-                                .as_mut()
-                                .set_docker_status_text(QString::from(app_err.user_message()));
-                        }
                     }
-                })
-                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
+                    Err(error) => {
+                        let app_error = AppError::from(error);
+                        controller
+                            .as_mut()
+                            .set_docker_status(app_error.status_code());
+                        controller
+                            .as_mut()
+                            .set_docker_status_text(QString::from(app_error.user_message()));
+                        controller.as_mut().schedule_reconnect(generation);
+                    }
+                }
+            })
+            .ok();
         });
     }
 
-    /// Refresh the overview aggregation from the engine.
+    fn apply_daemon_status(mut self: Pin<&mut Self>, status: &DaemonStatus) {
+        let (code, text) = daemon_status_text(status);
+        self.as_mut().set_docker_status(code);
+        self.as_mut().set_docker_status_text(QString::from(text));
+        self.as_mut().set_engine_info_json(QString::from(
+            serde_json::to_string(status).unwrap_or_else(|_| "{}".into()),
+        ));
+    }
+
+    fn start_daemon_subscriptions(self: Pin<&mut Self>, generation: u64) {
+        let Some(client) = app_state::get_client() else {
+            return;
+        };
+        let qt = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let status = client.subscribe(SubscriptionRequest::DaemonStatus).await;
+            let resources = client
+                .subscribe(SubscriptionRequest::ResourceChanges {
+                    kinds: vec![
+                        ResourceKind::Container,
+                        ResourceKind::Image,
+                        ResourceKind::Network,
+                        ResourceKind::Volume,
+                    ],
+                })
+                .await;
+            let (mut status, mut resources) = match (status, resources) {
+                (Ok(status), Ok(resources)) => (status, resources),
+                (status, resources) => {
+                    tracing::debug!(
+                        status_ok = status.is_ok(),
+                        resources_ok = resources.is_ok(),
+                        "daemon event subscription failed"
+                    );
+                    return;
+                }
+            };
+            loop {
+                let event = tokio::select! {
+                    event = status.recv() => event,
+                    event = resources.recv() => event,
+                };
+                let Some(event) = event else {
+                    break;
+                };
+                let thread = qt.clone();
+                if thread
+                    .queue(move |mut controller| {
+                        if controller.connection_generation != generation {
+                            return;
+                        }
+                        match event {
+                            ServerEvent::DaemonStatus { status, .. } => {
+                                controller.as_mut().apply_daemon_status(&status);
+                            }
+                            ServerEvent::ResourceChanged {
+                                kind,
+                                resource,
+                                change,
+                                ..
+                            } => emit_resource_change(controller.as_mut(), kind, resource, change),
+                            _ => {}
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            qt.queue(move |mut controller| {
+                if controller.connection_generation == generation {
+                    app_state::clear_client();
+                    controller.as_mut().set_docker_status(5);
+                    controller.as_mut().set_docker_status_text(QString::from(
+                        "TuxStack service connection was lost. Reconnecting…",
+                    ));
+                    controller.as_mut().schedule_reconnect(generation);
+                }
+            })
+            .ok();
+        });
+    }
+
+    fn schedule_reconnect(self: Pin<&mut Self>, generation: u64) {
+        let qt = self.qt_thread();
+        crate::runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            qt.queue(move |mut controller| {
+                if controller.connection_generation == generation {
+                    controller.as_mut().startup();
+                }
+            })
+            .ok();
+        });
+    }
+
     pub fn refresh_overview(mut self: Pin<&mut Self>) {
-        let Some(services) = app_state::get_services() else {
+        let Some(services) = app_state::daemon_services() else {
             return;
         };
         self.as_mut().set_overview_loading(true);
-        let qt_thread = self.qt_thread();
+        let qt = self.qt_thread();
         crate::runtime::spawn(async move {
             let result = services.system.overview().await;
-            qt_thread
-                .queue(move |mut controller| {
-                    controller.as_mut().set_overview_loading(false);
-                    match result {
-                        Ok(overview) => {
-                            let json = serde_json::to_string(&overview)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            controller.as_mut().set_overview_json(QString::from(json));
-                        }
-                        Err(e) => {
-                            tracing::debug!(error = %e, "overview refresh failed");
-                            controller.as_mut().set_overview_json(QString::from("{}"));
-                        }
+            qt.queue(move |mut controller| {
+                controller.as_mut().set_overview_loading(false);
+                match result {
+                    Ok(overview) => controller.as_mut().set_overview_json(QString::from(
+                        serde_json::to_string(&overview).unwrap_or_else(|_| "{}".into()),
+                    )),
+                    Err(error) => {
+                        tracing::debug!(%error, "overview refresh failed");
+                        controller.as_mut().set_overview_json(QString::from("{}"));
                     }
-                })
-                .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
+                }
+            })
+            .ok();
         });
+    }
+}
+
+fn daemon_status_text(status: &DaemonStatus) -> (i32, String) {
+    match &status.docker {
+        DockerConnectionStatus::Unavailable { reason } => {
+            return (2, format!("Docker Engine is unavailable: {reason}"));
+        }
+        DockerConnectionStatus::Reconnecting => {
+            return (2, "Docker Engine is reconnecting…".into());
+        }
+        DockerConnectionStatus::Connected { .. } => {}
+        _ => return (4, "Docker Engine status is unavailable.".into()),
+    }
+    match &status.mount.state {
+        MountState::Mounted => (1, "Connected".into()),
+        MountState::Mounting => (6, "Docker filesystem is mounting…".into()),
+        MountState::Unmounted => (6, "Docker filesystem is unavailable.".into()),
+        MountState::Unmounting => (6, "Docker filesystem is unmounting…".into()),
+        MountState::Failed { reason } => (6, format!("Docker filesystem is unavailable: {reason}")),
+        _ => (6, "Docker filesystem status is unavailable.".into()),
+    }
+}
+
+fn emit_resource_change(
+    mut controller: Pin<&mut qobject::AppController>,
+    kind: ResourceKind,
+    resource: Option<DockerResourceRef>,
+    change: ResourceChange,
+) {
+    let action = match change {
+        ResourceChange::Created => "create",
+        ResourceChange::Updated => "update",
+        ResourceChange::Removed => "destroy",
+        ResourceChange::Renamed => "rename",
+        ResourceChange::Invalidated => "",
+        _ => "",
+    };
+    if kind == ResourceKind::Container {
+        let actor = match resource {
+            Some(DockerResourceRef::Container { container_id }) => container_id,
+            _ => String::new(),
+        };
+        controller
+            .as_mut()
+            .container_changed(QString::from(actor), QString::from(action));
+    } else {
+        let name = match kind {
+            ResourceKind::Image => "images",
+            ResourceKind::Network => "networks",
+            ResourceKind::Volume => "volumes",
+            ResourceKind::Container => return,
+            _ => "daemon",
+        };
+        controller.as_mut().docker_changed(QString::from(name));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    const MAIN_QML: &str = include_str!("../../qml/Main.qml");
+    use super::*;
+    use tuxstack_protocol::{DaemonLifecycle, MountStatus};
 
-    #[test]
-    fn main_handles_precise_container_event_details() {
-        assert!(MAIN_QML.contains("function onContainerChanged(actorId, action)"));
-        assert!(MAIN_QML.contains("containersModel.selectionId === actorId"));
-        assert!(MAIN_QML.contains("containerFilesModel.invalidateSnapshot(actorId)"));
-        assert!(MAIN_QML.contains("containerTerminalModel.invalidateContainer(actorId)"));
-        assert!(MAIN_QML.contains("root.scheduleSelectedDetail(\"\", true)"));
+    fn status(docker: DockerConnectionStatus, mount: MountState) -> DaemonStatus {
+        DaemonStatus {
+            daemon_version: "test".into(),
+            lifecycle: DaemonLifecycle::Ready,
+            docker,
+            mount: MountStatus {
+                state: mount,
+                mount_point: None,
+                read_only: true,
+            },
+            uptime_seconds: 1,
+        }
     }
 
     #[test]
-    fn main_uses_trailing_refresh_timers_and_filters_exec_events() {
-        assert!(MAIN_QML.contains("imagesRefreshTimer.restart()"));
-        assert!(MAIN_QML.contains("containersRefreshTimer.restart()"));
-        assert!(MAIN_QML.contains("volumesRefreshTimer.restart()"));
-        assert!(MAIN_QML.contains("networksRefreshTimer.restart()"));
-        assert!(!MAIN_QML.contains("lastRefreshAt"));
-        assert!(!MAIN_QML.contains("\"exec_start\""));
-        assert!(!MAIN_QML.contains("\"exec_die\""));
+    fn daemon_docker_and_fuse_outages_are_distinct() {
+        assert_eq!(
+            daemon_status_text(&status(
+                DockerConnectionStatus::Unavailable {
+                    reason: "down".into()
+                },
+                MountState::Mounted,
+            ))
+            .0,
+            2
+        );
+        assert_eq!(
+            daemon_status_text(&status(
+                DockerConnectionStatus::Connected { daemon_id: None },
+                MountState::Unmounted,
+            ))
+            .0,
+            6
+        );
     }
 }

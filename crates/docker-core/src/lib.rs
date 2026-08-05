@@ -22,7 +22,6 @@ pub use client::{DockerClient, DockerConfig};
 pub use config::ResolvedConfig;
 pub use error::{ContainerError, DockerError};
 pub use models::*;
-pub use services::container_files::*;
 pub use services::container_terminal::*;
 pub use services::filesystem::FilesystemService;
 pub use services::filesystem::error::FilesystemError;

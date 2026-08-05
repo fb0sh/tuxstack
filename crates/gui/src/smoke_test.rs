@@ -131,13 +131,17 @@ fn main_wires_the_long_lived_volume_model() {
     let source = include_str!("../qml/Main.qml");
     assert!(source.contains("VolumeListModel {"));
     assert!(source.contains("id: volumesModel"));
-    assert!(source.contains("VolumeFileListModel {"));
+    assert_eq!(
+        source.matches("LocalFuseFileListModel {").count(),
+        3,
+        "container, image, and volume pages retain independent UI state over one shared FUSE model type"
+    );
     assert!(source.contains("id: volumeFilesModel"));
     assert!(source.contains("volumesModel.shutdown()"));
     assert!(source.contains("volumeFilesModel.shutdown()"));
     assert!(source.contains("volumesModel.setConnectionState(appController.dockerStatus,"));
     assert!(
-        source.contains("volumeFilesModel.setConnectionState(appController.dockerStatus,"),
+        source.contains("volumeFilesModel.setConnectionState(appController.dockerStatus)"),
         "Files model must receive connection-state replay like the other models"
     );
     assert!(
@@ -181,16 +185,16 @@ fn volumes_page_keeps_a_permanent_detail_panel() {
 }
 
 #[test]
-fn volume_files_view_uses_single_fill_height_content_area() {
+fn volume_files_view_uses_the_shared_local_fuse_browser() {
     let source = include_str!("../qml/components/VolumeFilesView.qml");
-    assert!(source.contains("id: fileArea"));
-    assert!(source.contains("Layout.fillHeight: true"));
-    assert!(source.contains("anchors.centerIn: parent"));
-    // Overlays must not be ColumnLayout fillHeight siblings of the toolbar.
-    assert!(
-        source.contains("// Single fill-height content area") || source.contains("id: fileArea"),
-        "file table area must own the remaining height"
-    );
+    let shared = include_str!("../qml/components/LocalFuseFilesView.qml");
+    assert!(source.contains("LocalFuseFilesView"));
+    assert!(shared.contains("id: fileList"));
+    assert!(shared.contains("Layout.fillHeight: true"));
+    assert!(shared.contains("Open in File Manager"));
+    assert!(shared.contains("refreshActionText"));
+    assert!(!shared.contains("deleteEntry"));
+    assert!(!shared.contains("uploadEntry"));
     let detail = include_str!("../qml/components/VolumeDetailPanel.qml");
     assert!(detail.contains("QQC2.TabBar"));
     assert!(detail.contains("StackLayout"));
@@ -219,11 +223,11 @@ fn image_detail_panel_has_info_and_files_tabs() {
     let images_page = include_str!("../qml/pages/ImagesPage.qml");
     assert!(images_page.contains("filesModel: root.filesModel"));
     let main = include_str!("../qml/Main.qml");
-    assert!(main.contains("ImageFileListModel {"));
+    assert!(main.contains("LocalFuseFileListModel {"));
     assert!(main.contains("id: imageFilesModel"));
     assert!(main.contains("imageFilesModel.shutdown()"));
     assert!(main.contains("filesModel: imageFilesModel"));
-    assert!(main.contains("imageFilesModel.setConnectionState(appController.dockerStatus,"));
+    assert!(main.contains("imageFilesModel.setConnectionState(appController.dockerStatus)"));
 }
 
 #[test]
@@ -250,6 +254,10 @@ fn all_qml_components_load_without_errors() {
 
     let app = QGuiApplication::new();
     assert!(!app.is_null(), "QGuiApplication must be creatable");
+    assert!(
+        crate::bridge::application_icon::install(),
+        "the bundled TuxStack application icon must load from Qt resources"
+    );
 
     let base = "qrc:/qt/qml/org/tuxstack/app/qml";
     let components = [
@@ -262,9 +270,10 @@ fn all_qml_components_load_without_errors() {
         "components/EmptyState.qml",
         "components/ErrorBanner.qml",
         "components/StatusBadge.qml",
+        "components/LocalFuseFilesView.qml",
         "components/containers/ContainerContextMenu.qml",
-        "components/containers/ContainerDetailPanel.qml",
         "components/containers/ContainerFilesView.qml",
+        "components/containers/ContainerDetailPanel.qml",
         "components/containers/ContainerGroupInfoView.qml",
         "components/containers/ContainerGroupItem.qml",
         "components/containers/ContainerInfoView.qml",
@@ -302,14 +311,11 @@ fn all_qml_components_load_without_errors() {
         "dialogs/PruneVolumesDialog.qml",
         "dialogs/ExportVolumeDialog.qml",
         "dialogs/CloneVolumeDialog.qml",
-        "dialogs/VolumeFilePreviewDialog.qml",
-        "dialogs/VolumeFilePropertiesDialog.qml",
+        "dialogs/LocalFuseFilePreviewDialog.qml",
+        "dialogs/LocalFuseFilePropertiesDialog.qml",
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
-        "dialogs/containers/ContainerFilePreviewDialog.qml",
-        "dialogs/containers/ContainerFilePropertiesDialog.qml",
-        "dialogs/containers/ContainerFileSaveDialog.qml",
         "dialogs/containers/CreateContainerDialog.qml",
         "dialogs/containers/KillContainerDialog.qml",
         "dialogs/containers/RemoveContainerDialog.qml",
@@ -339,12 +345,10 @@ fn all_qml_components_load_without_errors() {
         "ContainerStatsModel",
         "ContainerLogsModel",
         "ContainerTerminalModel",
-        "ContainerFileListModel",
+        "LocalFuseFileListModel",
         "ImageListModel",
-        "ImageFileListModel",
         "NetworkListModel",
         "VolumeListModel",
-        "VolumeFileListModel",
     ];
     for qml_type in registered_types {
         let source = format!("import QtQuick\nimport org.tuxstack.app\nItem {{ {qml_type} {{}} }}");
@@ -376,13 +380,15 @@ Item {
         Some(image_model_api),
     );
 
-    let image_file_model_api = r#"
+    let local_fuse_file_model_api = r#"
 import QtQuick
 import org.tuxstack.app
 Item {
-    ImageFileListModel { id: filesModel }
+    LocalFuseFileListModel { id: filesModel }
     property string state: filesModel.filesState
-    property string imageId: filesModel.imageId
+    property string resourceKind: filesModel.resourceKind
+    property string resourceId: filesModel.resourceId
+    property string rootPath: filesModel.rootPath
     property string currentPath: filesModel.currentPath
     property bool canGoBack: filesModel.canGoBack
     property bool canGoUp: filesModel.canGoUp
@@ -392,17 +398,19 @@ Item {
     property bool sortDesc: filesModel.sortDescending
     property string selected: filesModel.selectedEntryPath
     property int count: filesModel.count
-    property bool truncated: filesModel.truncated
     property var crumbs: filesModel.breadcrumbModel
     property bool active: filesModel.active
+    property string providerKind: filesModel.providerKind
+    property string consistency: filesModel.consistency
+    property string providerStatus: filesModel.providerStatus
     property string previewError: filesModel.previewError
-    property bool downloading: filesModel.downloadInProgress
+    property bool saving: filesModel.saveInProgress
     property var properties: filesModel.propertiesModel
 }
 "#;
     assert_qml_source_loads(
-        "qrc:/qt/qml/org/tuxstack/app/tests/ImageFileModelApi.qml",
-        Some(image_file_model_api),
+        "qrc:/qt/qml/org/tuxstack/app/tests/LocalFuseFileModelApi.qml",
+        Some(local_fuse_file_model_api),
     );
 
     let network_model_api = r#"

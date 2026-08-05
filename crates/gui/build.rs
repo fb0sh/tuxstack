@@ -36,6 +36,7 @@ fn main() {
                 "qml/components/containers/ContainerLogsView.qml",
                 "qml/components/containers/ContainerStatsView.qml",
                 "qml/components/containers/ContainerTerminalView.qml",
+                "qml/components/LocalFuseFilesView.qml",
                 "qml/components/ResourceSummaryCard.qml",
                 "qml/components/SearchField.qml",
                 "qml/components/ImageListPanel.qml",
@@ -65,14 +66,11 @@ fn main() {
                 "qml/dialogs/PruneVolumesDialog.qml",
                 "qml/dialogs/ExportVolumeDialog.qml",
                 "qml/dialogs/CloneVolumeDialog.qml",
-                "qml/dialogs/VolumeFilePreviewDialog.qml",
-                "qml/dialogs/VolumeFilePropertiesDialog.qml",
+                "qml/dialogs/LocalFuseFilePreviewDialog.qml",
+                "qml/dialogs/LocalFuseFilePropertiesDialog.qml",
                 "qml/dialogs/PullImageDialog.qml",
                 "qml/dialogs/RemoveImageDialog.qml",
                 "qml/dialogs/ExportImageDialog.qml",
-                "qml/dialogs/containers/ContainerFilePreviewDialog.qml",
-                "qml/dialogs/containers/ContainerFilePropertiesDialog.qml",
-                "qml/dialogs/containers/ContainerFileSaveDialog.qml",
                 "qml/dialogs/containers/CreateContainerDialog.qml",
                 "qml/dialogs/containers/KillContainerDialog.qml",
                 "qml/dialogs/containers/RemoveContainerDialog.qml",
@@ -90,6 +88,8 @@ fn main() {
                 "org.kde.ki18n",
             ]),
     )
+    .qrc_resources(["qml/assets/io.github.tuxstack.TuxStack.png"])
+    .cpp_file("src/bridge/application_icon.cpp")
     .qt_module("Qml")
     .qt_module("Quick")
     .qt_module("QuickControls2")
@@ -97,10 +97,11 @@ fn main() {
     .qt_module("QuickDialogs2")
     .files([
         "src/bridge/app_bridge.rs",
+        "src/bridge/application_icon.rs",
         "src/bridge/container_live_bridge.rs",
         "src/bridge/container_terminal_bridge.rs",
-        "src/bridge/container_tools_bridge.rs",
         "src/bridge/containers_bridge.rs",
+        "src/bridge/local_fuse_files_bridge.rs",
         "src/bridge/resource_bridges.rs",
     ])
     .build();

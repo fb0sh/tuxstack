@@ -1,9 +1,10 @@
 # Roadmap
 
 Current state: **alpha** — a native Linux desktop application for Docker,
-with Incus planned as a separate backend. The GUI calls the internal Rust
-core directly through CXX-Qt; Docker operations use Bollard rather than the
-Docker CLI.
+with Incus planned as a separate backend. `tuxstackd` is the sole Docker
+Engine client (Bollard) and serves typed IPC over an authenticated local Unix
+socket; the GUI depends only on `tuxstack-client` and browses container/image/
+volume files through a persistent read-only FUSE namespace at `~/TuxStack/docker`.
 
 ## Implemented
 
@@ -19,31 +20,26 @@ The Containers page now provides a single real implementation for:
 - a real interactive Docker TTY terminal interpreted by Rust `vt100`;
 - merged-rootfs filesystem snapshots with mount overlays, pagination, preview,
   and streaming Save As;
-- actor-aware Docker Events refresh and tool invalidation;
-- persistent container-summary cache hydration followed by live refresh.
+- actor-aware Docker Events refresh and tool invalidation.
 
-Container Files intentionally uses point-in-time snapshot semantics. Mounted
-paths are inspect-derived navigation overlays; exported shadow content is not
-presented as live volume or bind-mount data.
+### Unified read-only Files browsing (FUSE)
 
-### Image operations
+Container, Image, and Volume Files pages all browse one local FUSE namespace
+maintained by `tuxstackd`; the GUI performs local directory I/O over the mount
+and never starts helper containers, parses Docker export tars, or owns a
+filesystem backend.
 
-Pull, remove, inspect, streaming export, and read-only image file browsing are
-implemented. Image browsing injects the bundled static Rust filesystem helper
-into a hardened temporary container, so scratch and distroless images are not
-dependent on an in-image shell. Unsupported platforms and helper failures are
-reported explicitly. Build, tag, push, and prune remain planned.
-
-### Volume operations
-
-List, inspect, usage association, create, remove, prune, export, clone, and
-read-only file browsing/preview/download are implemented against the real
-Docker Engine. Volume browsing uses the same bundled static filesystem helper
-through an internal scratch helper image; it does not pull a network helper
-image.
-
-Editing volume files, uploads, scheduled backups/snapshots, encryption, and
-volume-plugin administration remain future work.
+- Container rootfs is a labeled point-in-time Snapshot (10-second export-index
+  cache); named volumes are Live through one shared volume provider; safe local
+  bind mounts are Live with a helper-bind fallback; tmpfs and runtime mounts
+  use operation-time Docker Container Archive reads.
+- Image rootfs is an immutable index built from a never-started inspection
+  container; the whole images subtree is read-only.
+- tmpfs/runtime paths that the Docker Engine Archive API cannot expose return
+  an accurate unsupported error (`EOPNOTSUPP`) instead of leaking exported
+  shadow content.
+- Preview, Save As, properties, and “Open in File Manager” operate on local
+  FUSE paths; saves use a unique sibling `.part` and atomic rename.
 
 ## Planned
 

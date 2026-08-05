@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
@@ -8,37 +10,32 @@ Kirigami.Dialog {
     id: root
 
     property var filesModel: null
-    title: I18n.i18nd("tuxstack", "Container File Properties")
+    title: I18n.i18nd("tuxstack", "File Properties")
     preferredWidth: Kirigami.Units.gridUnit * 30
-
-    function propertyObject(value) {
-        if (typeof value === "string") {
-            try { return JSON.parse(value) } catch (error) { return {} }
-        }
-        return value || {}
-    }
 
     ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
 
         Repeater {
-            model: root.filesModel ? root.filesModel.properties : []
+            model: root.filesModel ? root.filesModel.propertiesModel : []
             delegate: RowLayout {
                 id: row
                 required property var modelData
-                readonly property var item: root.propertyObject(row.modelData)
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
 
                 QQC2.Label {
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 9
-                    text: String(row.item.label || "")
+                    text: String(row.modelData.label || "")
                     color: Kirigami.Theme.disabledTextColor
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
-                    text: String(row.item.value || "")
+                    text: String(row.modelData.value || "")
                     wrapMode: Text.WrapAnywhere
-                    font.family: String(row.item.label || "") === "Path" ? "monospace" : font.family
+                    font.family: ["Path", "Permissions", "Owner"].includes(
+                                     String(row.modelData.label || ""))
+                                 ? "monospace" : font.family
                 }
             }
         }

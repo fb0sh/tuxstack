@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use tuxstack_docker_core::{VolumeContainerReference, VolumeDetail, VolumeSummary};
+use tuxstack_domain::{VolumeContainerReference, VolumeDetail, VolumeSummary};
 
 /// One row in the volume list. Dynamic selection/operation fields are filled
 /// by `VolumesState`, while all Docker-derived fields come from the summary.
@@ -317,7 +317,7 @@ fn full_utc_time(created: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
-    use tuxstack_docker_core::{ContainerState, VolumeUsage};
+    use tuxstack_domain::{ContainerState, VolumeUsage};
 
     use super::*;
 

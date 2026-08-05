@@ -5,6 +5,10 @@
 //! It validates existing directory/socket ownership and permissions before
 //! connecting. Peer credential enforcement remains the server's responsibility.
 
+mod services;
+
+pub use services::*;
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -22,9 +24,10 @@ use tuxstack_docker_core::{
 use tuxstack_protocol::{
     ComposeAction, DockerRequest, DockerResponse, FeatureFlags, FrameError, HandshakeRejection,
     HandshakeRejectionCode, MAX_FRAME_SIZE, MountAction, PROTOCOL_VERSION, ProtocolBody,
-    ProtocolEnvelope, ProtocolError, ProtocolErrorCode, Request, RequestId, Response, ServerEvent,
-    ServerHello, SubscriptionAccepted, SubscriptionEndReason, SubscriptionId, SubscriptionRequest,
-    TerminalState, decode_payload, encode_frame_with_limit, validate_frame_length,
+    ProtocolEnvelope, ProtocolError, ProtocolErrorCode, PullImageRequest, Request, RequestId,
+    Response, ServerEvent, ServerHello, SubscriptionAccepted, SubscriptionEndReason,
+    SubscriptionId, SubscriptionRequest, TerminalState, VolumeEnrichment, decode_payload,
+    encode_frame_with_limit, validate_frame_length,
 };
 
 use crate::state::{DaemonEvent, DaemonState};
@@ -40,6 +43,7 @@ const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 const MAX_TERMINAL_DIMENSION: u16 = 4096;
 const OUTBOUND_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+static NEXT_EXPORT_FILE: AtomicU64 = AtomicU64::new(1);
 
 type TerminalRegistry = Arc<Mutex<HashMap<SubscriptionId, Arc<ContainerTerminalSession>>>>;
 
@@ -589,6 +593,20 @@ async fn dispatch_docker(
             }
             DockerResponse::Acknowledged
         }
+        DockerRequest::PullImageAuthenticated { request } => {
+            let mut stream = services.images.pull_image(pull_options(request));
+            while let Some(progress) = tokio::select! {
+                _ = cancellation.cancelled() => return Err(protocol_error(
+                    ProtocolErrorCode::Cancelled,
+                    "image pull cancelled",
+                    true,
+                )),
+                item = stream.next() => item,
+            } {
+                progress.map_err(docker_protocol_error)?;
+            }
+            DockerResponse::Acknowledged
+        }
         DockerRequest::ListNetworks { search } => DockerResponse::Networks(docker!(
             services
                 .networks
@@ -625,6 +643,33 @@ async fn dispatch_docker(
         DockerRequest::CloneVolume { request } => DockerResponse::VolumeDetail(docker!(
             services.volumes.clone_volume(request, cancellation)
         )),
+        DockerRequest::EnrichVolumes { names } => {
+            let (references, usage) = services.volumes.enrich_usage(&names).await;
+            DockerResponse::VolumesEnriched(VolumeEnrichment {
+                references: references.into_iter().collect(),
+                usage: usage.into_iter().collect(),
+            })
+        }
+        DockerRequest::ExportImage { id, destination } => {
+            let bytes_written = export_image_locally(
+                services.images.export_image(&id),
+                &destination,
+                &cancellation,
+            )
+            .await?;
+            DockerResponse::ExportCompleted {
+                destination,
+                bytes_written: Some(bytes_written),
+            }
+        }
+        DockerRequest::ExportVolume { request } => {
+            let destination = request.destination.clone();
+            docker!(services.volumes.export_volume(request, cancellation));
+            DockerResponse::ExportCompleted {
+                destination,
+                bytes_written: None,
+            }
+        }
         _ => {
             return Err(protocol_error(
                 ProtocolErrorCode::InvalidRequest,
@@ -633,6 +678,94 @@ async fn dispatch_docker(
             ));
         }
     })
+}
+
+async fn export_image_locally(
+    mut stream: tuxstack_docker_core::ImageExportStream,
+    destination: &Path,
+    cancellation: &CancellationToken,
+) -> Result<u64, ProtocolError> {
+    if !destination.is_absolute() || destination.file_name().is_none() {
+        return Err(protocol_error(
+            ProtocolErrorCode::InvalidRequest,
+            "image export destination must be an absolute file path",
+            false,
+        ));
+    }
+    let parent = destination.parent().ok_or_else(|| {
+        protocol_error(
+            ProtocolErrorCode::InvalidRequest,
+            "image export destination has no parent directory",
+            false,
+        )
+    })?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            protocol_error(
+                ProtocolErrorCode::InvalidRequest,
+                "image export destination is not valid UTF-8",
+                false,
+            )
+        })?;
+    let temporary = parent.join(format!(
+        ".{file_name}.tuxstack-{}-{}.part",
+        std::process::id(),
+        NEXT_EXPORT_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = async {
+        let mut file = tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .await
+            .map_err(export_io_error)?;
+        let mut written = 0_u64;
+        loop {
+            let item = tokio::select! {
+                _ = cancellation.cancelled() => return Err(protocol_error(
+                    ProtocolErrorCode::Cancelled,
+                    "image export cancelled",
+                    true,
+                )),
+                item = stream.next() => item,
+            };
+            match item {
+                Some(Ok(bytes)) => {
+                    file.write_all(&bytes).await.map_err(export_io_error)?;
+                    written = written.saturating_add(bytes.len() as u64);
+                }
+                Some(Err(error)) => return Err(docker_protocol_error(error)),
+                None => break,
+            }
+        }
+        file.flush().await.map_err(export_io_error)?;
+        file.sync_all().await.map_err(export_io_error)?;
+        drop(file);
+        tokio::fs::rename(&temporary, destination)
+            .await
+            .map_err(export_io_error)?;
+        Ok(written)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&temporary).await;
+    }
+    result
+}
+
+fn export_io_error(error: io::Error) -> ProtocolError {
+    let code = if error.kind() == io::ErrorKind::PermissionDenied {
+        ProtocolErrorCode::PermissionDenied
+    } else {
+        ProtocolErrorCode::Internal
+    };
+    protocol_error(
+        code,
+        &format!("image export destination failed: {error}"),
+        false,
+    )
 }
 
 fn spawn_subscription(
@@ -663,6 +796,10 @@ fn spawn_subscription(
             }
             SubscriptionRequest::ImagePull { options } => {
                 run_image_pull_subscription(id, options, &state, &tx, &cancellation).await
+            }
+            SubscriptionRequest::ImagePullAuthenticated { request } => {
+                run_image_pull_subscription(id, pull_options(request), &state, &tx, &cancellation)
+                    .await
             }
             SubscriptionRequest::ContainerTerminal {
                 container_id,
@@ -1043,6 +1180,22 @@ async fn run_terminal_subscription(
                 return SubscriptionEndReason::Completed;
             }
         }
+    }
+}
+
+fn pull_options(request: PullImageRequest) -> tuxstack_domain::PullImageOptions {
+    tuxstack_domain::PullImageOptions {
+        reference: request.reference,
+        platform: request.platform,
+        registry_auth: request
+            .registry_auth
+            .map(|auth| tuxstack_domain::RegistryAuth {
+                username: auth.username,
+                password: auth.password,
+                server_address: auth.server_address,
+                identity_token: auth.identity_token,
+                registry_token: auth.registry_token,
+            }),
     }
 }
 

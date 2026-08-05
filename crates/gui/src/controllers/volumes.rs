@@ -7,9 +7,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use tuxstack_docker_core::{
-    DockerError, VolumeContainerReference, VolumeDetail, VolumeSummary, VolumeUsage,
-};
+use tuxstack_client::DaemonError as DockerError;
+use tuxstack_domain::{VolumeContainerReference, VolumeDetail, VolumeSummary, VolumeUsage};
 
 use crate::models::volume_model::{VolumeDetailView, VolumeRow, VolumeSizeSummary};
 
@@ -1116,7 +1115,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use chrono::{TimeZone, Utc};
-    use tuxstack_docker_core::{ContainerState, VolumeContainerReference, VolumeUsage};
+    use tuxstack_domain::{ContainerState, VolumeContainerReference, VolumeUsage};
 
     use super::*;
 

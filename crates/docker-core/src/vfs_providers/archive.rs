@@ -62,9 +62,10 @@ impl ContainerArchiveSource for DockerContainerArchiveSource {
             .inner()
             .clone()
             .with_timeout(self.client.config().request_timeout);
+        let object_id = object_id.to_owned();
         let stream = docker
-            .download_from_container(object_id, Some(options))
-            .map(|item| item.map_err(|error| VfsError::Unavailable(error.to_string())));
+            .download_from_container(&object_id, Some(options))
+            .map(move |item| item.map_err(|error| map_archive_error(&error, &object_id, &path)));
         Ok(Box::pin(stream))
     }
 }
@@ -375,6 +376,28 @@ async fn extract_regular_file(
         result = Some(writer.finish().await?);
     }
     result.ok_or(VfsError::NotFound)
+}
+
+fn map_archive_error(error: &bollard::errors::Error, object_id: &str, path: &str) -> VfsError {
+    match error {
+        bollard::errors::Error::DockerResponseServerError {
+            status_code: 401 | 403,
+            ..
+        } => VfsError::PermissionDenied,
+        bollard::errors::Error::DockerResponseServerError {
+            status_code: 404, ..
+        } => {
+            tracing::debug!(
+                container_id = %object_id,
+                path,
+                "Docker Container Archive path is unavailable"
+            );
+            VfsError::Unsupported(
+                "Docker Container Archive does not expose this runtime mount path".into(),
+            )
+        }
+        _ => VfsError::Unavailable(error.to_string()),
+    }
 }
 
 fn validate_object_id(object_id: &str) -> Result<(), VfsError> {

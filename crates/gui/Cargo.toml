@@ -12,7 +12,9 @@ name = "tuxstack"
 path = "src/main.rs"
 
 [dependencies]
-tuxstack-docker-core = { path = "../docker-core" }
+tuxstack-client = { path = "../tuxstack-client" }
+tuxstack-domain = { path = "../tuxstack-domain" }
+tuxstack-protocol = { path = "../tuxstack-protocol" }
 chrono = { workspace = true }
 cxx = "1"
 cxx-qt = "0.9"

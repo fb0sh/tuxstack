@@ -5,22 +5,23 @@
 //! and implementation while network/volume bridges remain untouched.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{PullImageOptions, RegistryAuth, RemoveImageOptions};
+use tuxstack_client::{DaemonError as DockerError, ListImagesOptions};
+use tuxstack_domain::{PullImageOptions, RegistryAuth, RemoveImageOptions};
 
-use crate::app_state::{get_services, get_store, map_docker_error};
+use crate::app_state::daemon_services;
 use crate::bridge::resource_bridges::qobject;
 use crate::bridge::resource_bridges::qobject::QList_i32;
 use crate::controllers::images::{
     ImageDetailState, ImageSortMode, ImagesListState, ImagesState, SelectionChange,
 };
+use crate::error::AppError;
 use crate::models::image_model::{ImageDetailView, KeyValueRow, UsageRow};
 
 type QVariantList = QList<QVariant>;
@@ -65,8 +66,6 @@ pub struct ImageListModelRust {
     pub(crate) pull_percent: f64,
     pub(crate) export_active: bool,
     pub(crate) exporting: bool,
-    pub(crate) export_bytes_written: i64,
-    pub(crate) export_bytes_text: QString,
     pub(crate) export_destination: QString,
     pub(crate) export_status: QString,
     pub(crate) export_error_message: QString,
@@ -204,7 +203,7 @@ impl qobject::ImageListModel {
         tracing::info!("ImagesPage created");
         tracing::info!("ImagesController initialized");
         self.as_mut().apply_state(state);
-        if get_services().is_some() {
+        if daemon_services().is_some() {
             self.as_mut().rust_mut().docker_ready = true;
             self.as_mut().refresh();
         } else {
@@ -221,10 +220,10 @@ impl qobject::ImageListModel {
         if let Some(cancel) = self.as_mut().rust_mut().detail_cancel.take() {
             cancel.cancel();
         }
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             let generation = state.begin_refresh();
-            let error = tuxstack_docker_core::DockerError::EngineUnavailable;
+            let error = DockerError::EngineUnavailable;
             state.apply_list_error(generation, &error);
             self.as_mut().apply_state(state);
             return;
@@ -240,29 +239,9 @@ impl qobject::ImageListModel {
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
             // Search is deliberately absent here: it is always local GUI state.
-            let options = tuxstack_docker_core::services::images::ListImagesOptions::default();
             let result = tokio::select! {
                 _ = cancel.cancelled() => return,
-                result = services.images.list_images(options) => result,
-            };
-            // Stale-while-revalidate: resolve cached architecture metadata off
-            // the Qt thread so the UI never waits on a cache lock.
-            let cached = match &result {
-                Ok(images) => {
-                    let store = get_store();
-                    let mut map = std::collections::HashMap::new();
-                    for image in images {
-                        if let Some(meta) = store.image_metadata.get(&image.id).await {
-                            map.insert(
-                                image.id.clone(),
-                                meta.architecture
-                                    .unwrap_or_else(|| "Unknown architecture".to_string()),
-                            );
-                        }
-                    }
-                    map
-                }
-                Err(_) => std::collections::HashMap::new(),
+                result = services.images.list_images(ListImagesOptions::default()) => result,
             };
             qt_thread
                 .queue(move |mut model| {
@@ -288,11 +267,6 @@ impl qobject::ImageListModel {
                     );
                     model.as_mut().rust_mut().refresh_cancel = None;
                     let selected = state.selected_image_id.clone();
-                    if !cached.is_empty() {
-                        for (image_id, architecture) in &cached {
-                            state.patch_metadata(image_id, architecture);
-                        }
-                    }
                     if !selected.is_empty() {
                         if had_selection {
                             tracing::debug!("Selecting preserved image");
@@ -315,78 +289,38 @@ impl qobject::ImageListModel {
         });
     }
 
-    /// Inspect images whose architecture is still unknown, bounded to a few
-    /// concurrent requests, and patch each row in place as it completes.
-    /// Results are cached in the shared [`DockerStore`] image-metadata cache
-    /// so restarts reuse them without re-inspecting.
+    /// Ask tuxstackd for missing metadata; the daemon owns any caching.
     fn prefetch_missing_metadata(self: Pin<&mut Self>) {
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             return;
         };
-        let store = get_store();
-        let image_ids: Vec<String> = {
-            let state = self.state.clone();
-            state
-                .source_rows
-                .iter()
-                .filter(|row| row.architecture == "unknown")
-                .map(|row| row.image_id.clone())
-                .collect()
-        };
-        if image_ids.is_empty() {
-            tracing::debug!("No image metadata to prefetch");
-            return;
-        }
-        let still_missing = self.state.missing_metadata_count();
-        tracing::info!(
-            count = image_ids.len(),
-            still_missing = still_missing,
-            "Prefetching image metadata"
-        );
-        let qt_thread = self.qt_thread();
+        let image_ids = self
+            .state
+            .source_rows
+            .iter()
+            .filter(|row| row.architecture == "unknown")
+            .map(|row| row.image_id.clone())
+            .collect::<Vec<_>>();
+        let qt = self.qt_thread();
         crate::runtime::spawn(async move {
-            let missing = store
-                .image_metadata
-                .prefetch(&image_ids, move |image_id| {
-                    let services = services.clone();
-                    async move {
-                        match services.images.inspect_image(&image_id).await {
-                            Ok(detail) => {
-                                let inspected = tuxstack_docker_core::cache::CachedImageMetadata {
-                                    architecture: detail.architecture.clone(),
-                                    os: detail.os.clone(),
-                                    variant: detail.variant.clone(),
-                                    config_digest: None,
-                                    inspected_at: chrono::Utc::now().timestamp(),
-                                };
-                                Ok(inspected)
-                            }
-                            Err(error) => Err(error.to_string()),
-                        }
+            futures_util::stream::iter(image_ids.into_iter().map(|id| {
+                let services = services.clone();
+                let qt = qt.clone();
+                async move {
+                    if let Ok(detail) = services.images.inspect_image(&id).await {
+                        let architecture = detail
+                            .architecture
+                            .unwrap_or_else(|| "Unknown architecture".into());
+                        qt.queue(move |mut model| {
+                            model.as_mut().patch_architecture_row(&id, &architecture)
+                        })
+                        .ok();
                     }
-                })
-                .await;
-            tracing::debug!(still_missing = missing, "Image metadata prefetch pass done");
-            // Read all now-cached metadata off the async side so the Qt
-            // callback never blocks on cache locks.
-            let mut rows: Vec<(String, String)> = Vec::new();
-            for id in &image_ids {
-                if let Some(metadata) = store.image_metadata.get(id).await {
-                    let arch = metadata
-                        .architecture
-                        .unwrap_or_else(|| "Unknown architecture".to_string());
-                    rows.push((id.clone(), arch));
                 }
-            }
-            qt_thread
-                .queue(move |mut model| {
-                    for (image_id, architecture) in rows {
-                        model
-                            .as_mut()
-                            .patch_architecture_row(&image_id, &architecture);
-                    }
-                })
-                .ok();
+            }))
+            .buffer_unordered(4)
+            .collect::<Vec<_>>()
+            .await;
         });
     }
 
@@ -492,10 +426,9 @@ impl qobject::ImageListModel {
         if let Some(cancel) = self.as_mut().rust_mut().detail_cancel.take() {
             cancel.cancel();
         }
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
-            let (kind, message) =
-                image_detail_error(&tuxstack_docker_core::DockerError::EngineUnavailable);
+            let (kind, message) = image_detail_error(&DockerError::EngineUnavailable);
             state.apply_detail_error(generation, kind, message);
             self.as_mut().apply_state(state);
             return;
@@ -539,7 +472,7 @@ impl qobject::ImageListModel {
         force: bool,
         prune_children: bool,
     ) {
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_remove_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -597,7 +530,7 @@ impl qobject::ImageListModel {
                             }
                             (true, "Image removed".to_string())
                         }
-                        Some(Err(error)) => (false, map_docker_error(&error).user_message()),
+                        Some(Err(error)) => (false, AppError::from(error).user_message()),
                     };
                     model.as_mut().apply_state(state);
                     if success {
@@ -628,7 +561,7 @@ impl qobject::ImageListModel {
         password: &QString,
         registry: &QString,
     ) {
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_pull_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -700,7 +633,7 @@ impl qobject::ImageListModel {
                     let (success, message) = if cancelled {
                         (false, "Image pull cancelled".to_string())
                     } else if let Some(error) = failure {
-                        (false, map_docker_error(&error).user_message())
+                        (false, AppError::from(error).user_message())
                     } else {
                         (true, format!("Pulled {reference}"))
                     };
@@ -739,7 +672,7 @@ impl qobject::ImageListModel {
         image_id: &QString,
         destination: &QString,
     ) {
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .set_export_error_message(QString::from("Docker Engine is unavailable."));
             return;
@@ -756,22 +689,14 @@ impl qobject::ImageListModel {
             self.as_mut().apply_state(state);
             generation
         };
-        let mut stream = services.images.export_image(&image_id);
-        let cancel = stream.cancellation_token();
+        let cancel = CancellationToken::new();
         self.as_mut().rust_mut().export_cancel = Some(cancel.clone());
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
-            let temporary = sibling_temporary_path(&destination, generation);
-            let result = stream_export(
-                &mut stream,
-                &temporary,
-                &destination,
-                &cancel,
-                generation,
-                &qt_thread,
-            )
-            .await;
-            let _ = tokio::fs::remove_file(&temporary).await;
+            let result = tokio::select! {
+                _ = cancel.cancelled() => Err(DockerError::OperationCancelled),
+                result = services.images.export_image(&image_id, destination.clone()) => result,
+            };
             let cancelled = cancel.is_cancelled();
             qt_thread
                 .queue(move |mut model| {
@@ -790,8 +715,10 @@ impl qobject::ImageListModel {
                                 crate::models::image_model::format_bytes(bytes)
                             ),
                         ),
-                        Err(_message) if cancelled => (false, "Image export cancelled".to_string()),
-                        Err(message) => (false, message),
+                        Err(error) if cancelled || error.is_cancelled() => {
+                            (false, "Image export cancelled".to_string())
+                        }
+                        Err(error) => (false, AppError::from(error).user_message()),
                     };
                     if success {
                         model
@@ -952,11 +879,6 @@ impl qobject::ImageListModel {
         self.as_mut().set_export_active(state.export.active);
         self.as_mut().set_exporting(state.export.active);
         self.as_mut()
-            .set_export_bytes_written(saturating_i64(state.export.bytes_written));
-        self.as_mut().set_export_bytes_text(QString::from(
-            crate::models::image_model::format_bytes(state.export.bytes_written),
-        ));
-        self.as_mut()
             .set_export_destination(QString::from(&state.export.destination));
         self.as_mut()
             .set_export_status(QString::from(if state.export.active {
@@ -1062,52 +984,6 @@ impl qobject::ImageListModel {
             .set_environment_model(key_value_rows(&environment));
         self.as_mut().set_label_model(key_value_rows(&labels));
     }
-}
-
-async fn stream_export(
-    stream: &mut tuxstack_docker_core::streams::ImageExportStream,
-    temporary: &Path,
-    destination: &Path,
-    cancel: &CancellationToken,
-    generation: u64,
-    qt_thread: &cxx_qt::CxxQtThread<qobject::ImageListModel>,
-) -> Result<u64, String> {
-    // The SaveFile dialog owns overwrite confirmation. The bridge writes only
-    // to this sibling and performs one final atomic replacement.
-    let mut file = tokio::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(temporary)
-        .await
-        .map_err(io_message)?;
-    let mut written = 0_u64;
-    loop {
-        tokio::select! {
-            _ = cancel.cancelled() => return Err("Image export cancelled".to_string()),
-            item = stream.next() => match item {
-                Some(Ok(chunk)) => {
-                    file.write_all(&chunk).await.map_err(io_message)?;
-                    written = written.saturating_add(chunk.len() as u64);
-                    let thread = qt_thread.clone();
-                    let _ = thread.queue(move |mut model| {
-                        let mut state = model.as_mut().rust_mut().state.clone();
-                        if state.update_export_bytes(generation, written) {
-                            model.as_mut().apply_state(state);
-                        }
-                    });
-                }
-                Some(Err(error)) => return Err(map_docker_error(&error).user_message()),
-                None => break,
-            }
-        }
-    }
-    file.flush().await.map_err(io_message)?;
-    file.sync_all().await.map_err(io_message)?;
-    drop(file);
-    tokio::fs::rename(temporary, destination)
-        .await
-        .map_err(io_message)?;
-    Ok(written)
 }
 
 fn detail_variant(detail: &ImageDetailView) -> QVariant {
@@ -1233,11 +1109,11 @@ fn sort_mode_name(mode: ImageSortMode) -> &'static str {
     }
 }
 
-fn image_detail_error(error: &tuxstack_docker_core::DockerError) -> (String, String) {
-    use tuxstack_docker_core::DockerError;
-
+fn image_detail_error(error: &DockerError) -> (String, String) {
     let (kind, message) = match error {
-        DockerError::SocketNotFound(_) | DockerError::EngineUnavailable => (
+        DockerError::SocketNotFound(_)
+        | DockerError::DaemonUnavailable(_)
+        | DockerError::EngineUnavailable => (
             "docker_unavailable",
             "Docker Engine is unavailable. Check that the Docker daemon is running.",
         ),
@@ -1319,27 +1195,6 @@ fn hex(value: u8) -> Option<u8> {
     }
 }
 
-fn sibling_temporary_path(destination: &Path, generation: u64) -> PathBuf {
-    let name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("image.tar");
-    destination.with_file_name(format!(
-        ".{name}.tuxstack-{}-{generation}.part",
-        std::process::id()
-    ))
-}
-
-fn io_message(error: std::io::Error) -> String {
-    if error.raw_os_error() == Some(28) {
-        "Image export failed: destination is out of disk space".to_string()
-    } else if error.kind() == std::io::ErrorKind::PermissionDenied {
-        "Image export failed: destination permission denied".to_string()
-    } else {
-        format!("Image export failed: {error}")
-    }
-}
-
 fn saturating_i32(value: usize) -> i32 {
     value.min(i32::MAX as usize) as i32
 }
@@ -1353,21 +1208,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_url_and_temporary_path_are_safe() {
+    fn file_url_is_decoded_for_daemon_local_export() {
         let path = local_path(&QString::from("file:///tmp/my%20image.tar"));
         assert_eq!(path, PathBuf::from("/tmp/my image.tar"));
-        assert_eq!(
-            sibling_temporary_path(&path, 7),
-            PathBuf::from(format!(
-                "/tmp/.my image.tar.tuxstack-{}-7.part",
-                std::process::id()
-            ))
-        );
     }
 
     #[test]
     fn image_detail_errors_are_safe_and_specific() {
-        use tuxstack_docker_core::DockerError;
+        use tuxstack_client::DaemonError as DockerError;
 
         assert_eq!(
             image_detail_error(&DockerError::ImageNotFound("secret-image".into())),

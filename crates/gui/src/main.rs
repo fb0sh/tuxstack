@@ -11,7 +11,6 @@ mod controllers;
 mod error;
 mod models;
 mod runtime;
-mod settings;
 
 #[cfg(test)]
 mod smoke_test;
@@ -39,6 +38,9 @@ fn main() {
         .init();
 
     let mut app = QGuiApplication::new();
+    if !bridge::application_icon::install() {
+        tracing::warn!("bundled TuxStack application icon could not be loaded");
+    }
     let mut engine = QQmlApplicationEngine::new();
 
     // objectCreated is emitted on both success and failure; on failure its

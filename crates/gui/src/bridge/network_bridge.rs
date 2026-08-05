@@ -9,9 +9,10 @@ use std::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{CreateNetworkOptions, DockerError};
+use tuxstack_client::{DaemonError as DockerError, ListNetworksOptions};
+use tuxstack_domain::CreateNetworkOptions;
 
-use crate::app_state::get_services;
+use crate::app_state::daemon_services;
 use crate::bridge::resource_bridges::qobject;
 use crate::controllers::networks::{
     NetworkDetailState, NetworkOperationKind, NetworkSortMode, NetworksListState, NetworksState,
@@ -153,7 +154,7 @@ impl qobject::NetworkListModel {
         tracing::info!("NetworksPage created");
         tracing::info!("NetworksController initialized");
         self.as_mut().apply_state(state);
-        if get_services().is_some() {
+        if daemon_services().is_some() {
             self.as_mut().rust_mut().docker_ready = true;
             self.as_mut().refresh();
         } else {
@@ -178,7 +179,7 @@ impl qobject::NetworkListModel {
             self.as_mut().apply_state(state);
             generation
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.apply_list_error(generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -188,7 +189,7 @@ impl qobject::NetworkListModel {
         self.as_mut().rust_mut().refresh_cancel = Some(token.clone());
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
-            let options = tuxstack_docker_core::services::networks::ListNetworksOptions::default();
+            let options = ListNetworksOptions::default();
             let result = tokio::select! {
                 _ = token.cancelled() => return,
                 result = services.networks.list_networks(&options) => result,
@@ -327,7 +328,7 @@ impl qobject::NetworkListModel {
             generation
         };
         cancel(&mut self.as_mut().rust_mut().detail_cancel);
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.apply_detail_error(generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -399,7 +400,7 @@ impl qobject::NetworkListModel {
             self.as_mut().apply_state(state);
             generation
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.fail_operation(generation, &DockerError::EngineUnavailable);
             self.as_mut().apply_state(state);
@@ -468,7 +469,7 @@ impl qobject::NetworkListModel {
         else {
             return;
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             self.as_mut()
                 .remove_preparation_failed(QString::from("Docker Engine is not available."));
             return;
@@ -537,7 +538,7 @@ impl qobject::NetworkListModel {
             self.as_mut().apply_state(state);
             generation
         };
-        let Some(services) = get_services() else {
+        let Some(services) = daemon_services() else {
             let mut state = self.as_mut().rust_mut().state.clone();
             state.fail_operation(generation, &DockerError::EngineUnavailable);
             let message = state.operation.error_message.clone();
@@ -833,9 +834,9 @@ fn safe_connection_message(status: i32, message: &str) -> String {
 
 fn friendly_operation_error(error: &DockerError) -> &'static str {
     match error {
-        DockerError::SocketNotFound(_) | DockerError::EngineUnavailable => {
-            "Docker Engine is not available."
-        }
+        DockerError::SocketNotFound(_)
+        | DockerError::DaemonUnavailable(_)
+        | DockerError::EngineUnavailable => "Docker Engine is not available.",
         DockerError::PermissionDenied => "Permission denied while accessing Docker networks.",
         DockerError::NetworkNotFound(_) => "This network no longer exists.",
         DockerError::ConnectionTimeout | DockerError::OperationTimeout => {
