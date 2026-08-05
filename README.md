@@ -14,14 +14,17 @@ TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux�
 
 | 功能 | 状态 |
 | --- | --- |
-| 容器列表 / 详情 / 启动停止 | ✅ 已实现 |
-| 容器日志 / 监控 / Inspect | ✅ 已实现 |
+| 容器列表 / 结构化详情 / 生命周期操作 | ✅ 已实现 |
+| Compose 标签分组 / 批量操作 | ✅ 已实现 |
+| 容器日志 / 实时监控 / Docker Events | ✅ 已实现 |
+| 容器终端（真实 Docker TTY + VT100） | ✅ 已实现 |
+| 容器文件系统快照 / 预览 / 另存为 | ✅ 已实现 |
+| 创建容器（端口、挂载、网络、资源） | ✅ 已实现 |
 | 镜像管理 / 拉取 / 导出 | ✅ 已实现 |
 | 网络管理 | ✅ 已实现 |
 | 卷管理 / 文件浏览 | ✅ 已实现 |
 | 镜像文件浏览 | ✅ 已实现 |
-| Compose 项目 | 🔜 计划中 |
-| 容器终端 | 🔜 计划中 |
+| 独立 Compose 项目页面 / up/down | 🔜 计划中 |
 | 镜像构建 / 推送 | 🔜 计划中 |
 
 ### Incus 管理
@@ -160,8 +163,7 @@ cargo test -p tuxstack-docker-core --test volumes -- --ignored --nocapture
 
 ### 近期计划
 - [ ] Incus 虚拟机/容器管理
-- [ ] Compose 项目支持
-- [ ] 容器终端
+- [ ] 独立 Compose 项目页面与 up/down 工作流
 
 ### 中期计划
 - [ ] 镜像构建/标签/推送
@@ -203,14 +205,17 @@ TuxStack is a native container and virtual machine desktop management applicatio
 
 | Feature | Status |
 | --- | --- |
-| Container list/details/start/stop | ✅ Implemented |
-| Container logs/stats/inspect | ✅ Implemented |
+| Container list/structured details/lifecycle actions | ✅ Implemented |
+| Compose label grouping/group actions | ✅ Implemented |
+| Container logs/live stats/Docker Events | ✅ Implemented |
+| Container terminal (real Docker TTY + VT100) | ✅ Implemented |
+| Container filesystem snapshots/preview/save-as | ✅ Implemented |
+| Create container (ports, mounts, networks, resources) | ✅ Implemented |
 | Image management/pull/export | ✅ Implemented |
 | Network management | ✅ Implemented |
 | Volume management/file browsing | ✅ Implemented |
 | Image file browsing | ✅ Implemented |
-| Compose projects | 🔜 Planned |
-| Container terminal | 🔜 Planned |
+| Dedicated Compose projects page/up/down | 🔜 Planned |
 | Image build/push | 🔜 Planned |
 
 ### Incus Management
@@ -349,8 +354,7 @@ cargo test -p tuxstack-docker-core --test volumes -- --ignored --nocapture
 
 ### Near-term
 - [ ] Incus VM/container management
-- [ ] Compose project support
-- [ ] Container terminal
+- [ ] Dedicated Compose project page and up/down workflow
 
 ### Mid-term
 - [ ] Image build/tag/push
