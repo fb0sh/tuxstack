@@ -16,6 +16,7 @@ pub mod mapping;
 pub mod models;
 pub mod services;
 pub mod streams;
+pub mod vfs_providers;
 
 pub use client::{DockerClient, DockerConfig};
 pub use config::ResolvedConfig;

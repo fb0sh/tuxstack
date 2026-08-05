@@ -1770,12 +1770,15 @@ dependencies = [
 name = "tuxstack-docker-core"
 version = "0.3.0"
 dependencies = [
+ "async-trait",
  "base64",
  "bollard",
  "bytes",
  "chrono",
  "futures-util",
+ "libc",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
@@ -1787,6 +1790,7 @@ dependencies = [
  "tracing",
  "tuxstack-domain",
  "tuxstack-fs-protocol",
+ "tuxstack-vfs",
  "uuid",
 ]
 

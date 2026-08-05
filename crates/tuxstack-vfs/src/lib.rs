@@ -6,6 +6,7 @@ mod executor;
 mod handle;
 mod inode;
 mod model;
+mod namespace;
 mod path;
 mod provider;
 mod router;
@@ -21,6 +22,7 @@ pub use model::{
     ProviderCapabilities, ProviderDescriptor, ProviderFileHandle, ProviderKind, RequestContext,
     VirtualDirectoryEntry, VirtualFileType, VirtualMetadata,
 };
+pub use namespace::NamespaceProvider;
 pub use path::{
     DEFAULT_MAX_PATH_BYTES, FuseNameCodec, MAX_NAME_BYTES, VirtualFileName, VirtualPath,
     VirtualPathBytes,

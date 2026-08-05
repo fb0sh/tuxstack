@@ -7,10 +7,12 @@ description = "Shared Docker core library for the tuxstack desktop application"
 rust-version.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 bollard = { workspace = true, features = ["chrono"] }
 bytes = { workspace = true }
 chrono = { workspace = true }
 futures-util = { workspace = true }
+libc.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -24,6 +26,8 @@ tuxstack-fs-protocol = { path = "../tuxstack-fs-protocol" }
 uuid = { workspace = true }
 base64 = "0.22"
 rusqlite = { workspace = true }
+rustix = { version = "1.1.4", features = ["fs"] }
+tuxstack-vfs = { path = "../tuxstack-vfs" }
 
 [dev-dependencies]
 bollard = { workspace = true, features = ["chrono"] }
@@ -49,4 +53,8 @@ path = "../../tests/integration/networks.rs"
 [[test]]
 name = "volumes"
 path = "../../tests/integration/volumes.rs"
+
+[[test]]
+name = "vfs_volume_bind"
+path = "../../tests/integration/vfs_volume_bind.rs"
 
