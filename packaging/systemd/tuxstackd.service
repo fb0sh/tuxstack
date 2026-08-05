@@ -1,0 +1,23 @@
+[Unit]
+Description=TuxStack Docker Desktop Service
+After=graphical-session.target docker.service
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tuxstackd
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+# Do not set NoNewPrivileges=yes here. Phase-0 testing proved that it blocks
+# the distribution-provided setuid fusermount3 helper with EPERM. tuxstackd
+# still runs unprivileged as the current user and mounts owner-only FUSE.
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/TuxStack %h/.cache/tuxstack %t/tuxstack
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

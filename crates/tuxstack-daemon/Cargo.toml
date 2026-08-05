@@ -1,0 +1,32 @@
+[package]
+name = "tuxstack-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TuxStack per-user Docker daemon, typed IPC server, and FUSE owner"
+publish = false
+
+[[bin]]
+name = "tuxstackd"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+fuser.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tuxstack-docker-core = { path = "../docker-core" }
+tuxstack-domain.workspace = true
+tuxstack-protocol = { path = "../tuxstack-protocol" }
+tuxstack-vfs = { path = "../tuxstack-vfs" }
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tuxstack-client = { path = "../tuxstack-client" }
