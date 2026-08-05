@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls as QQC2
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.tuxstack.app
@@ -14,6 +15,10 @@ Kirigami.Dialog {
     property var networksModel: null
     property var volumesModel: null
     property bool submitted: false
+    property string environmentImportError: ""
+    property string environmentImportMessage: ""
+    property string pendingPullRequest: ""
+    property string pendingPullImage: ""
 
     readonly property bool creating: root.containersModel && root.containersModel.creating
     readonly property string localValidationError: validationError()
@@ -40,6 +45,10 @@ Kirigami.Dialog {
         portRows.clear()
         mountRows.clear()
         environmentRows.clear()
+        root.environmentImportError = ""
+        root.environmentImportMessage = ""
+        root.pendingPullRequest = ""
+        root.pendingPullImage = ""
         networkRows.clear()
         cpuField.clear()
         memoryField.clear()
@@ -238,6 +247,29 @@ Kirigami.Dialog {
             seen[seenKey] = true
         }
         return ""
+    }
+
+    function applyImportedEnvironment(entries, message) {
+        const existing = ({})
+        for (let index = 0; index < environmentRows.count; ++index)
+            existing[String(environmentRows.get(index).key)] = true
+        for (const entry of entries) {
+            const key = String(entry.key)
+            if (existing[key]) {
+                root.environmentImportMessage = ""
+                root.environmentImportError = I18n.i18nd(
+                    "tuxstack",
+                    "The .env file contains “%1”, which is already present. Nothing was imported.",
+                    key)
+                return
+            }
+            existing[key] = true
+        }
+        for (const entry of entries)
+            environmentRows.append({ key: String(entry.key), value: String(entry.value) })
+        root.environmentImportError = ""
+        root.environmentImportMessage = String(message || I18n.i18nd(
+            "tuxstack", "Imported %1 environment variables.", entries.length))
     }
 
     function networkValidationError() {
@@ -513,7 +545,37 @@ Kirigami.Dialog {
             }
 
             ColumnLayout {
-                RowLayout { Layout.fillWidth: true; QQC2.Label { Layout.fillWidth: true; text: I18n.i18nd("tuxstack", "Environment Variables"); font.bold: true } QQC2.Button { text: I18n.i18nd("tuxstack", "Add Variable"); onClicked: environmentRows.append({key: "", value: ""}) } }
+                RowLayout {
+                    Layout.fillWidth: true
+                    QQC2.Label { Layout.fillWidth: true; text: I18n.i18nd("tuxstack", "Environment Variables"); font.bold: true }
+                    QQC2.Button {
+                        visible: root.containersModel && root.containersModel.localEndpoint
+                        text: I18n.i18nd("tuxstack", "Import .env")
+                        icon.name: "document-import"
+                        onClicked: environmentFileDialog.open()
+                    }
+                    QQC2.Button { text: I18n.i18nd("tuxstack", "Add Variable"); onClicked: environmentRows.append({key: "", value: ""}) }
+                }
+                Kirigami.InlineMessage {
+                    Layout.fillWidth: true
+                    visible: root.environmentImportError.length > 0
+                    type: Kirigami.MessageType.Error
+                    text: root.environmentImportError
+                }
+                Kirigami.InlineMessage {
+                    Layout.fillWidth: true
+                    visible: root.environmentImportError.length === 0
+                             && root.environmentImportMessage.length > 0
+                    type: Kirigami.MessageType.Positive
+                    text: root.environmentImportMessage
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: root.containersModel && !root.containersModel.localEndpoint
+                    text: I18n.i18nd("tuxstack", ".env import is available only for a local Docker endpoint.")
+                    color: Kirigami.Theme.disabledTextColor
+                    wrapMode: Text.Wrap
+                }
                 Repeater {
                     model: environmentRows
                     delegate: RowLayout {
@@ -583,5 +645,89 @@ Kirigami.Dialog {
     footer: QQC2.DialogButtonBox {
         QQC2.Button { text: I18n.i18nd("tuxstack", "Cancel"); enabled: !root.creating; QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.RejectRole; onClicked: root.close() }
         QQC2.Button { text: root.creating ? I18n.i18nd("tuxstack", "Creating…") : I18n.i18nd("tuxstack", "Create Container"); icon.name: "list-add"; enabled: root.valid && !root.creating; QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole; onClicked: root.submit() }
+    }
+
+    FileDialog {
+        id: environmentFileDialog
+        title: I18n.i18nd("tuxstack", "Import Environment File")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [I18n.i18nd("tuxstack", "Environment files (.env)"),
+                      I18n.i18nd("tuxstack", "Text files (*.env *.txt)"),
+                      I18n.i18nd("tuxstack", "All files (*)")]
+        onAccepted: {
+            root.environmentImportError = ""
+            root.environmentImportMessage = ""
+            if (root.containersModel)
+                root.containersModel.importEnvironmentFile(String(selectedFile))
+        }
+    }
+
+    Kirigami.Dialog {
+        id: pullConfirmation
+        title: I18n.i18nd("tuxstack", "Pull Missing Image")
+        preferredWidth: Kirigami.Units.gridUnit * 30
+        closePolicy: root.creating ? QQC2.Popup.NoAutoClose : QQC2.Popup.CloseOnEscape
+
+        ColumnLayout {
+            spacing: Kirigami.Units.mediumSpacing
+            Kirigami.Heading {
+                Layout.fillWidth: true
+                level: 3
+                text: I18n.i18nd("tuxstack", "Image “%1” is not available locally.", root.pendingPullImage)
+                wrapMode: Text.WrapAnywhere
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: I18n.i18nd("tuxstack", "Pull this image from its registry, then create the container?")
+                wrapMode: Text.Wrap
+            }
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: root.containersModel && root.containersModel.createErrorMessage.length > 0
+                type: Kirigami.MessageType.Error
+                text: root.containersModel ? root.containersModel.createErrorMessage : ""
+            }
+        }
+
+        footer: QQC2.DialogButtonBox {
+            QQC2.Button {
+                text: I18n.i18nd("tuxstack", "Cancel")
+                enabled: !root.creating
+                QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.RejectRole
+                onClicked: pullConfirmation.close()
+            }
+            QQC2.Button {
+                text: root.creating
+                      ? I18n.i18nd("tuxstack", "Pulling…")
+                      : I18n.i18nd("tuxstack", "Pull and Create")
+                icon.name: "download"
+                enabled: !root.creating && root.pendingPullRequest.length > 0
+                QQC2.DialogButtonBox.buttonRole: QQC2.DialogButtonBox.AcceptRole
+                onClicked: root.containersModel.confirmPullAndCreate(root.pendingPullRequest)
+            }
+        }
+    }
+
+    Connections {
+        target: root.containersModel
+        ignoreUnknownSignals: true
+
+        function onImagePullRequired(requestJson, imageReference) {
+            root.pendingPullRequest = String(requestJson)
+            root.pendingPullImage = String(imageReference)
+            pullConfirmation.open()
+        }
+        function onEnvironmentFileImported(entries, message) {
+            root.applyImportedEnvironment(entries, message)
+        }
+        function onEnvironmentFileImportFailed(message) {
+            root.environmentImportMessage = ""
+            root.environmentImportError = String(message)
+        }
+        function onContainerCreated() {
+            pullConfirmation.close()
+            root.pendingPullRequest = ""
+            root.pendingPullImage = ""
+        }
     }
 }

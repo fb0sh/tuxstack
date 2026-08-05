@@ -4,15 +4,18 @@
 //! register one CXX-Qt input and one module. It never calls stats while
 //! refreshing summaries.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
+use futures_util::StreamExt;
+use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::services::ComposeGroupAction;
 use tuxstack_docker_core::{
-    ContainerOperationState, ContainerSortMode, DockerError, GroupOperationState,
+    ContainerOperationState, ContainerSortMode, DockerError, GroupOperationState, PullImageOptions,
     RemoveContainerOptions, RestartContainerOptions, StopContainerOptions,
 };
 
@@ -101,6 +104,10 @@ pub struct ContainersListModelRust {
     pub(crate) last_group_result_message: QString,
     pub(crate) creating: bool,
     pub(crate) create_error_message: QString,
+    pub(crate) create_generation: u64,
+    pub(crate) create_cancel: Option<CancellationToken>,
+    pub(crate) environment_import_generation: u64,
+    pub(crate) environment_import_cancel: Option<CancellationToken>,
     pub(crate) label_search: String,
     pub(crate) label_descending: bool,
     pub(crate) refresh_cancel: Option<CancellationToken>,
@@ -238,6 +245,23 @@ pub mod qobject {
             message: QString,
         );
         #[qsignal]
+        #[cxx_name = "imagePullRequired"]
+        fn image_pull_required(
+            self: Pin<&mut Self>,
+            request_json: QString,
+            image_reference: QString,
+        );
+        #[qsignal]
+        #[cxx_name = "environmentFileImported"]
+        fn environment_file_imported(
+            self: Pin<&mut Self>,
+            entries: QList_QVariant,
+            message: QString,
+        );
+        #[qsignal]
+        #[cxx_name = "environmentFileImportFailed"]
+        fn environment_file_import_failed(self: Pin<&mut Self>, message: QString);
+        #[qsignal]
         #[cxx_name = "browserUrlRequested"]
         fn browser_url_requested(self: Pin<&mut Self>, url: QString);
         #[qsignal]
@@ -309,7 +333,13 @@ pub mod qobject {
         fn clear_create_error(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "createContainer"]
-        fn create_container(self: Pin<&mut Self>, request_json: &QString);
+        fn create_container(self: Pin<&mut Self>, requestJson: &QString);
+        #[qinvokable]
+        #[cxx_name = "confirmPullAndCreate"]
+        fn confirm_pull_and_create(self: Pin<&mut Self>, requestJson: &QString);
+        #[qinvokable]
+        #[cxx_name = "importEnvironmentFile"]
+        fn import_environment_file(self: Pin<&mut Self>, source: &QString);
 
         #[qinvokable]
         #[cxx_name = "startContainer"]
@@ -630,6 +660,7 @@ impl qobject::ContainersListModel {
         self.as_mut().rust_mut().docker_ready = false;
         self.as_mut().set_local_endpoint(false);
         cancel_all(self.as_mut().rust_mut().get_mut());
+        self.as_mut().set_creating(false);
         let mut state = self.as_mut().rust_mut().state.clone();
         state.refresh_generation = state.refresh_generation.wrapping_add(1);
         if !state.clear_selection() {
@@ -656,6 +687,7 @@ impl qobject::ContainersListModel {
 
     pub fn shutdown(mut self: Pin<&mut Self>) {
         cancel_all(self.as_mut().rust_mut().get_mut());
+        self.as_mut().set_creating(false);
         let mut state = self.as_mut().rust_mut().state.clone();
         state.refresh_generation = state.refresh_generation.wrapping_add(1);
         state.selection_generation = state.selection_generation.wrapping_add(1);
@@ -674,70 +706,239 @@ impl qobject::ContainersListModel {
         if self.creating {
             return;
         }
-        let request = match parse_create_request(&request_json.to_string()) {
+        let request_json = request_json.to_string();
+        let request = match validated_create_request(&request_json) {
             Ok(request) => request,
-            Err(error) => {
+            Err(message) => {
                 self.as_mut()
-                    .set_create_error_message(QString::from(format!(
-                        "Invalid create request: {error}"
-                    )));
+                    .set_create_error_message(QString::from(message));
                 return;
             }
         };
-        if let Err(error) = request.validate() {
-            self.as_mut()
-                .set_create_error_message(QString::from(error.to_string()));
-            return;
-        }
         let Some(services) = get_services() else {
             self.as_mut()
                 .set_create_error_message(QString::from("Docker Engine is unavailable."));
             return;
         };
-        self.as_mut().set_creating(true);
-        self.as_mut().set_create_error_message(QString::default());
+        let image_reference = request.image.clone();
+        let (generation, cancel) = self.as_mut().begin_create_operation();
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
-            let result = services.containers.create_container(&request).await;
+            let inspected = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = services.images.inspect_image(&image_reference) => result,
+            };
+            match inspected {
+                Err(DockerError::ImageNotFound(_)) => {
+                    if cancel.is_cancelled() {
+                        return;
+                    }
+                    qt_thread
+                        .queue(move |mut model| {
+                            if !model.as_mut().finish_create_operation(generation) {
+                                return;
+                            }
+                            model.as_mut().image_pull_required(
+                                QString::from(request_json),
+                                QString::from(image_reference),
+                            );
+                        })
+                        .ok();
+                }
+                Err(error) => {
+                    if cancel.is_cancelled() {
+                        return;
+                    }
+                    qt_thread
+                        .queue(move |mut model| {
+                            if !model.as_mut().finish_create_operation(generation) {
+                                return;
+                            }
+                            model.as_mut().set_create_error_message(QString::from(
+                                create_error_message(&error),
+                            ));
+                        })
+                        .ok();
+                }
+                Ok(_) => {
+                    let result = tokio::select! {
+                        _ = cancel.cancelled() => return,
+                        result = services.containers.create_container(&request) => result,
+                    };
+                    if cancel.is_cancelled() {
+                        return;
+                    }
+                    queue_create_result(qt_thread, generation, result);
+                }
+            }
+        });
+    }
+
+    pub fn confirm_pull_and_create(mut self: Pin<&mut Self>, request_json: &QString) {
+        if self.creating {
+            return;
+        }
+        // Treat confirmation JSON as opaque: parse and validate the supplied
+        // copy again instead of trusting anything from the previous request.
+        let request = match validated_create_request(&request_json.to_string()) {
+            Ok(request) => request,
+            Err(message) => {
+                self.as_mut()
+                    .set_create_error_message(QString::from(message));
+                return;
+            }
+        };
+        let Some(services) = get_services() else {
+            self.as_mut()
+                .set_create_error_message(QString::from("Docker Engine is unavailable."));
+            return;
+        };
+        let options = PullImageOptions {
+            reference: request.image.clone(),
+            platform: request.platform.clone(),
+            registry_auth: None,
+        };
+        let mut stream = services.images.pull_image(options);
+        let cancel = stream.cancellation_token();
+        let generation = self.as_mut().begin_create_operation_with(cancel.clone());
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let pull_result = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    item = stream.next() => match item {
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => break Err(error),
+                        None => break Ok(()),
+                    }
+                }
+            };
+            if let Err(error) = pull_result {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                qt_thread
+                    .queue(move |mut model| {
+                        if !model.as_mut().finish_create_operation(generation) {
+                            return;
+                        }
+                        model
+                            .as_mut()
+                            .set_create_error_message(QString::from(create_error_message(&error)));
+                    })
+                    .ok();
+                return;
+            }
+            let result = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = services.containers.create_container(&request) => result,
+            };
+            if cancel.is_cancelled() {
+                return;
+            }
+            queue_create_result(qt_thread, generation, result);
+        });
+    }
+
+    pub fn import_environment_file(mut self: Pin<&mut Self>, source: &QString) {
+        self.as_mut().invalidate_environment_import();
+        if !self.local_endpoint {
+            self.as_mut().environment_file_import_failed(QString::from(
+                "Environment files can only be imported for a local Docker endpoint.",
+            ));
+            return;
+        }
+        let path = match local_environment_path(&source.to_string()) {
+            Ok(path) => path,
+            Err(message) => {
+                self.as_mut()
+                    .environment_file_import_failed(QString::from(message));
+                return;
+            }
+        };
+        let source_name = environment_source_name(&path);
+        let (generation, cancel) = self.as_mut().begin_environment_import();
+        let qt_thread = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let result = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = read_environment_file(&path) => result,
+            };
+            if cancel.is_cancelled() {
+                return;
+            }
             qt_thread
                 .queue(move |mut model| {
-                    model.as_mut().set_creating(false);
+                    if model.environment_import_generation != generation {
+                        return;
+                    }
+                    model.as_mut().rust_mut().environment_import_cancel = None;
                     match result {
-                        Ok(result) => {
-                            let mut messages = result.warnings;
-                            messages.extend(result.network_failures.iter().map(|failure| {
-                                format!("Network {}: {}", failure.network, failure.error)
-                            }));
-                            if let Some(error) = &result.start_error {
-                                messages.push(format!(
-                                    "Container was created but did not start: {error}"
-                                ));
-                            }
-                            let message = if messages.is_empty() {
-                                if result.started {
-                                    "Container created and started.".to_string()
+                        Ok(entries) => {
+                            let message = format!(
+                                "Imported {} environment {} from {source_name}.",
+                                entries.len(),
+                                if entries.len() == 1 {
+                                    "variable"
                                 } else {
-                                    "Container created.".to_string()
+                                    "variables"
                                 }
-                            } else {
-                                messages.join("\n")
-                            };
-                            model.as_mut().container_created(
-                                QString::from(&result.id),
-                                result.started,
+                            );
+                            model.as_mut().environment_file_imported(
+                                environment_entry_variants(&entries),
                                 QString::from(message),
                             );
-                            model.as_mut().refresh();
                         }
-                        Err(error) => {
-                            model.as_mut().set_create_error_message(QString::from(
-                                operation_error_message(&error),
-                            ));
-                        }
+                        Err(message) => model
+                            .as_mut()
+                            .environment_file_import_failed(QString::from(message)),
                     }
                 })
                 .ok();
         });
+    }
+
+    fn begin_create_operation(mut self: Pin<&mut Self>) -> (u64, CancellationToken) {
+        let cancel = CancellationToken::new();
+        let generation = self.as_mut().begin_create_operation_with(cancel.clone());
+        (generation, cancel)
+    }
+
+    fn begin_create_operation_with(mut self: Pin<&mut Self>, cancel: CancellationToken) -> u64 {
+        if let Some(previous) = self.as_mut().rust_mut().create_cancel.take() {
+            previous.cancel();
+        }
+        let generation = self.create_generation.wrapping_add(1);
+        self.as_mut().rust_mut().create_generation = generation;
+        self.as_mut().rust_mut().create_cancel = Some(cancel);
+        self.as_mut().set_create_error_message(QString::default());
+        self.as_mut().set_creating(true);
+        generation
+    }
+
+    fn finish_create_operation(mut self: Pin<&mut Self>, generation: u64) -> bool {
+        if self.create_generation != generation {
+            return false;
+        }
+        self.as_mut().rust_mut().create_cancel = None;
+        self.as_mut().set_creating(false);
+        true
+    }
+
+    fn invalidate_environment_import(mut self: Pin<&mut Self>) {
+        if let Some(previous) = self.as_mut().rust_mut().environment_import_cancel.take() {
+            previous.cancel();
+        }
+        self.as_mut().rust_mut().environment_import_generation =
+            self.environment_import_generation.wrapping_add(1);
+    }
+
+    fn begin_environment_import(mut self: Pin<&mut Self>) -> (u64, CancellationToken) {
+        let generation = self.environment_import_generation.wrapping_add(1);
+        let cancel = CancellationToken::new();
+        self.as_mut().rust_mut().environment_import_generation = generation;
+        self.as_mut().rust_mut().environment_import_cancel = Some(cancel.clone());
+        (generation, cancel)
     }
 
     pub fn start_container(self: Pin<&mut Self>, id: &QString) {
@@ -1511,6 +1712,27 @@ fn success_message(action: &BridgeAction, id: &str) -> String {
     }
 }
 
+fn create_error_message(error: &DockerError) -> String {
+    match error {
+        DockerError::PermissionDenied => "Permission denied while accessing Docker.".into(),
+        DockerError::EngineUnavailable | DockerError::SocketNotFound(_) => {
+            "Docker Engine is unavailable.".into()
+        }
+        DockerError::ConnectionTimeout | DockerError::OperationTimeout => {
+            "The Docker create operation timed out.".into()
+        }
+        DockerError::RegistryAuthenticationFailed => {
+            "Registry authentication failed. Pull the image using authenticated image tools, then try again.".into()
+        }
+        DockerError::RegistryUnavailable(_) => "The image registry is unavailable.".into(),
+        DockerError::InvalidImageReference(_) => "The image reference is invalid.".into(),
+        DockerError::ImageNotFound(_) => "The requested image was not found.".into(),
+        DockerError::PullFailed(_) => "Docker could not pull the requested image.".into(),
+        DockerError::OperationCancelled => "The create operation was cancelled.".into(),
+        _ => operation_error_message(error),
+    }
+}
+
 fn operation_error_message(error: &DockerError) -> String {
     match error {
         DockerError::ContainerNotFound(_) => "The container no longer exists.".into(),
@@ -1762,6 +1984,345 @@ fn parse_create_request(
     serde_json::from_str(json)
 }
 
+fn validated_create_request(
+    json: &str,
+) -> Result<tuxstack_docker_core::CreateContainerRequest, String> {
+    let request =
+        parse_create_request(json).map_err(|_| "Invalid create request JSON.".to_string())?;
+    request.validate().map_err(|error| error.to_string())?;
+    Ok(request)
+}
+
+fn queue_create_result(
+    qt_thread: cxx_qt::CxxQtThread<qobject::ContainersListModel>,
+    generation: u64,
+    result: Result<tuxstack_docker_core::CreateContainerResult, DockerError>,
+) {
+    qt_thread
+        .queue(move |mut model| {
+            if !model.as_mut().finish_create_operation(generation) {
+                return;
+            }
+            match result {
+                Ok(result) => {
+                    let mut messages = result.warnings;
+                    messages.extend(
+                        result.network_failures.iter().map(|failure| {
+                            format!("Network {}: {}", failure.network, failure.error)
+                        }),
+                    );
+                    if let Some(error) = &result.start_error {
+                        messages.push(format!("Container was created but did not start: {error}"));
+                    }
+                    let message = if messages.is_empty() {
+                        if result.started {
+                            "Container created and started.".to_string()
+                        } else {
+                            "Container created.".to_string()
+                        }
+                    } else {
+                        messages.join("\n")
+                    };
+                    model.as_mut().container_created(
+                        QString::from(&result.id),
+                        result.started,
+                        QString::from(message),
+                    );
+                    model.as_mut().refresh();
+                }
+                Err(error) => model
+                    .as_mut()
+                    .set_create_error_message(QString::from(create_error_message(&error))),
+            }
+        })
+        .ok();
+}
+
+const MAX_ENVIRONMENT_FILE_BYTES: u64 = 1024 * 1024;
+
+#[derive(PartialEq, Eq)]
+struct ImportedEnvironmentEntry {
+    key: String,
+    value: String,
+}
+
+impl std::fmt::Debug for ImportedEnvironmentEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ImportedEnvironmentEntry")
+            .field("key", &self.key)
+            .field("value", &"<redacted>")
+            .finish()
+    }
+}
+
+async fn read_environment_file(path: &Path) -> Result<Vec<ImportedEnvironmentEntry>, String> {
+    let source_name = environment_source_name(path);
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|_| format!("Could not read {source_name}."))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_ENVIRONMENT_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|_| format!("Could not read {source_name}."))?;
+    validate_environment_file_size(bytes.len() as u64)?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| format!("{source_name} is not a valid UTF-8 environment file."))?;
+    parse_environment_file(&text).map_err(|message| format!("{source_name}: {message}"))
+}
+
+fn validate_environment_file_size(size: u64) -> Result<(), String> {
+    if size > MAX_ENVIRONMENT_FILE_BYTES {
+        Err("The environment file exceeds the 1 MiB limit.".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn parse_environment_file(text: &str) -> Result<Vec<ImportedEnvironmentEntry>, String> {
+    let mut entries = Vec::new();
+    let mut keys = HashSet::new();
+    for (index, raw_line) in text.lines().enumerate() {
+        let line_number = index + 1;
+        let mut line = raw_line.trim_start();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("export") {
+            if rest.starts_with(char::is_whitespace) {
+                line = rest.trim_start();
+            }
+        }
+        let Some((raw_key, raw_value)) = line.split_once('=') else {
+            return Err(format!("Line {line_number}: expected KEY=VALUE."));
+        };
+        let key = raw_key.trim();
+        if !valid_environment_key(key) {
+            return Err(format!(
+                "Line {line_number}: invalid environment variable key."
+            ));
+        }
+        if !keys.insert(key.to_string()) {
+            return Err(format!(
+                "Line {line_number}: duplicate environment variable key {key}."
+            ));
+        }
+        let value = parse_environment_value(raw_value, line_number)?;
+        entries.push(ImportedEnvironmentEntry {
+            key: key.to_string(),
+            value,
+        });
+    }
+    Ok(entries)
+}
+
+fn valid_environment_key(key: &str) -> bool {
+    let mut characters = key.chars();
+    matches!(characters.next(), Some('A'..='Z' | 'a'..='z' | '_'))
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn parse_environment_value(raw: &str, line_number: usize) -> Result<String, String> {
+    let trimmed = raw.trim_start();
+    if let Some(rest) = trimmed.strip_prefix('\'') {
+        return parse_single_quoted_environment_value(rest, line_number);
+    }
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        return parse_double_quoted_environment_value(rest, line_number);
+    }
+    Ok(parse_unquoted_environment_value(raw))
+}
+
+fn parse_single_quoted_environment_value(
+    value: &str,
+    line_number: usize,
+) -> Result<String, String> {
+    let Some(end) = value.find('\'') else {
+        return Err(format!(
+            "Line {line_number}: unterminated single-quoted value."
+        ));
+    };
+    validate_quoted_environment_suffix(&value[end + 1..], line_number)?;
+    Ok(value[..end].to_string())
+}
+
+fn parse_double_quoted_environment_value(
+    value: &str,
+    line_number: usize,
+) -> Result<String, String> {
+    let mut result = String::new();
+    let mut characters = value.char_indices();
+    while let Some((index, character)) = characters.next() {
+        match character {
+            '"' => {
+                validate_quoted_environment_suffix(&value[index + 1..], line_number)?;
+                return Ok(result);
+            }
+            '\\' => {
+                let Some((_, escaped)) = characters.next() else {
+                    return Err(format!(
+                        "Line {line_number}: unterminated double-quoted value."
+                    ));
+                };
+                result.push(match escaped {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '"' => '"',
+                    '\\' => '\\',
+                    _ => {
+                        return Err(format!(
+                            "Line {line_number}: unsupported escape in double-quoted value."
+                        ));
+                    }
+                });
+            }
+            _ => result.push(character),
+        }
+    }
+    Err(format!(
+        "Line {line_number}: unterminated double-quoted value."
+    ))
+}
+
+fn validate_quoted_environment_suffix(suffix: &str, line_number: usize) -> Result<(), String> {
+    if suffix.is_empty() {
+        return Ok(());
+    }
+    if !suffix.starts_with(char::is_whitespace) {
+        return Err(format!(
+            "Line {line_number}: quoted value must contain the complete value."
+        ));
+    }
+    let suffix = suffix.trim_start();
+    if suffix.is_empty() || suffix.starts_with('#') {
+        Ok(())
+    } else {
+        Err(format!(
+            "Line {line_number}: unexpected text after quoted value."
+        ))
+    }
+}
+
+fn parse_unquoted_environment_value(value: &str) -> String {
+    let mut previous_was_whitespace = false;
+    let mut comment_start = None;
+    for (index, character) in value.char_indices() {
+        if character == '#' && previous_was_whitespace {
+            comment_start = Some(index);
+            break;
+        }
+        previous_was_whitespace = character.is_whitespace();
+    }
+    value[..comment_start.unwrap_or(value.len())]
+        .trim()
+        .to_string()
+}
+
+fn local_environment_path(value: &str) -> Result<PathBuf, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("An environment file is required.".into());
+    }
+    let path = if let Some(rest) = value.strip_prefix("file://") {
+        let encoded = if rest.starts_with('/') {
+            rest
+        } else if let Some((host, path)) = rest.split_once('/') {
+            if host.eq_ignore_ascii_case("localhost") {
+                return decoded_environment_path(&format!("/{path}"));
+            }
+            return Err("The environment file URL must refer to the local host.".into());
+        } else {
+            return Err("The environment file URL is malformed.".into());
+        };
+        reject_file_url_query_or_fragment(encoded)?;
+        percent_decode_environment_path(encoded)?
+    } else if let Some(encoded) = value.strip_prefix("file:") {
+        if !encoded.starts_with('/') {
+            return Err("The environment file URL is malformed.".into());
+        }
+        reject_file_url_query_or_fragment(encoded)?;
+        percent_decode_environment_path(encoded)?
+    } else if value.contains("://") {
+        return Err("The environment file must be a local path.".into());
+    } else {
+        value.to_string()
+    };
+    validate_decoded_environment_path(path)
+}
+
+fn decoded_environment_path(value: &str) -> Result<PathBuf, String> {
+    reject_file_url_query_or_fragment(value)?;
+    validate_decoded_environment_path(percent_decode_environment_path(value)?)
+}
+
+fn reject_file_url_query_or_fragment(value: &str) -> Result<(), String> {
+    if value.contains(['?', '#']) {
+        Err("The environment file URL is malformed.".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_decoded_environment_path(path: String) -> Result<PathBuf, String> {
+    if path.is_empty() || path.contains('\0') {
+        Err("The environment file path is invalid.".into())
+    } else {
+        Ok(PathBuf::from(path))
+    }
+}
+
+fn percent_decode_environment_path(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("The environment file URL contains a malformed escape.".into());
+            }
+            let (Some(high), Some(low)) = (
+                hexadecimal_digit(bytes[index + 1]),
+                hexadecimal_digit(bytes[index + 2]),
+            ) else {
+                return Err("The environment file URL contains a malformed escape.".into());
+            };
+            output.push(high * 16 + low);
+            index += 3;
+        } else {
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output)
+        .map_err(|_| "The environment file URL is not valid UTF-8.".to_string())
+}
+
+fn hexadecimal_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn environment_source_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("environment file")
+        .to_string()
+}
+
+fn environment_entry_variants(entries: &[ImportedEnvironmentEntry]) -> QVariantList {
+    entries
+        .iter()
+        .map(|entry| variant_map(&[("key", &entry.key), ("value", &entry.value)]))
+        .collect()
+}
+
 fn saturating_i32(value: usize) -> i32 {
     value.min(i32::MAX as usize) as i32
 }
@@ -1777,6 +2338,14 @@ fn cancel_all(rust: &mut ContainersListModelRust) {
     if let Some(cancel) = rust.detail_cancel.take() {
         cancel.cancel();
     }
+    if let Some(cancel) = rust.create_cancel.take() {
+        cancel.cancel();
+    }
+    rust.create_generation = rust.create_generation.wrapping_add(1);
+    if let Some(cancel) = rust.environment_import_cancel.take() {
+        cancel.cancel();
+    }
+    rust.environment_import_generation = rust.environment_import_generation.wrapping_add(1);
     for (_, cancel) in rust.operation_cancels.drain() {
         cancel.cancel();
     }
@@ -1928,5 +2497,131 @@ mod tests {
             operation_error_message(&DockerError::PermissionDenied),
             "Permission denied while accessing Docker."
         );
+    }
+
+    #[test]
+    fn dotenv_parser_handles_comments_empty_export_and_unquoted_hashes() {
+        let entries = parse_environment_file(
+            "\n  # comment\nexport FIRST=one\nEMPTY=\nHASH=left#right\nCOMMENT=value # ignored\n",
+        )
+        .unwrap();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0].key, "FIRST");
+        assert_eq!(entries[0].value, "one");
+        assert_eq!(entries[1].value, "");
+        assert_eq!(entries[2].value, "left#right");
+        assert_eq!(entries[3].value, "value");
+        assert!(
+            parse_environment_file("\n # only a comment\n")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn dotenv_parser_supports_complete_quotes_and_basic_double_quote_escapes() {
+        let entries = parse_environment_file(
+            "SINGLE=' literal # value ' # comment\nDOUBLE=\"line\\nquote: \\\" slash: \\\\ tab: \\t\"\n",
+        )
+        .unwrap();
+        assert_eq!(entries[0].value, " literal # value ");
+        assert_eq!(entries[1].value, "line\nquote: \" slash: \\ tab: \t");
+    }
+
+    #[test]
+    fn dotenv_parser_rejects_duplicates_and_malformed_lines_with_line_numbers() {
+        let duplicate = parse_environment_file("A=one\n# skipped\nA=two\n").unwrap_err();
+        assert!(duplicate.contains("Line 3"));
+        assert!(duplicate.contains("duplicate"));
+        for malformed in [
+            "NO_EQUALS",
+            "9KEY=value",
+            "KEY='unterminated",
+            "KEY=\"bad\\q\"",
+            "KEY='value'trailing",
+            "export =value",
+        ] {
+            let error = parse_environment_file(malformed).unwrap_err();
+            assert!(error.contains("Line 1"), "{error}");
+        }
+    }
+
+    #[test]
+    fn environment_file_size_limit_is_exact() {
+        assert!(validate_environment_file_size(MAX_ENVIRONMENT_FILE_BYTES).is_ok());
+        assert!(validate_environment_file_size(MAX_ENVIRONMENT_FILE_BYTES + 1).is_err());
+    }
+
+    #[test]
+    fn environment_paths_decode_local_file_urls_and_reject_unsafe_inputs() {
+        assert_eq!(
+            local_environment_path("file:///tmp/My%20Environment.env").unwrap(),
+            PathBuf::from("/tmp/My Environment.env")
+        );
+        assert_eq!(
+            local_environment_path("file://localhost/tmp/config.env").unwrap(),
+            PathBuf::from("/tmp/config.env")
+        );
+        assert_eq!(
+            local_environment_path("/tmp/100%.env").unwrap(),
+            PathBuf::from("/tmp/100%.env")
+        );
+        for invalid in [
+            "file://remote/tmp/config.env",
+            "https://example.invalid/config.env",
+            "file:///tmp/bad%2",
+            "file:///tmp/bad%GG",
+            "file:///tmp/non-utf8-%FF",
+            "file:///tmp/nul%00.env",
+            "file:///tmp/config.env?query",
+            "file://localhost",
+        ] {
+            assert!(local_environment_path(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn imported_environment_debug_redacts_values() {
+        let entry = ImportedEnvironmentEntry {
+            key: "TOKEN".into(),
+            value: "top-secret-value".into(),
+        };
+        let debug = format!("{entry:?}");
+        assert!(debug.contains("TOKEN"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("top-secret-value"));
+    }
+
+    #[tokio::test]
+    async fn environment_reader_rejects_non_utf8_without_disclosing_bytes() {
+        let path = std::env::temp_dir().join(format!(
+            "tuxstack-containers-env-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        tokio::fs::write(&path, b"TOKEN=secret\nBAD=\xff\n")
+            .await
+            .unwrap();
+        let error = read_environment_file(&path).await.unwrap_err();
+        tokio::fs::remove_file(&path).await.unwrap();
+        assert!(error.contains("not a valid UTF-8"));
+        assert!(!error.contains("secret"));
+    }
+
+    #[test]
+    fn create_errors_do_not_disclose_pull_or_invalid_json_values() {
+        let error = create_error_message(&DockerError::PullFailed(
+            "authorization header token=top-secret".into(),
+        ));
+        assert_eq!(error, "Docker could not pull the requested image.");
+        assert!(!error.contains("top-secret"));
+
+        let invalid =
+            validated_create_request(r#"{"image":"nginx","tty":"top-secret"}"#).unwrap_err();
+        assert_eq!(invalid, "Invalid create request JSON.");
+        assert!(!invalid.contains("top-secret"));
     }
 }

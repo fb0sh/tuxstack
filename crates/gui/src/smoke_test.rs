@@ -83,6 +83,11 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(source.contains("pendingContainerId"));
     assert!(source.contains("CreateContainerDialog"));
     assert!(source.contains("onCreateRequested"));
+    let create = include_str!("../qml/dialogs/containers/CreateContainerDialog.qml");
+    assert!(create.contains("confirmPullAndCreate"));
+    assert!(create.contains("onImagePullRequired"));
+    assert!(create.contains("importEnvironmentFile"));
+    assert!(create.contains("onEnvironmentFileImported"));
     assert!(detail.contains("selectionKind === \"container\""));
     assert!(detail.contains("selectionKind === \"group\""));
     assert!(detail.contains("selectionKind !== \"none\""));
@@ -1393,7 +1398,6 @@ Item {
     drop(app);
 }
 
-
 #[test]
 fn image_detail_tabs_render_text_at_runtime() {
     let _qt_guard = QT_GUI_LOCK.lock().unwrap();
@@ -1477,4 +1481,3 @@ Item {
          This usually means the I18n singleton is not in scope (missing `import org.tuxstack.app`)."
     );
 }
-
