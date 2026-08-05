@@ -405,6 +405,10 @@ impl ImageRootfsImmutableProvider {
     fn identity_prefix(&self) -> Vec<u8> {
         format!("image:{}", self.image_id).into_bytes()
     }
+
+    fn root_metadata(&self) -> VirtualMetadata {
+        VirtualMetadata::directory(self.identity_prefix())
+    }
 }
 
 #[async_trait]
@@ -438,6 +442,9 @@ impl ReadOnlyFilesystemProvider for ImageRootfsImmutableProvider {
         path: &VirtualPath,
         _context: &RequestContext,
     ) -> Result<VirtualMetadata, VfsError> {
+        if path.is_root() {
+            return Ok(self.root_metadata());
+        }
         let index = self.ensure_index().await?;
         index.metadata(
             &super::tar_index::TarPath::from_virtual(path),

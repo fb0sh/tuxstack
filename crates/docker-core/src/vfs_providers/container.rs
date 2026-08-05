@@ -194,6 +194,12 @@ impl ContainerRootfsSnapshotProvider {
     ) -> Result<VirtualMetadata, VfsError> {
         index.metadata(&entry.path, &self.identity_prefix(generation), generation)
     }
+
+    fn root_metadata(&self) -> VirtualMetadata {
+        let mut metadata = VirtualMetadata::directory(self.identity_prefix(self.generation()));
+        metadata.generation = self.generation();
+        metadata
+    }
 }
 
 #[async_trait]
@@ -237,6 +243,9 @@ impl ReadOnlyFilesystemProvider for ContainerRootfsSnapshotProvider {
         path: &VirtualPath,
         _context: &RequestContext,
     ) -> Result<VirtualMetadata, VfsError> {
+        if path.is_root() {
+            return Ok(self.root_metadata());
+        }
         let snapshot = self.snapshot().await?;
         snapshot
             .index

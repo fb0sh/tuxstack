@@ -210,6 +210,9 @@ impl ReadOnlyFilesystemProvider for ContainerArchiveProvider {
         path: &VirtualPath,
         context: &RequestContext,
     ) -> Result<VirtualMetadata, VfsError> {
+        if path.is_root() {
+            return Ok(VirtualMetadata::directory(self.identity_prefix(path)));
+        }
         let index = self.operation_index(path, context).await?;
         let entry = select_archive_root(&index, path)?;
         self.metadata_for(&index, entry, path)
