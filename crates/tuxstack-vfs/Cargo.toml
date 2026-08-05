@@ -1,0 +1,20 @@
+[package]
+name = "tuxstack-vfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+fuser.workspace = true
+libc.workspace = true
+slab.workspace = true
+tokio.workspace = true
+
+[features]
+default = []
+fuse-integration = []

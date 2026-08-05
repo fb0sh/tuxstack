@@ -1,0 +1,13 @@
+[package]
+name = "tuxstack-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Domain-neutral typed local IPC protocol for TuxStack"
+publish = false
+
+[dependencies]
+ciborium.workspace = true
+serde.workspace = true
+thiserror.workspace = true
