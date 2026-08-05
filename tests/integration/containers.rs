@@ -9,11 +9,14 @@
 use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 use tuxstack_docker_core::services::containers::ListContainersOptions;
+use tuxstack_docker_core::streams::events::EventStream;
 use tuxstack_docker_core::{
-    ContainerDirectoryQuery, ContainerState, ContainerTerminalOptions, ContainerTerminalOutput,
-    DockerClient, DockerServices, RemoveContainerOptions, StopContainerOptions,
+    ContainerDirectoryQuery, ContainerPortProtocol, ContainerState, ContainerTerminalOptions,
+    ContainerTerminalOutput, CreateContainerPort, CreateContainerRequest, DockerClient,
+    DockerServices, RemoveContainerOptions, StopContainerOptions,
 };
 
 fn prefix() -> String {
@@ -367,6 +370,96 @@ async fn terminal_exec_is_interactive_and_resizable() {
 
     session.close().await;
     cleanup(&services, &name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable Docker Engine"]
+async fn typed_create_starts_and_publishes_daemon_assigned_port() {
+    let (services, name) = setup().await;
+    cleanup(&services, &name).await;
+
+    let result = services
+        .containers
+        .create_container(&CreateContainerRequest {
+            name: Some(name.clone()),
+            image: "busybox:latest".into(),
+            command: vec!["sleep".into(), "60".into()],
+            ports: vec![CreateContainerPort {
+                container_port: 8080,
+                protocol: ContainerPortProtocol::Tcp,
+                host_ip: None,
+                host_port: None,
+            }],
+            create_and_start: true,
+            ..Default::default()
+        })
+        .await
+        .expect("typed create and start");
+
+    assert!(result.started);
+    assert!(result.start_error.is_none());
+    let detail = services
+        .containers
+        .inspect_container(&result.id)
+        .await
+        .expect("inspect created container");
+    let published = detail
+        .summary
+        .ports
+        .iter()
+        .find(|port| port.container_port == 8080 && port.protocol == "tcp")
+        .expect("published 8080/tcp binding");
+    assert!(published.host_port.is_some_and(|port| port > 0));
+
+    cleanup(&services, &name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable Docker Engine"]
+async fn event_stream_preserves_real_actor_and_action() {
+    let (services, name) = setup().await;
+    cleanup(&services, &name).await;
+
+    let id = create_test_container(&services, &name).await;
+    let cancel = CancellationToken::new();
+    let mut events = EventStream::new(services.client()).watch_events(cancel.clone());
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(32);
+    let consumer = tokio::spawn(async move {
+        while let Some(event) = events.next().await {
+            if sender.send(event).await.is_err() {
+                break;
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let new_name = format!("{name}-event-renamed");
+    cleanup(&services, &new_name).await;
+    services
+        .containers
+        .rename_container(&id, &new_name)
+        .await
+        .expect("rename for event");
+
+    let observed = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(event) = receiver.recv().await {
+            let event = event.expect("event stream item");
+            if event.event_type == "container"
+                && event.actor_id.as_deref() == Some(id.as_str())
+                && event.action == "rename"
+            {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .expect("event deadline");
+    cancel.cancel();
+    let _ = consumer.await;
+    assert!(observed, "matching rename event was not observed");
+
+    cleanup(&services, &new_name).await;
 }
 
 #[tokio::test]
