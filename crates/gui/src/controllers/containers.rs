@@ -347,6 +347,11 @@ impl ContainersState {
     pub fn reload_detail(&mut self) -> SelectionAction {
         match self.selection.clone() {
             ContainerSelection::None => SelectionAction::None,
+            ContainerSelection::Container { .. }
+                if self.detail_state == ContainerDetailState::Loading =>
+            {
+                SelectionAction::None
+            }
             ContainerSelection::Container { .. } => {
                 self.reset_selection_states();
                 self.detail_state = ContainerDetailState::Loading;
@@ -1417,6 +1422,23 @@ mod tests {
         assert!(state.container_detail.is_none());
         assert_eq!(state.detail_state, ContainerDetailState::Loading);
         assert_eq!(state.active_tab, "info");
+    }
+
+    #[test]
+    fn duplicate_detail_reload_reuses_the_in_flight_request() {
+        let mut state = ready();
+        let first = state.select_container("c");
+        let SelectionAction::LoadContainer { generation } = first else {
+            panic!("expected first inspect request");
+        };
+        assert_eq!(state.reload_detail(), SelectionAction::None);
+        assert_eq!(state.selection_generation, generation);
+
+        assert!(state.apply_detail(generation, &detail(rows()[2].clone())));
+        assert!(matches!(
+            state.reload_detail(),
+            SelectionAction::LoadContainer { .. }
+        ));
     }
 
     #[test]
