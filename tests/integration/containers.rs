@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use tuxstack_docker_core::services::containers::ListContainersOptions;
 use tuxstack_docker_core::{
-    ContainerState, DockerClient, DockerServices, RemoveContainerOptions, StopContainerOptions,
+    ContainerDirectoryQuery, ContainerState, ContainerTerminalOptions, ContainerTerminalOutput,
+    DockerClient, DockerServices, RemoveContainerOptions, StopContainerOptions,
 };
 
 fn prefix() -> String {
@@ -66,7 +67,7 @@ async fn create_test_container(_services: &DockerServices, name: &str) -> String
                 cmd: Some(vec![
                     "sh".to_string(),
                     "-c".to_string(),
-                    "while true; do sleep 1; done".to_string(),
+                    "mkdir -p /tuxstack-fixture; printf 'snapshot-ok\\n' > /tuxstack-fixture/hello.txt; while true; do sleep 1; done".to_string(),
                 ]),
                 host_config: Some(HostConfig {
                     auto_remove: Some(false),
@@ -243,6 +244,128 @@ async fn stats_and_logs_streams_cancel() {
     let result = tokio::time::timeout(Duration::from_secs(5), logs.next()).await;
     assert!(result.is_ok());
 
+    cleanup(&services, &name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable Docker Engine"]
+async fn files_snapshot_preview_and_save_are_real() {
+    use tokio_util::sync::CancellationToken;
+
+    let (services, name) = setup().await;
+    cleanup(&services, &name).await;
+
+    let id = create_test_container(&services, &name).await;
+    services.containers.start_container(&id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let snapshot = services
+        .container_files
+        .snapshot(&id, CancellationToken::new())
+        .await
+        .expect("snapshot exported rootfs");
+    assert_eq!(snapshot.container_id, id);
+    let page = snapshot
+        .list_directory(&ContainerDirectoryQuery {
+            directory: "/tuxstack-fixture".into(),
+            ..Default::default()
+        })
+        .expect("list fixture directory");
+    assert!(
+        page.entries.iter().any(|entry| {
+            entry.logical_path == "/tuxstack-fixture/hello.txt" && entry.size == 12
+        })
+    );
+
+    let preview = services
+        .container_files
+        .preview_file(
+            &id,
+            "/tuxstack-fixture/hello.txt",
+            Some(64),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("preview fixture file");
+    assert_eq!(preview.bytes, b"snapshot-ok\n");
+    assert!(!preview.truncated);
+
+    let destination_dir = tempfile::tempdir().unwrap();
+    let destination = destination_dir.path().join("hello.txt");
+    let transfer = services
+        .container_files
+        .save_file(
+            &id,
+            "/tuxstack-fixture/hello.txt",
+            &destination,
+            CancellationToken::new(),
+        )
+        .await
+        .expect("save fixture file");
+    assert_eq!(transfer.bytes_written, 12);
+    assert_eq!(
+        tokio::fs::read(&destination).await.unwrap(),
+        b"snapshot-ok\n"
+    );
+
+    cleanup(&services, &name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable Docker Engine"]
+async fn terminal_exec_is_interactive_and_resizable() {
+    use tokio_util::sync::CancellationToken;
+
+    let (services, name) = setup().await;
+    cleanup(&services, &name).await;
+
+    let id = create_test_container(&services, &name).await;
+    services.containers.start_container(&id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let session = services
+        .container_terminal
+        .connect(
+            &id,
+            ContainerTerminalOptions::default(),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("connect real terminal");
+    assert_eq!(session.container_id(), id);
+    assert!(!session.shell().is_empty());
+    session.resize(32, 100).await.expect("resize terminal");
+
+    let mut output = session.take_output().await.expect("take output once");
+    session
+        .write_input(b"printf 'TUXSTACK_TERM_OK\\n'\n".to_vec())
+        .await
+        .expect("write terminal input");
+
+    let observed = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut bytes = Vec::new();
+        while let Some(chunk) = output.next().await {
+            let chunk = chunk.expect("terminal output chunk");
+            match chunk {
+                ContainerTerminalOutput::StdOut(value)
+                | ContainerTerminalOutput::StdErr(value)
+                | ContainerTerminalOutput::StdIn(value)
+                | ContainerTerminalOutput::Console(value) => bytes.extend(value),
+            }
+            if bytes
+                .windows(b"TUXSTACK_TERM_OK".len())
+                .any(|window| window == b"TUXSTACK_TERM_OK")
+            {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .expect("terminal output deadline");
+    assert!(observed, "interactive command output was not observed");
+
+    session.close().await;
     cleanup(&services, &name).await;
 }
 
