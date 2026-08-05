@@ -154,9 +154,6 @@ impl ContainerGroupSummary {
     }
 }
 
-/// Compatibility name for the former planned Compose project model.
-pub type ComposeProject = ContainerGroupSummary;
-
 /// The result for one member of a group lifecycle request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainerGroupMemberResult {
