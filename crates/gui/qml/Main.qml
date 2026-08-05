@@ -50,6 +50,18 @@ Kirigami.ApplicationWindow {
         id: containersModel
     }
 
+    ContainerStatsModel {
+        id: containerStatsModel
+    }
+
+    ContainerLogsModel {
+        id: containerLogsModel
+    }
+
+    ContainerFileListModel {
+        id: containerFilesModel
+    }
+
     ImageListModel {
         id: imagesModel
     }
@@ -73,6 +85,9 @@ Kirigami.ApplicationWindow {
     Component.onCompleted: appController.startup()
     onClosing: {
         containersModel.shutdown()
+        containerStatsModel.shutdown()
+        containerLogsModel.shutdown()
+        containerFilesModel.shutdown()
         imagesModel.shutdown()
         networksModel.shutdown()
         volumesModel.shutdown()
@@ -86,6 +101,7 @@ Kirigami.ApplicationWindow {
         function onDockerStatusChanged() {
             containersModel.setConnectionState(appController.dockerStatus,
                                                 appController.dockerStatusText)
+            containerFilesModel.setConnectionState(appController.dockerStatus)
             imagesModel.setConnectionState(appController.dockerStatus,
                                            appController.dockerStatusText)
             networksModel.setConnectionState(appController.dockerStatus,
@@ -102,6 +118,7 @@ Kirigami.ApplicationWindow {
             if (appController.dockerStatus !== 1) {
                 containersModel.setConnectionState(appController.dockerStatus,
                                                     appController.dockerStatusText)
+                containerFilesModel.setConnectionState(appController.dockerStatus)
                 imagesModel.setConnectionState(appController.dockerStatus,
                                                appController.dockerStatusText)
                 networksModel.setConnectionState(appController.dockerStatus,
@@ -133,6 +150,8 @@ Kirigami.ApplicationWindow {
                 root.refreshThrottled(volumesModel, "volumes")
                 break
             case "containers":
+                if (containerFilesModel.containerId.length > 0)
+                    containerFilesModel.invalidateSnapshot(containerFilesModel.containerId)
                 root.refreshThrottled(containersModel, "containers")
                 root.refreshThrottled(volumesModel, "volumes")
                 break
@@ -229,6 +248,9 @@ Kirigami.ApplicationWindow {
 
             ContainersPage {
                 containersModel: containersModel
+                statsModel: containerStatsModel
+                logsModel: containerLogsModel
+                filesModel: containerFilesModel
                 imagesModel: imagesModel
                 networksModel: networksModel
                 volumesModel: volumesModel

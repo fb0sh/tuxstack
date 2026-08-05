@@ -29,9 +29,12 @@ fn main() {
                 "qml/components/containers/ContainerDetailPanel.qml",
                 "qml/components/containers/ContainerGroupInfoView.qml",
                 "qml/components/containers/ContainerGroupItem.qml",
+                "qml/components/containers/ContainerFilesView.qml",
                 "qml/components/containers/ContainerInfoView.qml",
                 "qml/components/containers/ContainerListItem.qml",
                 "qml/components/containers/ContainerListPanel.qml",
+                "qml/components/containers/ContainerLogsView.qml",
+                "qml/components/containers/ContainerStatsView.qml",
                 "qml/components/ResourceSummaryCard.qml",
                 "qml/components/SearchField.qml",
                 "qml/components/ImageListPanel.qml",
@@ -66,6 +69,9 @@ fn main() {
                 "qml/dialogs/PullImageDialog.qml",
                 "qml/dialogs/RemoveImageDialog.qml",
                 "qml/dialogs/ExportImageDialog.qml",
+                "qml/dialogs/containers/ContainerFilePreviewDialog.qml",
+                "qml/dialogs/containers/ContainerFilePropertiesDialog.qml",
+                "qml/dialogs/containers/ContainerFileSaveDialog.qml",
                 "qml/dialogs/containers/CreateContainerDialog.qml",
                 "qml/dialogs/containers/KillContainerDialog.qml",
                 "qml/dialogs/containers/RemoveContainerDialog.qml",
@@ -90,6 +96,8 @@ fn main() {
     .qt_module("QuickDialogs2")
     .files([
         "src/bridge/app_bridge.rs",
+        "src/bridge/container_live_bridge.rs",
+        "src/bridge/container_tools_bridge.rs",
         "src/bridge/containers_bridge.rs",
         "src/bridge/resource_bridges.rs",
     ])

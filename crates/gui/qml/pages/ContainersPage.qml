@@ -11,6 +11,9 @@ Kirigami.Page {
     id: root
 
     property var containersModel: null
+    property var statsModel: null
+    property var logsModel: null
+    property var filesModel: null
     property var imagesModel: null
     property var networksModel: null
     property var volumesModel: null
@@ -90,6 +93,11 @@ Kirigami.Page {
             Layout.fillHeight: true
             Layout.minimumWidth: Kirigami.Units.gridUnit * 18
             containersModel: root.containersModel
+            statsModel: root.statsModel
+            logsModel: root.logsModel
+            filesModel: root.filesModel
+            localEndpoint: root.containersModel ? root.containersModel.localEndpoint : false
+            pageVisible: root.visible
             onRetryRequested: if (root.containersModel) root.containersModel.reloadDetail()
             onContainerRequested: function(id) {
                 if (root.containersModel) root.containersModel.selectContainer(id)

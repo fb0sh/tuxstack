@@ -86,6 +86,9 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(detail.contains("selectionKind === \"container\""));
     assert!(detail.contains("selectionKind === \"group\""));
     assert!(detail.contains("selectionKind !== \"none\""));
+    assert!(detail.contains("ContainerStatsView"));
+    assert!(detail.contains("ContainerLogsView"));
+    assert!(detail.contains("ContainerFilesView"));
     assert!(!detail.contains("No container selected"));
     assert!(!detail.contains("Select a container"));
 }
@@ -253,11 +256,14 @@ fn all_qml_components_load_without_errors() {
         "components/StatusBadge.qml",
         "components/containers/ContainerContextMenu.qml",
         "components/containers/ContainerDetailPanel.qml",
+        "components/containers/ContainerFilesView.qml",
         "components/containers/ContainerGroupInfoView.qml",
         "components/containers/ContainerGroupItem.qml",
         "components/containers/ContainerInfoView.qml",
         "components/containers/ContainerListItem.qml",
         "components/containers/ContainerListPanel.qml",
+        "components/containers/ContainerLogsView.qml",
+        "components/containers/ContainerStatsView.qml",
         "components/ResourceSummaryCard.qml",
         "components/SearchField.qml",
         "components/ImageListPanel.qml",
@@ -292,6 +298,9 @@ fn all_qml_components_load_without_errors() {
         "dialogs/PullImageDialog.qml",
         "dialogs/RemoveImageDialog.qml",
         "dialogs/ExportImageDialog.qml",
+        "dialogs/containers/ContainerFilePreviewDialog.qml",
+        "dialogs/containers/ContainerFilePropertiesDialog.qml",
+        "dialogs/containers/ContainerFileSaveDialog.qml",
         "dialogs/containers/CreateContainerDialog.qml",
         "dialogs/containers/KillContainerDialog.qml",
         "dialogs/containers/RemoveContainerDialog.qml",
@@ -318,6 +327,9 @@ fn all_qml_components_load_without_errors() {
     let registered_types = [
         "AppController",
         "ContainersListModel",
+        "ContainerStatsModel",
+        "ContainerLogsModel",
+        "ContainerFileListModel",
         "ImageListModel",
         "ImageFileListModel",
         "NetworkListModel",
