@@ -16,7 +16,9 @@ use tuxstack_docker_core::{ContainerLogsOptions, DockerError, LogLine};
 
 use crate::app_state::get_services;
 use crate::controllers::container_logs::{ContainerLogsState, DISCARDED_NOTICE, LogViewportLine};
-use crate::controllers::container_stats::{ContainerStatsState, StatsHistoryPoint, StatsReading};
+use crate::controllers::container_stats::{
+    ContainerStatsState, MAX_CONCURRENT_STATS_REQUESTS, StatsHistoryPoint, StatsReading,
+};
 
 const STATS_ROLE_ID: i32 = 257;
 const STATS_ROLE_NAME: i32 = 258;
@@ -366,39 +368,47 @@ impl qobject::ContainerStatsModel {
         self.as_mut().rust_mut().stream_cancel = Some(cancel.clone());
         self.as_mut().publish_stats();
         let qt = self.qt_thread();
-        for target in targets {
-            let services = services.clone();
-            let task_cancel = cancel.child_token();
-            let qt = qt.clone();
+        if targets.len() > MAX_CONCURRENT_STATS_REQUESTS {
+            // Long-lived streams would permanently occupy all permits and
+            // starve later group members. Poll every running member instead,
+            // with at most eight concurrent Docker requests per round.
             crate::runtime::spawn(async move {
-                let mut stream = services
-                    .containers
-                    .watch_stats(&target.id, task_cancel.clone());
-                while let Some(item) = stream.next().await {
-                    if task_cancel.is_cancelled() {
-                        break;
-                    }
-                    let id = target.id.clone();
-                    match item {
-                        Ok(sample) => {
-                            if qt
-                                .queue(move |mut model| {
-                                    if model.as_mut().rust_mut().state.apply_sample(
-                                        generation,
-                                        &id,
-                                        StatsReading::from(sample),
-                                    ) {
-                                        model.as_mut().publish_stats();
-                                    }
-                                })
-                                .is_err()
-                            {
-                                break;
+                loop {
+                    let requests =
+                        futures_util::stream::iter(targets.clone().into_iter().map(|target| {
+                            let services = services.clone();
+                            async move {
+                                let result = services.containers.container_stats(&target.id).await;
+                                (target.id, result)
+                            }
+                        }))
+                        .buffer_unordered(MAX_CONCURRENT_STATS_REQUESTS);
+                    tokio::pin!(requests);
+                    let mut samples = Vec::with_capacity(targets.len());
+                    let mut last_error = None;
+                    loop {
+                        tokio::select! {
+                            _ = cancel.cancelled() => return,
+                            item = requests.next() => match item {
+                                Some((id, Ok(sample))) => samples.push((id, StatsReading::from(sample))),
+                                Some((_, Err(error))) => last_error = Some(live_error(&error)),
+                                None => break,
                             }
                         }
-                        Err(error) => {
-                            let message = live_error(&error);
-                            qt.queue(move |mut model| {
+                    }
+                    if qt
+                        .queue(move |mut model| {
+                            let mut changed = false;
+                            for (id, sample) in samples {
+                                changed |= model
+                                    .as_mut()
+                                    .rust_mut()
+                                    .state
+                                    .apply_sample(generation, &id, sample);
+                            }
+                            if changed {
+                                model.as_mut().publish_stats();
+                            } else if let Some(message) = last_error {
                                 if model
                                     .as_mut()
                                     .rust_mut()
@@ -407,13 +417,68 @@ impl qobject::ContainerStatsModel {
                                 {
                                     model.as_mut().publish_stats();
                                 }
-                            })
-                            .ok();
-                            break;
-                        }
+                            }
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    tokio::select! {
+                        _ = cancel.cancelled() => return,
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                     }
                 }
             });
+        } else {
+            for target in targets {
+                let services = services.clone();
+                let task_cancel = cancel.child_token();
+                let qt = qt.clone();
+                crate::runtime::spawn(async move {
+                    let mut stream = services
+                        .containers
+                        .watch_stats(&target.id, task_cancel.clone());
+                    while let Some(item) = stream.next().await {
+                        if task_cancel.is_cancelled() {
+                            break;
+                        }
+                        let id = target.id.clone();
+                        match item {
+                            Ok(sample) => {
+                                if qt
+                                    .queue(move |mut model| {
+                                        if model.as_mut().rust_mut().state.apply_sample(
+                                            generation,
+                                            &id,
+                                            StatsReading::from(sample),
+                                        ) {
+                                            model.as_mut().publish_stats();
+                                        }
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(error) => {
+                                let message = live_error(&error);
+                                qt.queue(move |mut model| {
+                                    if model
+                                        .as_mut()
+                                        .rust_mut()
+                                        .state
+                                        .apply_error(generation, &message)
+                                    {
+                                        model.as_mut().publish_stats();
+                                    }
+                                })
+                                .ok();
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
         }
     }
 

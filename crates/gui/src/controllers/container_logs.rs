@@ -9,7 +9,6 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use tuxstack_docker_core::{LogLine, LogStream};
 
 pub const DEFAULT_LOG_TAIL: usize = 1000;
-pub const MAX_LOG_STREAMS: usize = 8;
 pub const MAX_LOG_LINES: usize = 20_000;
 pub const MAX_LOG_BYTES: usize = 32 * 1024 * 1024;
 pub const DISCARDED_NOTICE: &str = "Older log entries were discarded from this view.";
@@ -400,8 +399,8 @@ fn build_targets(
     }
     let mut result = Vec::new();
     for (index, id) in ids.iter().enumerate() {
-        if result.len() == MAX_LOG_STREAMS || id.trim().is_empty() {
-            break;
+        if id.trim().is_empty() {
+            continue;
         }
         if result.iter().any(|target: &LogTarget| target.id == *id) {
             continue;
@@ -521,13 +520,13 @@ mod tests {
     }
 
     #[test]
-    fn group_is_bounded_to_eight_targets() {
+    fn group_retains_every_member_stream() {
         let mut state = ContainerLogsState::default();
         let ids = (0..12).map(|n| format!("id{n}")).collect::<Vec<_>>();
         let states = (0..12).map(|_| "running".into()).collect::<Vec<_>>();
         let names = ids.clone();
         state.set_selection("group", "g", &ids, &states, &names);
-        assert_eq!(state.targets.len(), MAX_LOG_STREAMS);
+        assert_eq!(state.targets.len(), 12);
     }
 
     #[test]

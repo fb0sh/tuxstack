@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use tuxstack_docker_core::ContainerStats;
 
 pub const STATS_HISTORY_CAPACITY: usize = 600;
-pub const MAX_LIVE_CONTAINERS: usize = 8;
+pub const MAX_CONCURRENT_STATS_REQUESTS: usize = 8;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LiveStatsStatus {
@@ -127,8 +127,8 @@ impl Default for ContainerStatsState {
 }
 
 impl ContainerStatsState {
-    /// Set one authoritative selection. For groups, only running members are
-    /// retained and at most eight streams are permitted.
+    /// Set one authoritative selection. For groups, every running member is
+    /// retained; the bridge limits concurrent Docker requests.
     pub fn set_selection(
         &mut self,
         kind: &str,
@@ -323,8 +323,8 @@ fn build_targets(
     }
     let mut result = Vec::new();
     for (index, id) in ids.iter().enumerate() {
-        if result.len() == MAX_LIVE_CONTAINERS || id.trim().is_empty() {
-            break;
+        if id.trim().is_empty() {
+            continue;
         }
         let running = states
             .get(index)
@@ -418,10 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn group_is_limited_to_eight_streams() {
+    fn group_retains_every_running_target_for_bounded_bridge_scheduling() {
         let mut state = ContainerStatsState::default();
         select_group(&mut state, 12);
-        assert_eq!(state.targets.len(), MAX_LIVE_CONTAINERS);
+        assert_eq!(state.targets.len(), 12);
     }
 
     #[test]
