@@ -182,10 +182,7 @@ Item {
             onRestartRequested: id => root.containersModel.restartGroup(id)
             onPauseRequested: id => root.containersModel.pauseGroup(id)
             onUnpauseRequested: id => root.containersModel.unpauseGroup(id)
-            onRemoveRequested: function(id) {
-                root.containersModel.prepareRemoveGroup(id)
-                root.removeGroupRequested(id)
-            }
+            onRemoveRequested: id => root.removeGroupRequested(id)
         }
     }
 
@@ -218,10 +215,7 @@ Item {
             onUnpauseRequested: id => root.containersModel.unpauseContainer(id)
             onRestartRequested: id => root.containersModel.restartContainer(id)
             onKillRequested: id => root.killContainerRequested(id)
-            onRemoveRequested: function(id) {
-                root.containersModel.prepareRemoveContainer(id)
-                root.removeContainerRequested(id)
-            }
+            onRemoveRequested: id => root.removeContainerRequested(id)
             onRenameRequested: id => root.renameContainerRequested(id)
             onLogsRequested: id => root.logsRequested(id)
             onTerminalRequested: id => root.terminalRequested(id)

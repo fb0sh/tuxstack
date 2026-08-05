@@ -539,8 +539,8 @@ impl ContainerFilesystemService {
         .await
     }
 
-    /// Save through a sibling `.part` file and atomically rename only after a
-    /// complete, validated archive has been received.
+    /// Save through a unique sibling `.part` file and atomically rename only
+    /// after a complete, validated archive has been received.
     pub async fn save_file(
         &self,
         container_id: &str,
@@ -625,8 +625,9 @@ fn part_path(destination: &Path) -> Result<PathBuf, ContainerFilesystemError> {
             path: destination.display().to_string(),
             reason: "destination has no file name",
         })?;
-    let mut part_name = OsString::from(name);
-    part_name.push(".part");
+    let mut part_name = OsString::from(".tuxstack-");
+    part_name.push(name);
+    part_name.push(format!("-{}.part", uuid::Uuid::new_v4()));
     Ok(destination.with_file_name(part_name))
 }
 
@@ -1578,6 +1579,23 @@ fn archive_path_matches(requested: &str, actual: &str) -> bool {
 mod tests {
     use super::*;
     use futures_util::stream;
+
+    #[test]
+    fn save_part_paths_are_unique_siblings() {
+        let destination = Path::new("/tmp/report.txt");
+        let first = part_path(destination).unwrap();
+        let second = part_path(destination).unwrap();
+        assert_eq!(first.parent(), destination.parent());
+        assert_eq!(second.parent(), destination.parent());
+        assert_ne!(first, second);
+        assert!(
+            first
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(".part")
+        );
+    }
 
     #[derive(Clone)]
     struct TestEntry<'a> {

@@ -1,9 +1,4 @@
-//! Container Files CXX-Qt bridge and real terminal-session lifecycle adapter.
-//!
-//! Only Container Files is registered as a QML capability here. The terminal
-//! adapter deliberately has no QML registration until a mature terminal
-//! emulator dependency is selected: forwarding ANSI bytes to a TextArea would
-//! be a fake terminal.
+//! Container Files CXX-Qt bridge.
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -15,8 +10,6 @@ use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::{
     ContainerFilePreview, ContainerFilesystemEntry, ContainerFilesystemError,
     ContainerFilesystemOrigin, ContainerFilesystemSnapshot, ContainerMountOverlayKind,
-    ContainerTerminalError, ContainerTerminalOptions, ContainerTerminalOutputStream,
-    ContainerTerminalService, ContainerTerminalSession,
 };
 
 use crate::app_state::get_services;
@@ -1018,19 +1011,68 @@ fn local_destination(value: &str) -> Result<PathBuf, String> {
         return Err("A save destination is required.".into());
     }
     let path = if let Some(rest) = value.strip_prefix("file://") {
-        if rest.starts_with('/') {
+        let encoded = if rest.starts_with('/') {
             rest
         } else if let Some(rest) = rest.strip_prefix("localhost/") {
-            return Ok(PathBuf::from(format!("/{rest}")));
+            return decoded_destination(&format!("/{rest}"));
         } else {
             return Err("The destination must be a local file URL.".into());
-        }
+        };
+        percent_decode_destination(encoded)?
+    } else if let Some(encoded) = value.strip_prefix("file:") {
+        percent_decode_destination(encoded)?
     } else if value.contains("://") {
         return Err("The destination must be a local file path.".into());
     } else {
-        value
+        value.to_string()
     };
+    if path.contains('\0') {
+        return Err("The destination is invalid.".into());
+    }
     Ok(PathBuf::from(path))
+}
+
+fn decoded_destination(value: &str) -> Result<PathBuf, String> {
+    let path = percent_decode_destination(value)?;
+    if path.contains('\0') {
+        Err("The destination is invalid.".into())
+    } else {
+        Ok(PathBuf::from(path))
+    }
+}
+
+fn percent_decode_destination(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("The destination contains an invalid URL escape.".into());
+            }
+            let (Some(high), Some(low)) = (
+                destination_hex(bytes[index + 1]),
+                destination_hex(bytes[index + 2]),
+            ) else {
+                return Err("The destination contains an invalid URL escape.".into());
+            };
+            output.push(high * 16 + low);
+            index += 3;
+        } else {
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).map_err(|_| "The destination is not valid UTF-8.".to_string())
+}
+
+fn destination_hex(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn push_property(list: &mut QList<QVariant>, label: &str, value: &str) {
@@ -1058,184 +1100,21 @@ fn saturating_i32(value: usize) -> i32 {
     value.min(i32::MAX as usize) as i32
 }
 
-/// Lifecycle-only adapter around the real Docker exec backend. Terminal bytes
-/// leave this type only through `take_output`; a mature emulator integration
-/// must consume that stream directly.
-pub struct RealContainerTerminalBridge {
-    generation: u64,
-    connection_cancel: Option<CancellationToken>,
-    session: Option<Arc<ContainerTerminalSession>>,
-}
-
-impl Default for RealContainerTerminalBridge {
-    fn default() -> Self {
-        Self {
-            generation: 0,
-            connection_cancel: None,
-            session: None,
-        }
-    }
-}
-
-impl RealContainerTerminalBridge {
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    pub fn has_session(&self) -> bool {
-        self.session.is_some()
-    }
-
-    pub fn begin_request(&mut self) -> (u64, CancellationToken) {
-        self.cancel_connection();
-        self.generation = self.generation.wrapping_add(1);
-        let cancellation = CancellationToken::new();
-        self.connection_cancel = Some(cancellation.clone());
-        (self.generation, cancellation)
-    }
-
-    pub async fn connect(
-        &mut self,
-        service: &ContainerTerminalService,
-        container_id: &str,
-        options: ContainerTerminalOptions,
-    ) -> Result<u64, ContainerTerminalError> {
-        self.close_session().await;
-        let (generation, cancellation) = self.begin_request();
-        let session = service.connect(container_id, options, cancellation).await?;
-        if generation != self.generation {
-            session.close().await;
-            return Err(ContainerTerminalError::Cancelled);
-        }
-        self.connection_cancel = None;
-        self.session = Some(Arc::new(session));
-        Ok(generation)
-    }
-
-    pub async fn take_output(
-        &self,
-    ) -> Result<ContainerTerminalOutputStream, ContainerTerminalError> {
-        let session = self
-            .session
-            .as_ref()
-            .ok_or(ContainerTerminalError::Disconnected)?;
-        session.take_output().await
-    }
-
-    pub async fn write_input(&self, bytes: Vec<u8>) -> Result<(), ContainerTerminalError> {
-        self.session
-            .as_ref()
-            .ok_or(ContainerTerminalError::Disconnected)?
-            .write_input(bytes)
-            .await
-    }
-
-    pub async fn resize(&self, rows: u16, columns: u16) -> Result<(), ContainerTerminalError> {
-        if rows == 0 || columns == 0 {
-            return Err(ContainerTerminalError::InvalidOptions);
-        }
-        self.session
-            .as_ref()
-            .ok_or(ContainerTerminalError::Disconnected)?
-            .resize(rows, columns)
-            .await
-    }
-
-    pub fn cancel_connection(&mut self) {
-        if let Some(cancellation) = self.connection_cancel.take() {
-            cancellation.cancel();
-        }
-    }
-
-    pub async fn close_session(&mut self) {
-        self.cancel_connection();
-        self.generation = self.generation.wrapping_add(1);
-        if let Some(session) = self.session.take() {
-            session.close().await;
-        }
-    }
-}
-
-impl Drop for RealContainerTerminalBridge {
-    fn drop(&mut self) {
-        self.cancel_connection();
-        // ContainerTerminalSession::drop cancels and aborts both pumps. An
-        // explicit application shutdown should still call close_session().
-        self.session.take();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn terminal_request_generation_is_monotonic_and_single_active() {
-        let mut bridge = RealContainerTerminalBridge::default();
-        let (first, first_cancel) = bridge.begin_request();
-        let (second, second_cancel) = bridge.begin_request();
-        assert!(second > first);
-        assert!(first_cancel.is_cancelled());
-        assert!(!second_cancel.is_cancelled());
-        assert_eq!(bridge.generation(), second);
-    }
-
-    #[test]
-    fn terminal_selection_cleanup_cancels_connect_request() {
-        let mut bridge = RealContainerTerminalBridge::default();
-        let (_, cancellation) = bridge.begin_request();
-        bridge.cancel_connection();
-        assert!(cancellation.is_cancelled());
-        assert!(!bridge.has_session());
-    }
-
-    #[tokio::test]
-    async fn terminal_close_without_session_is_idempotent() {
-        let mut bridge = RealContainerTerminalBridge::default();
-        let initial = bridge.generation();
-        bridge.close_session().await;
-        bridge.close_session().await;
-        assert!(bridge.generation() >= initial + 2);
-        assert!(!bridge.has_session());
-    }
-
-    #[tokio::test]
-    async fn terminal_input_resize_and_output_require_real_session() {
-        let bridge = RealContainerTerminalBridge::default();
+    fn container_file_destinations_decode_local_urls_and_reject_remote_urls() {
         assert_eq!(
-            bridge.write_input(b"ls\n".to_vec()).await,
-            Err(ContainerTerminalError::Disconnected)
+            local_destination("file:///tmp/My%20Container%20File.txt").unwrap(),
+            PathBuf::from("/tmp/My Container File.txt")
         );
         assert_eq!(
-            bridge.resize(24, 80).await,
-            Err(ContainerTerminalError::Disconnected)
+            local_destination("file://localhost/tmp/file.txt").unwrap(),
+            PathBuf::from("/tmp/file.txt")
         );
-        assert!(matches!(
-            bridge.take_output().await,
-            Err(ContainerTerminalError::Disconnected)
-        ));
-    }
-
-    #[tokio::test]
-    async fn terminal_resize_rejects_zero_geometry_before_backend() {
-        let bridge = RealContainerTerminalBridge::default();
-        assert_eq!(
-            bridge.resize(0, 80).await,
-            Err(ContainerTerminalError::InvalidOptions)
-        );
-        assert_eq!(
-            bridge.resize(24, 0).await,
-            Err(ContainerTerminalError::InvalidOptions)
-        );
-    }
-
-    #[test]
-    fn terminal_drop_cancels_pending_connect() {
-        let cancellation = {
-            let mut bridge = RealContainerTerminalBridge::default();
-            let (_, cancellation) = bridge.begin_request();
-            cancellation
-        };
-        assert!(cancellation.is_cancelled());
+        assert!(local_destination("file://example.com/tmp/file.txt").is_err());
+        assert!(local_destination("file:///tmp/bad%2").is_err());
     }
 }

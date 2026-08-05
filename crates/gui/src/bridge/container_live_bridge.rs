@@ -592,14 +592,19 @@ impl qobject::ContainerLogsModel {
             }
         };
         let text = self.state.save_text();
-        match std::fs::write(&path, text.as_bytes()) {
-            Ok(()) => self
-                .as_mut()
-                .save_completed(QString::from(path.display().to_string())),
-            Err(error) => self.as_mut().save_failed(QString::from(format!(
-                "Could not save the current log viewport: {error}"
-            ))),
-        }
+        let qt = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let result = tokio::fs::write(&path, text.as_bytes()).await;
+            qt.queue(move |mut model| match result {
+                Ok(()) => model
+                    .as_mut()
+                    .save_completed(QString::from(path.display().to_string())),
+                Err(error) => model.as_mut().save_failed(QString::from(format!(
+                    "Could not save the current log viewport: {error}"
+                ))),
+            })
+            .ok();
+        });
     }
 
     pub fn viewport_text(&self) -> QString {
@@ -847,19 +852,65 @@ fn local_path(value: &str) -> Result<std::path::PathBuf, String> {
         return Err("A save destination is required.".into());
     }
     let path = if let Some(rest) = value.strip_prefix("file://") {
-        if rest.starts_with('/') {
-            rest.to_string()
+        let encoded = if rest.starts_with('/') {
+            rest
         } else if let Some(rest) = rest.strip_prefix("localhost/") {
-            format!("/{rest}")
+            return decode_file_url_path(&format!("/{rest}"));
         } else {
             return Err("The destination must be a local file URL.".into());
-        }
+        };
+        percent_decode(encoded)?
+    } else if let Some(encoded) = value.strip_prefix("file:") {
+        percent_decode(encoded)?
     } else if value.contains("://") {
         return Err("The destination must be a local path.".into());
     } else {
         value.to_string()
     };
+    if path.contains('\0') {
+        return Err("The destination is invalid.".into());
+    }
     Ok(path.into())
+}
+
+fn decode_file_url_path(value: &str) -> Result<std::path::PathBuf, String> {
+    let path = percent_decode(value)?;
+    if path.contains('\0') {
+        Err("The destination is invalid.".into())
+    } else {
+        Ok(path.into())
+    }
+}
+
+fn percent_decode(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("The destination contains an invalid URL escape.".into());
+            }
+            let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) else {
+                return Err("The destination contains an invalid URL escape.".into());
+            };
+            output.push(high * 16 + low);
+            index += 3;
+        } else {
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).map_err(|_| "The destination is not valid UTF-8.".to_string())
+}
+
+fn hex(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn qv(value: &str) -> QVariant {
@@ -878,4 +929,23 @@ fn saturating_i32(value: usize) -> i32 {
 
 fn saturating_i64(value: u64) -> i64 {
     value.min(i64::MAX as u64) as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_destinations_decode_local_urls_and_reject_remote_urls() {
+        assert_eq!(
+            local_path("file:///tmp/My%20Logs.log").unwrap(),
+            std::path::PathBuf::from("/tmp/My Logs.log")
+        );
+        assert_eq!(
+            local_path("file://localhost/tmp/logs.log").unwrap(),
+            std::path::PathBuf::from("/tmp/logs.log")
+        );
+        assert!(local_path("file://example.com/tmp/logs.log").is_err());
+        assert!(local_path("file:///tmp/bad%2").is_err());
+    }
 }
