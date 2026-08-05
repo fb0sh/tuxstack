@@ -67,16 +67,7 @@ impl DockerStore {
                     flush_debounce: std::time::Duration::from_millis(700),
                 })
                 .ok();
-                let fingerprint = services
-                    .volumes
-                    .client_fingerprint()
-                    .unwrap_or_else(|| "local".to_string());
-                let endpoint = EndpointKey {
-                    fingerprint,
-                    daemon_id: None,
-                    context_name: None,
-                };
-                (persistent, Some(endpoint))
+                (persistent, Some(endpoint_key_for_services(services)))
             }
             None => (None, None),
         };
@@ -94,6 +85,19 @@ impl DockerStore {
             }
             None => self.events.shutdown(),
         }
+    }
+}
+
+fn endpoint_key_for_services(services: &DockerServices) -> EndpointKey {
+    EndpointKey {
+        fingerprint: services.client().endpoint_fingerprint(),
+        // Docker exposes the daemon ID only through the asynchronous `/info`
+        // API. `rebind` is deliberately synchronous and the connected client
+        // does not retain a previously fetched ID, so it is unavailable here.
+        // The resolved endpoint fingerprint still isolates different daemons;
+        // daemon replacement at the same endpoint remains the known limit.
+        daemon_id: None,
+        context_name: None,
     }
 }
 
@@ -168,4 +172,40 @@ impl<T> LoadState<T> {
 /// Small wrapper for the services registry error mapping.
 pub fn map_docker_error(err: &DockerError) -> AppError {
     AppError::from(err)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tuxstack_docker_core::{DockerClient, DockerConfig};
+
+    use super::*;
+
+    fn services(host: &str) -> DockerServices {
+        let client = DockerClient::connect_with_config(DockerConfig {
+            host: Some(host.to_string()),
+            ..DockerConfig::default()
+        })
+        .expect("construct remote client");
+        DockerServices::new(Arc::new(client))
+    }
+
+    #[test]
+    fn endpoint_keys_isolate_resolved_remote_daemons() {
+        let first = endpoint_key_for_services(&services("tcp://first.example:2375"));
+        let second = endpoint_key_for_services(&services("tcp://second.example:2375"));
+
+        assert_eq!(first.fingerprint, "tcp://first.example:2375");
+        assert_eq!(second.fingerprint, "tcp://second.example:2375");
+        assert_ne!(first.storage_key(), second.storage_key());
+    }
+
+    #[test]
+    fn endpoint_key_does_not_invent_unavailable_daemon_identity() {
+        let endpoint = endpoint_key_for_services(&services("https://engine.example:2376"));
+
+        assert_eq!(endpoint.daemon_id, None);
+        assert_eq!(endpoint.storage_key(), endpoint.fingerprint);
+    }
 }

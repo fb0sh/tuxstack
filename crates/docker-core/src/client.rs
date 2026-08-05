@@ -49,6 +49,9 @@ pub struct DockerClient {
     config: DockerConfig,
     /// The socket path in use, when connected over a local Unix socket.
     socket_path: Option<PathBuf>,
+    /// Credential-redacted endpoint selected after resolving configuration,
+    /// `DOCKER_HOST`, and the local default.
+    effective_endpoint: String,
     /// Host bind mounts used by volume export are only meaningful locally.
     is_local: bool,
 }
@@ -62,88 +65,55 @@ impl DockerClient {
     /// Connect using the given configuration.
     ///
     /// Resolution order:
-    /// 1. `config.host` when set (accepts `unix://`, `tcp://`, `http://`, `https://`, `ssh://`).
+    /// 1. `config.host` when set (`unix://`, `tcp://`, `http://`, `https://`;
+    ///    `ssh://` requires a Bollard connector not enabled by this build).
     /// 2. `DOCKER_HOST` environment variable.
     /// 3. Bollard's local default (Unix socket).
     pub fn connect_with_config(config: DockerConfig) -> Result<Self, DockerError> {
-        let host = config.host.clone();
         let connect_timeout = config.connect_timeout;
-        let mut is_local = true;
+        let resolved_host = config
+            .host
+            .clone()
+            .or_else(|| {
+                std::env::var("DOCKER_HOST")
+                    .ok()
+                    .map(|host| host.trim().to_string())
+                    .filter(|host| !host.is_empty())
+            })
+            .unwrap_or_else(|| "unix:///var/run/docker.sock".to_string());
 
-        let docker = match host.as_deref() {
-            Some(h) if h.starts_with("unix://") => {
-                let path = h.trim_start_matches("unix://");
-                let path_buf = PathBuf::from(path);
-                if !path_buf.exists() {
-                    return Err(DockerError::SocketNotFound(path_buf));
-                }
-                connect_unix(&path_buf, connect_timeout)?
+        let (docker, socket_path, is_local) = if resolved_host.starts_with("unix://") {
+            let path = PathBuf::from(resolved_host.trim_start_matches("unix://"));
+            if !path.exists() {
+                return Err(DockerError::SocketNotFound(path));
             }
-            Some(h)
-                if h.starts_with("tcp://")
-                    || h.starts_with("http://")
-                    || h.starts_with("https://")
-                    || h.starts_with("ssh://") =>
-            {
-                is_local = false;
-                Docker::connect_with_http(h, connect_timeout.as_secs(), API_VERSION)
-                    .map_err(|e| classify_connect_error(&e, None))?
-            }
-            Some(other) => {
-                return Err(DockerError::UnsupportedConnection(other.to_string()));
-            }
-            None => {
-                // DOCKER_HOST takes priority over the local default.
-                if let Ok(env_host) = std::env::var("DOCKER_HOST") {
-                    if !env_host.trim().is_empty() {
-                        let env = env_host.trim().to_string();
-                        if env.starts_with("unix://") {
-                            let path_buf = PathBuf::from(env.trim_start_matches("unix://"));
-                            if !path_buf.exists() {
-                                return Err(DockerError::SocketNotFound(path_buf));
-                            }
-                            connect_unix(&path_buf, connect_timeout)?
-                        } else if env.starts_with("tcp://")
-                            || env.starts_with("http://")
-                            || env.starts_with("https://")
-                            || env.starts_with("ssh://")
-                        {
-                            is_local = false;
-                            Docker::connect_with_http(&env, connect_timeout.as_secs(), API_VERSION)
-                                .map_err(|e| classify_connect_error(&e, None))?
-                        } else {
-                            return Err(DockerError::UnsupportedConnection(env));
-                        }
-                    } else {
-                        connect_local_default(connect_timeout)?
-                    }
-                } else {
-                    connect_local_default(connect_timeout)?
-                }
-            }
-        };
-
-        // Resolve the effective socket path (if any) after connection so
-        // default local and DOCKER_HOST unix connections are recognised too.
-        let env_host = std::env::var("DOCKER_HOST")
-            .ok()
-            .map(|h| h.trim().to_string())
-            .filter(|h| !h.is_empty());
-        let socket_path = if let Some(h) = host.as_deref().filter(|h| h.starts_with("unix://")) {
-            Some(PathBuf::from(h.trim_start_matches("unix://")))
-        } else if let Some(h) = env_host.as_deref().filter(|h| h.starts_with("unix://")) {
-            Some(PathBuf::from(h.trim_start_matches("unix://")))
-        } else if is_local && host.is_none() && env_host.is_none() {
-            let default = PathBuf::from("/var/run/docker.sock");
-            default.exists().then_some(default)
+            (connect_unix(&path, connect_timeout)?, Some(path), true)
+        } else if resolved_host.starts_with("ssh://") {
+            // The workspace's Bollard dependency does not enable its `ssh`
+            // connector, so do not misroute SSH endpoints through plain HTTP.
+            return Err(DockerError::UnsupportedConnection(
+                redact_endpoint_userinfo(&resolved_host),
+            ));
+        } else if resolved_host.starts_with("tcp://")
+            || resolved_host.starts_with("http://")
+            || resolved_host.starts_with("https://")
+        {
+            let docker =
+                Docker::connect_with_http(&resolved_host, connect_timeout.as_secs(), API_VERSION)
+                    .map_err(|e| classify_connect_error(&e, None))?;
+            (docker, None, false)
         } else {
-            None
+            return Err(DockerError::UnsupportedConnection(
+                redact_endpoint_userinfo(&resolved_host),
+            ));
         };
+        let effective_endpoint = redact_endpoint_userinfo(&resolved_host);
 
         Ok(Self {
             docker,
             config,
             socket_path,
+            effective_endpoint,
             is_local,
         })
     }
@@ -164,20 +134,15 @@ impl DockerClient {
         self.is_local
     }
 
-    /// A stable fingerprint of the endpoint used for cache isolation.
-    /// Prefers the resolved socket path, falling back to the configured
-    /// host. Never contains credentials.
+    /// The resolved endpoint in credential-redacted form.
+    pub fn effective_endpoint(&self) -> &str {
+        &self.effective_endpoint
+    }
+
+    /// A stable, credential-redacted fingerprint of the endpoint used for
+    /// cache and container-group isolation.
     pub fn endpoint_fingerprint(&self) -> String {
-        if let Some(path) = &self.socket_path {
-            return format!("unix://{}", path.display());
-        }
-        if let Some(host) = &self.config.host {
-            // Strip any userinfo (user:password@) so credentials never leak
-            // into the fingerprint.
-            let host = host.rsplit('@').next().unwrap_or(host);
-            return host.to_string();
-        }
-        "default-local".to_string()
+        self.effective_endpoint.clone()
     }
 
     /// Access to the underlying Bollard client (internal use only).
@@ -206,6 +171,23 @@ impl DockerClient {
     }
 }
 
+fn redact_endpoint_userinfo(endpoint: &str) -> String {
+    let Some((scheme, remainder)) = endpoint.split_once("://") else {
+        return endpoint.to_string();
+    };
+    if matches!(scheme, "unix" | "npipe") {
+        return endpoint.to_string();
+    }
+
+    let authority_end = remainder.find('/').unwrap_or(remainder.len());
+    let (authority, suffix) = remainder.split_at(authority_end);
+    let redacted_authority = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    format!("{scheme}://{redacted_authority}{suffix}")
+}
+
 /// API version we target. Docker Engine 27+ supports v1.47; the Engine
 /// negotiates downwards when it is older.
 const API_VERSION: &bollard::ClientVersion = &bollard::ClientVersion {
@@ -219,10 +201,119 @@ fn connect_unix(path: &PathBuf, timeout: Duration) -> Result<Docker, DockerError
         .map_err(|e| classify_connect_error(&e, Some(path)))
 }
 
-fn connect_local_default(timeout: Duration) -> Result<Docker, DockerError> {
-    let socket = PathBuf::from("/var/run/docker.sock");
-    if !socket.exists() {
-        return Err(DockerError::SocketNotFound(socket));
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use std::sync::Mutex;
+
+    use super::*;
+
+    static DOCKER_HOST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct DockerHostGuard(Option<OsString>);
+
+    impl DockerHostGuard {
+        fn set(value: &str) -> Self {
+            let previous = std::env::var_os("DOCKER_HOST");
+            // SAFETY: all DOCKER_HOST-mutating tests in this module hold
+            // DOCKER_HOST_LOCK for the guard's lifetime.
+            unsafe { std::env::set_var("DOCKER_HOST", value) };
+            Self(previous)
+        }
     }
-    connect_unix(&socket, timeout)
+
+    impl Drop for DockerHostGuard {
+        fn drop(&mut self) {
+            // SAFETY: the creating test still holds DOCKER_HOST_LOCK while
+            // this guard is dropped.
+            unsafe {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("DOCKER_HOST", value),
+                    None => std::env::remove_var("DOCKER_HOST"),
+                }
+            }
+        }
+    }
+
+    fn remote_config(host: &str) -> DockerConfig {
+        DockerConfig {
+            host: Some(host.to_string()),
+            ..DockerConfig::default()
+        }
+    }
+
+    #[test]
+    fn explicit_remote_endpoint_drives_identity_and_locality() {
+        let client =
+            DockerClient::connect_with_config(remote_config("tcp://docker-one.example:2375"))
+                .expect("construct remote client");
+
+        assert_eq!(client.effective_endpoint(), "tcp://docker-one.example:2375");
+        assert_eq!(
+            client.endpoint_fingerprint(),
+            "tcp://docker-one.example:2375"
+        );
+        assert!(!client.is_local());
+
+        let other =
+            DockerClient::connect_with_config(remote_config("tcp://docker-two.example:2375"))
+                .expect("construct second remote client");
+        assert_ne!(client.endpoint_fingerprint(), other.endpoint_fingerprint());
+    }
+
+    #[test]
+    fn docker_host_remote_is_the_effective_endpoint_when_config_host_is_none() {
+        let _lock = DOCKER_HOST_LOCK.lock().expect("DOCKER_HOST lock");
+        let _env = DockerHostGuard::set("tcp://engine-user:secret@remote.example:2375");
+        let client = DockerClient::connect_with_config(DockerConfig::default())
+            .expect("construct env remote client");
+
+        assert_eq!(client.endpoint_fingerprint(), "tcp://remote.example:2375");
+        assert!(!client.is_local());
+    }
+
+    #[test]
+    fn docker_host_unix_is_local_and_uses_the_resolved_socket() {
+        let _lock = DOCKER_HOST_LOCK.lock().expect("DOCKER_HOST lock");
+        let socket = tempfile::NamedTempFile::new().expect("temporary socket path");
+        let endpoint = format!("unix://{}", socket.path().display());
+        let _env = DockerHostGuard::set(&endpoint);
+        let client = DockerClient::connect_with_config(DockerConfig::default())
+            .expect("construct env unix client");
+
+        assert_eq!(client.endpoint_fingerprint(), endpoint);
+        assert_eq!(
+            client.socket_path().map(PathBuf::as_path),
+            Some(socket.path())
+        );
+        assert!(client.is_local());
+    }
+
+    #[test]
+    fn unsupported_ssh_error_redacts_userinfo() {
+        let error = DockerClient::connect_with_config(remote_config(
+            "ssh://alice:secret@remote.example:2222",
+        ))
+        .err()
+        .expect("SSH should require Bollard's optional connector");
+
+        assert_eq!(
+            error.to_string(),
+            "Unsupported Docker connection method: ssh://remote.example:2222"
+        );
+    }
+
+    #[test]
+    fn endpoint_identity_redacts_userinfo_without_losing_scheme_or_ipv6() {
+        let endpoint = "https://alice:secret@[2001:db8::2]:2376/api";
+        let client = DockerClient::connect_with_config(remote_config(endpoint))
+            .expect("construct credentialed remote client");
+
+        assert_eq!(
+            client.endpoint_fingerprint(),
+            "https://[2001:db8::2]:2376/api"
+        );
+        assert!(!client.endpoint_fingerprint().contains("alice"));
+        assert!(!client.endpoint_fingerprint().contains("secret"));
+    }
 }

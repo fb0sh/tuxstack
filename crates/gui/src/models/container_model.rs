@@ -659,16 +659,18 @@ fn browser_url_for_endpoint(
         return String::new();
     };
     let wildcard = matches!(host_ip, "" | "0.0.0.0" | "::" | "[::]");
-    let endpoint_host = endpoint_browser_host(endpoint_key);
-    let host = if wildcard {
-        endpoint_host.as_deref().unwrap_or("localhost")
-    } else {
-        host_ip
+    let host = match endpoint_browser_target(endpoint_key) {
+        BrowserEndpoint::Local if wildcard => "localhost".to_string(),
+        BrowserEndpoint::Local => host_ip.to_string(),
+        // A published address belongs to the daemon host, not the machine
+        // running the GUI. Always use the resolved daemon host remotely.
+        BrowserEndpoint::Remote(host) => host,
+        BrowserEndpoint::UnknownRemote => return String::new(),
     };
     let host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {
-        host.to_string()
+        host
     };
     let scheme = if container_port == 443 || port == 443 {
         "https"
@@ -678,32 +680,57 @@ fn browser_url_for_endpoint(
     format!("{scheme}://{host}:{port}")
 }
 
-fn endpoint_browser_host(endpoint_key: &str) -> Option<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BrowserEndpoint {
+    Local,
+    Remote(String),
+    UnknownRemote,
+}
+
+fn endpoint_browser_target(endpoint_key: &str) -> BrowserEndpoint {
     if endpoint_key == "local"
         || endpoint_key == "default-local"
         || endpoint_key.starts_with("unix://")
         || endpoint_key.starts_with("npipe://")
     {
-        return None;
+        return BrowserEndpoint::Local;
     }
-    let authority = endpoint_key
-        .split_once("://")
-        .map(|(_, value)| value)
-        .unwrap_or(endpoint_key)
-        .split('/')
-        .next()
-        .unwrap_or(endpoint_key);
-    let without_user = authority.rsplit('@').next().unwrap_or(authority);
-    if let Some(bracket_end) = without_user.find(']') {
-        return Some(without_user[1..bracket_end].to_string());
+
+    let Some((scheme, remainder)) = endpoint_key.split_once("://") else {
+        return BrowserEndpoint::UnknownRemote;
+    };
+    if !matches!(scheme, "tcp" | "http" | "https" | "ssh") {
+        return BrowserEndpoint::UnknownRemote;
     }
-    Some(
-        without_user
-            .split(':')
-            .next()
-            .unwrap_or(without_user)
-            .to_string(),
-    )
+
+    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    // Effective endpoint keys are already redacted by DockerClient, but strip
+    // userinfo defensively so a legacy/raw key can never expose credentials.
+    let authority = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        return bracketed
+            .find(']')
+            .map(|end| BrowserEndpoint::Remote(bracketed[..end].to_string()))
+            .unwrap_or(BrowserEndpoint::UnknownRemote);
+    }
+
+    let host = if authority.matches(':').count() <= 1 {
+        authority.split(':').next().unwrap_or_default()
+    } else {
+        // Unbracketed IPv6 has no unambiguous port boundary. Treat the whole
+        // authority as the address; standards-compliant endpoint keys retain
+        // brackets and take the branch above.
+        authority
+    };
+    if host.is_empty() {
+        BrowserEndpoint::UnknownRemote
+    } else {
+        BrowserEndpoint::Remote(host.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -712,8 +739,8 @@ mod tests {
 
     use chrono::TimeZone;
     use tuxstack_docker_core::{
-        ContainerStateDetail, EnvironmentVariable, MountInfo, NetworkAttachment, PortBinding,
-        ResourceLimits, RestartPolicy,
+        COMPOSE_PROJECT_LABEL, ContainerStateDetail, EnvironmentVariable, MountInfo,
+        NetworkAttachment, PortBinding, ResourceLimits, RestartPolicy, group_compose_containers,
     };
 
     use super::*;
@@ -837,9 +864,56 @@ mod tests {
             browser_url_for_endpoint("unix:///var/run/docker.sock", "::", Some(443), 443),
             "https://localhost:443"
         );
+    }
+
+    #[test]
+    fn remote_browser_urls_use_redacted_endpoint_host_for_all_supported_syntaxes() {
+        for endpoint in [
+            "tcp://user:secret@docker.example:2375",
+            "http://docker.example:2375",
+            "https://docker.example:2376/path",
+            "ssh://user@docker.example:22",
+        ] {
+            assert_eq!(
+                browser_url_for_endpoint(endpoint, "0.0.0.0", Some(8080), 80),
+                "http://docker.example:8080"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_browser_urls_never_substitute_local_published_addresses() {
         assert_eq!(
-            browser_url_for_endpoint("tcp://docker.example:2376", "0.0.0.0", Some(8080), 80),
+            browser_url_for_endpoint("tcp://docker.example:2375", "127.0.0.1", Some(8080), 80,),
             "http://docker.example:8080"
         );
+        assert_eq!(
+            browser_url_for_endpoint("opaque-remote-key", "0.0.0.0", Some(8080), 80),
+            ""
+        );
+    }
+
+    #[test]
+    fn remote_browser_urls_preserve_ipv6_brackets_and_endpoint_isolation() {
+        let first = browser_url_for_endpoint("tcp://[2001:db8::10]:2375", "::", Some(8443), 443);
+        let second = browser_url_for_endpoint("tcp://[2001:db8::20]:2375", "::", Some(8443), 443);
+
+        assert_eq!(first, "https://[2001:db8::10]:8443");
+        assert_eq!(second, "https://[2001:db8::20]:8443");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn compose_group_ids_are_isolated_by_effective_endpoint() {
+        let mut container = summary();
+        container
+            .labels
+            .insert(COMPOSE_PROJECT_LABEL.into(), "project".into());
+        let first = group_compose_containers("tcp://first.example:2375", &[container.clone()]);
+        let second = group_compose_containers("tcp://second.example:2375", &[container]);
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert_ne!(first[0].id, second[0].id);
     }
 }
