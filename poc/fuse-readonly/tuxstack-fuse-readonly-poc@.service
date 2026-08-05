@@ -1,0 +1,21 @@
+[Unit]
+Description=TuxStack read-only FUSE PoC at %f
+After=graphical-session.target
+
+[Service]
+Type=simple
+# Escape the absolute mount path as the instance, for example:
+# systemctl --user start "tuxstack-fuse-readonly-poc@$(systemd-escape --path /home/user/testmnt).service"
+# %f expands that instance back into an absolute path.
+ExecStartPre=/usr/bin/mkdir -p %f
+ExecStart=%h/Projects/tuxstack/poc/fuse-readonly/target/debug/tuxstack-fuse-readonly-poc %f
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=10
+# Do not set NoNewPrivileges: an unprivileged fallback through the installed
+# fusermount3 helper may need its distribution-provided privilege mechanism.
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

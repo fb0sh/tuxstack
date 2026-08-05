@@ -1,0 +1,20 @@
+[package]
+name = "tuxstack-fuse-readonly-poc"
+version = "0.1.0"
+edition = "2024"
+publish = false
+rust-version = "1.85"
+
+[dependencies]
+# fuser 0.18.0 removed the historical abi-* dependency features and negotiates
+# its (currently 7.40) maximum ABI with the kernel at mount time.
+fuser = { version = "=0.18.0", default-features = false }
+libc = "0.2"
+
+[features]
+default = []
+# Compatibility marker: this PoC only uses operations available by ABI 7.31.
+abi-7-31 = []
+
+# Keep this spike isolated from the repository's root workspace and lockfile.
+[workspace]
