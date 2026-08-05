@@ -10,6 +10,10 @@ Kirigami.Dialog {
     property string containerId: ""
     title: I18n.i18nd("tuxstack", "Rename Container")
     preferredWidth: Kirigami.Units.gridUnit * 26
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     function prepare(id, currentName) {
         root.containerId = String(id)
@@ -20,6 +24,8 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.mediumSpacing
         QQC2.Label { Layout.fillWidth: true; text: I18n.i18nd("tuxstack", "New container name") }
         QQC2.TextField { id: nameField; Layout.fillWidth: true; selectByMouse: true; validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9][A-Za-z0-9_.-]*/ } }
     }

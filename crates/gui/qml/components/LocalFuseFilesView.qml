@@ -87,11 +87,11 @@ Item {
         if (!root.filesModel || root.filesModel.providerSource.length === 0)
             return ""
         if (root.filesModel.providerKind === "image")
-            return I18n.i18nd("tuxstack", "Image ID: %1", root.filesModel.providerSource)
+            return I18n.i18nd("tuxstack", "Image filesystem")
         if (root.filesModel.providerKind === "container_snapshot"
                 || root.filesModel.providerKind === "container_archive")
-            return I18n.i18nd("tuxstack", "Container ID: %1", root.filesModel.providerSource)
-        return I18n.i18nd("tuxstack", "Source: %1", root.filesModel.providerSource)
+            return I18n.i18nd("tuxstack", "Container filesystem")
+        return I18n.i18nd("tuxstack", "Filesystem source")
     }
 
     Keys.onPressed: function(event) {
@@ -214,8 +214,12 @@ Item {
                             spacing: 0
 
                             QQC2.Label {
-                                visible: breadcrumbDelegate.index > 0
-                                text: " / "
+                                // The root button already displays "/". Add a
+                                // separator only between child components so
+                                // paths render as /etc/ssl, never as an image
+                                // identity followed by a host namespace path.
+                                visible: breadcrumbDelegate.index > 1
+                                text: "/"
                                 color: Kirigami.Theme.disabledTextColor
                             }
                             QQC2.ToolButton {

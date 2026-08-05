@@ -18,6 +18,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Export Volume")
     preferredWidth: Kirigami.Units.gridUnit * 30
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.exporting ? QQC2.Popup.NoAutoClose
                                 : QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
 
@@ -85,6 +89,7 @@ Kirigami.Dialog {
     ListModel { id: formatModel }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         QQC2.Label {

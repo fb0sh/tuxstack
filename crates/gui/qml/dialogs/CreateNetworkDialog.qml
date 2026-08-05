@@ -28,6 +28,11 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Create Network")
     preferredWidth: Kirigami.Units.gridUnit * 30
+    preferredHeight: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.creating ? QQC2.Popup.NoAutoClose
                                : QQC2.Popup.CloseOnEscape
 
@@ -145,6 +150,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         GridLayout {

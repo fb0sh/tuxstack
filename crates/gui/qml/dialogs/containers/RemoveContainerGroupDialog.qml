@@ -12,6 +12,10 @@ Kirigami.Dialog {
     property var targets: []
     title: I18n.i18nd("tuxstack", "Remove Group Containers")
     preferredWidth: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     function prepare(id, name, members) {
         root.groupId = String(id)
@@ -23,6 +27,8 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.mediumSpacing
         Kirigami.Heading { Layout.fillWidth: true; text: I18n.i18nd("tuxstack", "Remove containers in “%1”?", root.projectName); level: 3; wrapMode: Text.WrapAnywhere }
         QQC2.ScrollView {
             Layout.fillWidth: true

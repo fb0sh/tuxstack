@@ -784,11 +784,18 @@ impl qobject::LocalFuseFileListModel {
             .rust_mut()
             .controller
             .select_resource(resource);
-        if changed {
-            self.as_mut().rust_mut().cancel_all();
-            self.as_mut().clear_provider();
-            self.as_mut().clear_preview();
+        if !changed {
+            // Detail models emit several NOTIFY signals while one inspect is
+            // applied. Re-opening the same resource for every signal cancels
+            // the current FUSE lookup and starts it again, which makes the
+            // third column flash continuously. Resource resolution is only
+            // needed when the resource identity actually changes; refreshes
+            // are explicit and handled by refresh_provider().
+            return;
         }
+        self.as_mut().rust_mut().cancel_all();
+        self.as_mut().clear_provider();
+        self.as_mut().clear_preview();
         if self.controller.active {
             self.as_mut().resolve_resource();
         } else {

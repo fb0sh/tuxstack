@@ -13,6 +13,10 @@ Kirigami.Dialog {
 
     title: qsTr("Pull Image")
     preferredWidth: Kirigami.Units.gridUnit * 28
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     function platformValue() {
         switch (platformBox.currentIndex) {
@@ -52,6 +56,7 @@ Kirigami.Dialog {
     onClosed: cancelling = false
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         QQC2.Label {

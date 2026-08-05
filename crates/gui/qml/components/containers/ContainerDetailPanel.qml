@@ -19,6 +19,7 @@ Item {
     property bool terminalCapability: terminalModel !== null
     property bool filesCapability: filesModel !== null
     property int currentTab: 0
+    property string lastSelectionKind: "none"
 
     signal retryRequested()
     signal containerRequested(string id)
@@ -77,7 +78,7 @@ Item {
             root.logsModel.setSelection(kind, id, values.ids, values.states, values.names)
         if (root.terminalModel) {
             if (kind === "container")
-                root.terminalModel.setSelection(id, states.length > 0 && states[0] === "running")
+                root.terminalModel.setSelection(id, values.states.length > 0 && values.states[0] === "running")
             else
                 root.terminalModel.clearSelection()
         }
@@ -126,7 +127,15 @@ Item {
     Connections {
         target: root.containersModel
         function onSelectionKindChanged() {
-            root.currentTab = 0
+            // Keep the selected tab while a live detail refresh updates the
+            // same kind of selection. Reset only when the selection changes
+            // between none, a group, and an individual container.
+            const nextKind = root.containersModel
+                    ? String(root.containersModel.selectionKind || "none")
+                    : "none"
+            if (nextKind !== root.lastSelectionKind)
+                root.currentTab = 0
+            root.lastSelectionKind = nextKind
             root.syncLiveSelection()
             root.syncLiveActive()
         }

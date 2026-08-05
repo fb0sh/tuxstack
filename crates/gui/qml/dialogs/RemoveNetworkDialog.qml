@@ -19,6 +19,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Remove Network")
     preferredWidth: Kirigami.Units.gridUnit * 28
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.removing ? QQC2.Popup.NoAutoClose
                                : QQC2.Popup.CloseOnEscape
 
@@ -32,6 +36,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         Kirigami.Heading {

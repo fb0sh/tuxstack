@@ -19,6 +19,7 @@ To regenerate the derived sizes from the source icon with ImageMagick:
 for size in 16 22 24 32 48 64 128 256 512; do
   magick tuxstack.png \
     -resize "${size}x${size}" \
+    -background none -gravity center -extent "${size}x${size}" \
     "packaging/icons/hicolor/${size}x${size}/apps/io.github.tuxstack.TuxStack.png"
 done
 ```

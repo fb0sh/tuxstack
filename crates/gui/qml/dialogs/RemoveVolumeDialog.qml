@@ -20,6 +20,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Remove Volume")
     preferredWidth: Kirigami.Units.gridUnit * 30
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.removing ? QQC2.Popup.NoAutoClose
                                : QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
 
@@ -34,6 +38,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         Kirigami.Heading {

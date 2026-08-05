@@ -16,6 +16,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Remove Unused Volumes")
     preferredWidth: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.pruning ? QQC2.Popup.NoAutoClose
                               : QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
 
@@ -25,6 +29,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         Kirigami.Heading {

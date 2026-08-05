@@ -113,17 +113,56 @@ cargo build --workspace
 cargo run
 
 # 也可以在另一个终端手动运行 daemon
-cargo run -p tuxstackd
+cargo run -p tuxstack-daemon --bin tuxstackd
 ```
 
-安装后的桌面环境可使用 systemd 用户服务：
+### 安装后使用 systemd 启动 tuxstackd
+
+RPM 安装会把 daemon 安装为 systemd **用户服务**，不会创建 root daemon，也不需要
+sudo 启动 Docker 管理服务。安装 RPM 后执行：
 
 ```bash
-systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
+systemctl --user daemon-reload
+systemctl --user enable --now tuxstackd.service
+systemctl --user status tuxstackd.service
 ```
 
-等价于 `cargo run -p tuxstack`。GUI 通过 `$XDG_RUNTIME_DIR/tuxstack/control.sock`
-连接 tuxstackd；服务或 Docker Engine 不可用时显示明确状态并提供重试/启动服务操作。
+查看日志：
+
+```bash
+journalctl --user -u tuxstackd.service -f
+```
+
+卸载或升级 RPM 不会自动停止你的用户服务；需要停止时执行：
+
+```bash
+systemctl --user disable --now tuxstackd.service
+```
+
+`systemctl --user` 使用当前登录用户的 systemd manager。若希望 daemon 在退出图形
+会话后继续运行，可按发行版策略启用 user lingering：
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+GUI 通过 `$XDG_RUNTIME_DIR/tuxstack/control.sock` 连接 tuxstackd；服务或 Docker
+Engine 不可用时显示明确状态并提供重试/启动服务操作。开发环境的 `cargo run` 仍会
+在找不到 daemon 时自动启动同目录的 `tuxstackd`。
+
+### RPM 打包
+
+在 Fedora/RHEL 类系统上，先安装 Rust、Qt 6、Kirigami、FUSE 和 RPM 构建工具，
+然后在仓库根目录执行：
+
+```bash
+./packaging/rpm/build-rpm.sh
+```
+
+生成的 RPM 位于 `packaging/rpm/RPMS/`。安装后可使用上面的
+`systemctl --user enable --now tuxstackd.service` 启动 daemon。RPM 构建会同时安装
+`tuxstack` GUI、`tuxstackd` daemon、`tuxstackctl` CLI、桌面文件、AppStream 元数据、
+hicolor 图标和 systemd 用户服务。
 
 ## 配置
 
@@ -319,18 +358,58 @@ cargo build --workspace
 cargo run
 
 # Alternatively run the daemon in another terminal
-cargo run -p tuxstackd
+cargo run -p tuxstack-daemon --bin tuxstackd
 ```
 
-For an installed desktop setup, use the systemd user service:
+### Start tuxstackd with systemd after installation
+
+The RPM installs `tuxstackd` as a systemd **user service**. It does not create a
+root daemon and does not require `sudo` to start the TuxStack service. After
+installing the RPM:
 
 ```bash
-systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
+systemctl --user daemon-reload
+systemctl --user enable --now tuxstackd.service
+systemctl --user status tuxstackd.service
 ```
 
-This is equivalent to `cargo run -p tuxstack`. The GUI connects to tuxstackd over
-`$XDG_RUNTIME_DIR/tuxstack/control.sock`; when the service or Docker Engine is
-unavailable it shows an explicit state and provides retry/start-service actions.
+Follow the daemon log with:
+
+```bash
+journalctl --user -u tuxstackd.service -f
+```
+
+To stop and disable it:
+
+```bash
+systemctl --user disable --now tuxstackd.service
+```
+
+`systemctl --user` talks to the current user's systemd manager. To keep the
+service running after the graphical session ends, enable user lingering if it
+matches your distribution's policy:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+The GUI connects to tuxstackd over `$XDG_RUNTIME_DIR/tuxstack/control.sock`.
+When the service or Docker Engine is unavailable it shows an explicit state and
+provides retry/start-service actions. In development, `cargo run` still
+auto-starts a sibling `tuxstackd` when no daemon is available.
+
+### RPM packaging
+
+On Fedora/RHEL-like systems, install Rust, Qt 6, Kirigami, FUSE, and the RPM
+build tools, then run from the repository root:
+
+```bash
+./packaging/rpm/build-rpm.sh
+```
+
+The resulting RPM is written to `packaging/rpm/RPMS/`. It contains the
+`tuxstack` GUI, `tuxstackd` daemon, `tuxstackctl` CLI, desktop file, AppStream
+metadata, hicolor icons, and the systemd user service.
 
 ## Configuration
 

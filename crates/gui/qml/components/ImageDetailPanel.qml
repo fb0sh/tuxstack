@@ -80,11 +80,11 @@ Item {
 
             QQC2.TabButton {
                 text: I18n.i18nd("tuxstack", "Info")
-                width: implicitWidth
+                width: Math.max(implicitWidth, Kirigami.Units.gridUnit * 6)
             }
             QQC2.TabButton {
                 text: I18n.i18nd("tuxstack", "Files")
-                width: implicitWidth
+                width: Math.max(implicitWidth, Kirigami.Units.gridUnit * 6)
             }
 
             onCurrentIndexChanged: {

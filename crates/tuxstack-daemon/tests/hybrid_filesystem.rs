@@ -251,13 +251,6 @@ async fn container_tree_switches_snapshot_volume_bind_tmpfs_and_image_providers(
             .any(|window| window == b"tmpfs-live"),
         "the running container must see the tmpfs fixture before Archive API availability is assessed"
     );
-    let image_id = services
-        .images
-        .inspect_image("busybox:latest")
-        .await
-        .expect("inspect busybox image")
-        .summary
-        .id;
     let direct_archive = ContainerArchiveProvider::new(
         container_id.clone(),
         Arc::new(DockerContainerArchiveSource::new(client)),
@@ -328,6 +321,13 @@ async fn container_tree_switches_snapshot_volume_bind_tmpfs_and_image_providers(
     .await
     .expect("hybrid daemon mount timeout");
 
+    let image_id = services
+        .images
+        .inspect_image("busybox:latest")
+        .await
+        .expect("inspect busybox image")
+        .summary
+        .id;
     let container_root = mount
         .join("containers/.by-id")
         .join(FuseNameCodec::encode(container_id.as_bytes()).unwrap());

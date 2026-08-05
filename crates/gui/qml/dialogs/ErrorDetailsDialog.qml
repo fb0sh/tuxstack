@@ -13,16 +13,27 @@ Kirigami.Dialog {
     property string errorText: ""
 
     title: I18n.i18nd("tuxstack", "Error details")
+    preferredWidth: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     contentItem: ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        Layout.preferredWidth: Kirigami.Units.gridUnit * 32
 
-        QQC2.Label {
-            text: root.errorText
-            wrapMode: Text.WordWrap
-            color: Kirigami.Theme.negativeTextColor
+        QQC2.ScrollView {
             Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(errorLabel.implicitHeight,
+                                             Kirigami.Units.gridUnit * 24)
+            QQC2.Label {
+                id: errorLabel
+                width: parent.width
+                text: root.errorText
+                wrapMode: Text.WrapAnywhere
+                color: Kirigami.Theme.negativeTextColor
+            }
         }
     }
 

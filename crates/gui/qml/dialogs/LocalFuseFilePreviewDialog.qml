@@ -15,10 +15,16 @@ Kirigami.Dialog {
            : I18n.i18nd("tuxstack", "File Preview")
     preferredWidth: Kirigami.Units.gridUnit * 38
     preferredHeight: Kirigami.Units.gridUnit * 28
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     onClosed: root.filesModel && root.filesModel.cancelPreview()
 
     ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
         spacing: Kirigami.Units.smallSpacing
 
         Kirigami.InlineMessage {

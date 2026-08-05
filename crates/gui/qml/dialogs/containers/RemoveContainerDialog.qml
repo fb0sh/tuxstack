@@ -18,6 +18,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Remove Container")
     preferredWidth: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     function prepare(id, nameValue, imageValue, stateValue, composeValue, mountRows) {
         root.containerId = String(id)
@@ -32,6 +36,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
         Kirigami.Heading { Layout.fillWidth: true; text: I18n.i18nd("tuxstack", "Remove “%1”?", root.name); level: 3; wrapMode: Text.WrapAnywhere }
         PropertyList {

@@ -12,8 +12,13 @@ Kirigami.Dialog {
     property var filesModel: null
     title: I18n.i18nd("tuxstack", "File Properties")
     preferredWidth: Kirigami.Units.gridUnit * 30
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
         Repeater {

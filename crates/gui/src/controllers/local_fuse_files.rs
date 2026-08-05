@@ -427,13 +427,12 @@ impl LocalFuseFilesController {
     }
 
     pub fn breadcrumbs(&self) -> Vec<Breadcrumb> {
-        let root_label = self
-            .resource
-            .as_ref()
-            .map(|resource| resource.id().to_string())
-            .unwrap_or_else(|| "/".into());
+        // The breadcrumb is the path inside the selected resource, not the
+        // daemon's internal resource identity. Showing an image ID here made
+        // the Files tab look like `sha256:…/etc`; every resource therefore
+        // starts at the normal filesystem root.
         let mut result = vec![Breadcrumb {
-            label: root_label,
+            label: "/".into(),
             path_token: "/".into(),
         }];
         let mut components = Vec::new();
@@ -843,6 +842,9 @@ mod tests {
         let mut state = LocalFuseFilesController::default();
         state.select_resource(LocalFuseResourceRef::Volume("data".into()));
         state.current_components = vec![b"one".to_vec(), b"two".to_vec()];
+        assert_eq!(state.breadcrumbs()[0].label, "/");
+        assert_eq!(state.breadcrumbs()[1].label, "one");
+        assert_eq!(state.breadcrumbs()[2].label, "two");
         assert!(state.can_go_up());
         assert_eq!(state.breadcrumbs().len(), 3);
         assert!(state.go_up());

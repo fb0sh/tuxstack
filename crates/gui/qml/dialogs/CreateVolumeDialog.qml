@@ -17,6 +17,10 @@ Kirigami.Dialog {
 
     title: I18n.i18nd("tuxstack", "Create Volume")
     preferredWidth: Kirigami.Units.gridUnit * 32
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.creating ? QQC2.Popup.NoAutoClose
                                : QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
 
@@ -48,6 +52,8 @@ Kirigami.Dialog {
     }
 
     QQC2.ScrollView {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
         implicitWidth: Kirigami.Units.gridUnit * 30
         implicitHeight: Math.min(contentColumn.implicitHeight,
                                  Kirigami.Units.gridUnit * 32)
@@ -159,6 +165,10 @@ Kirigami.Dialog {
         id: cancelDialog
         title: I18n.i18nd("tuxstack", "Cancel Volume Creation?")
         preferredWidth: Kirigami.Units.gridUnit * 24
+        leftPadding: Kirigami.Units.largeSpacing
+        rightPadding: Kirigami.Units.largeSpacing
+        topPadding: Kirigami.Units.largeSpacing
+        bottomPadding: Kirigami.Units.largeSpacing
 
         QQC2.Label {
             width: parent.width

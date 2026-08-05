@@ -19,6 +19,10 @@ Kirigami.Dialog {
 
     title: qsTr("Remove Image")
     preferredWidth: Kirigami.Units.gridUnit * 28
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
 
     function prepare(id, name, shortImageId, tags, size, usageCount) {
         imageId = id
@@ -34,6 +38,7 @@ Kirigami.Dialog {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.mediumSpacing
 
         Kirigami.Heading {

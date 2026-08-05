@@ -109,6 +109,15 @@ pub struct DaemonState {
 impl DaemonState {
     pub async fn start(paths: DaemonPaths) -> Result<Arc<Self>> {
         paths.prepare()?;
+        if tokio::net::UnixStream::connect(&paths.socket_path)
+            .await
+            .is_ok()
+        {
+            bail!(
+                "another tuxstackd instance is already running (control socket: {})",
+                paths.socket_path.display()
+            );
+        }
         recover_stale_mount(&paths.mount_point)?;
         let client = Arc::new(
             DockerClient::connect_with_config(DockerConfig::default())
@@ -261,8 +270,15 @@ impl DaemonState {
     }
 
     pub async fn resource_path(&self, resource: DockerResourceRef) -> Result<ResourceFusePath> {
-        let namespace_path = resource_namespace_path(&resource)?;
+        // Keep the provider registry and namespace stable while lazily
+        // capturing a container snapshot. Otherwise an event-driven rebuild
+        // can replace the provider between capture and descriptor lookup:
+        // the old provider is captured, the new one is returned as
+        // `snapshot has not been captured`, and the GUI shows a false
+        // ProviderUnavailable state.
+        let _rebuild = self.namespace_rebuild.lock().await;
         self.ensure_container_snapshot(&resource, true).await?;
+        let namespace_path = resource_namespace_path(&resource)?;
         let registries = read(&self.providers);
         let resolved = self
             .namespace
@@ -287,13 +303,20 @@ impl DaemonState {
     }
 
     pub async fn provider_descriptor(&self, path: ResourcePath) -> Result<WireDescriptor> {
-        self.ensure_container_snapshot(&path.resource, path.components.is_empty())
-            .await?;
+        // See resource_path(): descriptor resolution must use the same
+        // provider generation that was captured for this request.
+        let _rebuild = self.namespace_rebuild.lock().await;
+        // A namespace rebuild may replace the provider after the root page
+        // was opened. Subfolder navigation must therefore also ensure that
+        // the *current* container provider has a captured snapshot before
+        // its descriptor is reported; otherwise the router returns the new
+        // provider as `snapshot has not been captured`.
+        self.ensure_container_snapshot(&path.resource, true).await?;
         let mut namespace_path = resource_namespace_path(&path.resource)?;
+        let registries = read(&self.providers);
         for component in path.components {
             namespace_path = namespace_path.join(&VirtualFileName::new(component.as_bytes())?)?;
         }
-        let registries = read(&self.providers);
         let resolved = self
             .namespace
             .provider_at(&namespace_path)?

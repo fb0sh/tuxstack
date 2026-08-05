@@ -120,8 +120,37 @@ impl EventClassifier for DefaultEventClassifier {
             "daemon" => ChangeKind::Daemon,
             _ => return None,
         };
+
+        // tuxstackd creates short-lived helper containers for the FUSE
+        // providers. Their create/start/exec/die events are an internal
+        // implementation detail; feeding them back into the namespace
+        // rebuild path creates a self-sustaining refresh loop:
+        // rebuild -> helper event -> rebuild. The label is reserved by
+        // TuxStack and is present on every helper container.
+        if kind == ChangeKind::Containers && is_internal_helper_event(event) {
+            return None;
+        }
+
+        // An interactive terminal generates exec_* events. They do not
+        // change the container list, mounts, or rootfs snapshot and must not
+        // cause every GUI model to refresh.
+        if kind == ChangeKind::Containers && event.action.starts_with("exec_") {
+            return None;
+        }
+
         Some(kind)
     }
+}
+
+fn is_internal_helper_event(event: &DockerEvent) -> bool {
+    event.actor_attributes.iter().any(|(key, value)| {
+        (key == "name"
+            && (value.starts_with("tuxstack-fs-helper-")
+                || value.starts_with("tuxstack-bind-helper-")
+                || value.starts_with("tuxstack-image-helper-")
+                || value.starts_with("tuxstack-volume-helper-")))
+            || (key == "io.github.tuxstack.managed" && value == "true")
+    })
 }
 
 /// Configuration for the monitor.
@@ -427,6 +456,28 @@ mod tests {
             Some(ChangeKind::Daemon)
         );
         assert_eq!(classifier.classify(&event("whatever")), None);
+    }
+
+    #[test]
+    fn classifier_ignores_tuxstack_helpers_and_exec_events() {
+        let classifier = DefaultEventClassifier;
+        let mut helper = container_event("container", "helper", "start");
+        helper
+            .actor_attributes
+            .push(("name".into(), "tuxstack-fs-helper-session".into()));
+        assert_eq!(classifier.classify(&helper), None);
+        let mut managed = container_event("container", "managed", "start");
+        managed
+            .actor_attributes
+            .push(("io.github.tuxstack.managed".into(), "true".into()));
+        assert_eq!(classifier.classify(&managed), None);
+
+        let exec = container_event("container", "real", "exec_start: /bin/sh");
+        assert_eq!(classifier.classify(&exec), None);
+        assert_eq!(
+            classifier.classify(&container_event("container", "real", "start")),
+            Some(ChangeKind::Containers)
+        );
     }
 
     #[test]

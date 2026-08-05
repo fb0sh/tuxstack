@@ -27,7 +27,7 @@
   <launchable type="desktop-id">io.github.tuxstack.TuxStack.desktop</launchable>
   <icon type="stock">io.github.tuxstack.TuxStack</icon>
   <releases>
-    <release version="0.3.0" date="2026-08-05">
+    <release version="0.3.1" date="2026-08-06">
       <description>
         <p>Docker Containers workflows, typed tuxstackd IPC, and unified
         read-only FUSE filesystem browsing.</p>

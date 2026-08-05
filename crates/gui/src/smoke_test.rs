@@ -95,6 +95,10 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(detail.contains("ContainerLogsView"));
     assert!(detail.contains("ContainerTerminalView"));
     assert!(detail.contains("ContainerFilesView"));
+    assert!(detail.contains("values.states.length"));
+    assert!(!detail.contains("setSelection(id, states.length"));
+    assert!(detail.contains("lastSelectionKind"));
+    assert!(!detail.contains("root.currentTab = 0\n            root.syncLiveSelection"));
     assert!(!detail.contains("No container selected"));
     assert!(!detail.contains("Select a container"));
 }
@@ -194,9 +198,17 @@ fn volumes_page_keeps_a_permanent_detail_panel() {
 #[test]
 fn volume_files_view_uses_the_shared_local_fuse_browser() {
     let source = include_str!("../qml/components/VolumeFilesView.qml");
+    let image = include_str!("../qml/components/ImageFilesView.qml");
+    let container = include_str!("../qml/components/containers/ContainerFilesView.qml");
     let shared = include_str!("../qml/components/LocalFuseFilesView.qml");
     assert!(source.contains("LocalFuseFilesView"));
+    assert!(image.contains("LocalFuseFilesView"));
+    assert!(container.contains("LocalFuseFilesView"));
     assert!(shared.contains("id: fileList"));
+    assert!(shared.contains("The root button already displays \"/\""));
+    assert!(shared.contains("visible: breadcrumbDelegate.index > 1"));
+    assert!(!shared.contains("Image ID: %1"));
+    assert!(!shared.contains("Container ID: %1"));
     assert!(shared.contains("Layout.fillHeight: true"));
     assert!(shared.contains("Open in File Manager"));
     assert!(shared.contains("refreshActionText"));
@@ -208,6 +220,7 @@ fn volume_files_view_uses_the_shared_local_fuse_browser() {
     assert!(detail.contains("VolumeFilesView"));
     assert!(detail.contains("VolumeInfoView"));
     assert!(detail.contains("openVolume"));
+    assert!(detail.contains("Math.max(implicitWidth, Kirigami.Units.gridUnit * 6)"));
     assert!(!detail.contains("anchors.centerIn: parent"));
 }
 
@@ -223,6 +236,7 @@ fn image_detail_panel_has_info_and_files_tabs() {
     );
     assert!(source.contains("I18n.i18nd(\"tuxstack\", \"Info\")"));
     assert!(source.contains("I18n.i18nd(\"tuxstack\", \"Files\")"));
+    assert!(source.contains("Math.max(implicitWidth, Kirigami.Units.gridUnit * 6)"));
     assert!(source.contains("openImage"));
     assert!(source.contains("closeImage"));
     assert!(source.contains("setActive"));
@@ -249,6 +263,102 @@ fn networks_page_keeps_a_permanent_detail_panel() {
     );
     assert!(source.contains("Component.onCompleted"));
     assert!(source.contains("networksModel.initialize()"));
+}
+
+#[test]
+fn dialogs_use_consistent_content_padding_and_layout_sizing() {
+    let dialogs = [
+        (
+            "CreateNetworkDialog.qml",
+            include_str!("../qml/dialogs/CreateNetworkDialog.qml"),
+        ),
+        (
+            "CreateVolumeDialog.qml",
+            include_str!("../qml/dialogs/CreateVolumeDialog.qml"),
+        ),
+        (
+            "PullImageDialog.qml",
+            include_str!("../qml/dialogs/PullImageDialog.qml"),
+        ),
+        (
+            "ExportImageDialog.qml",
+            include_str!("../qml/dialogs/ExportImageDialog.qml"),
+        ),
+        (
+            "ExportVolumeDialog.qml",
+            include_str!("../qml/dialogs/ExportVolumeDialog.qml"),
+        ),
+        (
+            "PruneVolumesDialog.qml",
+            include_str!("../qml/dialogs/PruneVolumesDialog.qml"),
+        ),
+        (
+            "CloneVolumeDialog.qml",
+            include_str!("../qml/dialogs/CloneVolumeDialog.qml"),
+        ),
+        (
+            "LocalFuseFilePreviewDialog.qml",
+            include_str!("../qml/dialogs/LocalFuseFilePreviewDialog.qml"),
+        ),
+        (
+            "LocalFuseFilePropertiesDialog.qml",
+            include_str!("../qml/dialogs/LocalFuseFilePropertiesDialog.qml"),
+        ),
+        (
+            "RemoveImageDialog.qml",
+            include_str!("../qml/dialogs/RemoveImageDialog.qml"),
+        ),
+        (
+            "RemoveNetworkDialog.qml",
+            include_str!("../qml/dialogs/RemoveNetworkDialog.qml"),
+        ),
+        (
+            "RemoveVolumeDialog.qml",
+            include_str!("../qml/dialogs/RemoveVolumeDialog.qml"),
+        ),
+        (
+            "CreateContainerDialog.qml",
+            include_str!("../qml/dialogs/containers/CreateContainerDialog.qml"),
+        ),
+        (
+            "KillContainerDialog.qml",
+            include_str!("../qml/dialogs/containers/KillContainerDialog.qml"),
+        ),
+        (
+            "RemoveContainerDialog.qml",
+            include_str!("../qml/dialogs/containers/RemoveContainerDialog.qml"),
+        ),
+        (
+            "RemoveContainerGroupDialog.qml",
+            include_str!("../qml/dialogs/containers/RemoveContainerGroupDialog.qml"),
+        ),
+        (
+            "RenameContainerDialog.qml",
+            include_str!("../qml/dialogs/containers/RenameContainerDialog.qml"),
+        ),
+        (
+            "ErrorDetailsDialog.qml",
+            include_str!("../qml/dialogs/ErrorDetailsDialog.qml"),
+        ),
+    ];
+    for (path, source) in dialogs {
+        assert!(
+            source.contains("leftPadding: Kirigami.Units.largeSpacing"),
+            "{path}"
+        );
+        assert!(
+            source.contains("rightPadding: Kirigami.Units.largeSpacing"),
+            "{path}"
+        );
+        assert!(
+            source.contains("topPadding: Kirigami.Units.largeSpacing"),
+            "{path}"
+        );
+        assert!(
+            source.contains("bottomPadding: Kirigami.Units.largeSpacing"),
+            "{path}"
+        );
+    }
 }
 
 #[test]
@@ -913,7 +1023,7 @@ Item {
         property int count: 2
         property bool truncated: false
         property bool active: true
-        property var breadcrumbModel: [{ label: "postgres-data", path: "/" }]
+        property var breadcrumbModel: [{ label: "/", path: "/" }]
         property bool previewLoading: false
         property string previewName: ""
         property string previewPath: ""
@@ -996,7 +1106,7 @@ Item {
                 property string selectedEntryPath: ""
                 property int count: 0
                 property bool truncated: false
-                property var breadcrumbModel: [{ label: "vol", path: "/" }]
+                property var breadcrumbModel: [{ label: "/", path: "/" }]
                 property bool previewLoading: false
                 property string previewName: ""
                 property string previewPath: ""
@@ -1043,7 +1153,7 @@ Item {
                 property string selectedEntryPath: ""
                 property int count: 0
                 property bool truncated: false
-                property var breadcrumbModel: [{ label: "vol", path: "/" }, { label: "empty", path: "/empty" }]
+                property var breadcrumbModel: [{ label: "/", path: "/" }, { label: "empty", path: "/empty" }]
                 property bool previewLoading: false
                 property string previewName: ""
                 property string previewPath: ""
@@ -1090,7 +1200,7 @@ Item {
                 property string selectedEntryPath: ""
                 property int count: 0
                 property bool truncated: false
-                property var breadcrumbModel: [{ label: "vol", path: "/" }]
+                property var breadcrumbModel: [{ label: "/", path: "/" }]
                 property bool previewLoading: false
                 property string previewName: ""
                 property string previewPath: ""
@@ -1156,7 +1266,7 @@ Item {
                 property string selectedEntryPath: ""
                 property int count: 0
                 property bool truncated: false
-                property var breadcrumbModel: [{ label: "sha256:abcdef", path: "/" }]
+                property var breadcrumbModel: [{ label: "/", path: "/" }]
                 property bool previewLoading: false
                 property string previewName: ""
                 property string previewPath: ""
@@ -1203,7 +1313,7 @@ Item {
                 property string selectedEntryPath: "/etc"
                 property int count: 2
                 property bool truncated: false
-                property var breadcrumbModel: [{ label: "ubuntu:24.04", path: "/" }, { label: "etc", path: "/etc" }]
+                property var breadcrumbModel: [{ label: "/", path: "/" }, { label: "etc", path: "/etc" }]
                 property bool previewLoading: false
                 property string previewName: ""
                 property string previewPath: ""
@@ -1298,7 +1408,7 @@ Item {
         property int count: 2
         property bool truncated: false
         property bool active: true
-        property var breadcrumbModel: [{ label: "sha256:abcdef", path: "/" }]
+        property var breadcrumbModel: [{ label: "/", path: "/" }]
         property bool previewLoading: false
         property string previewName: ""
         property string previewPath: ""

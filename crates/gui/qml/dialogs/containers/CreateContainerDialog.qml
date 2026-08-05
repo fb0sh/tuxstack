@@ -27,6 +27,10 @@ Kirigami.Dialog {
     title: I18n.i18nd("tuxstack", "Create Container")
     preferredWidth: Kirigami.Units.gridUnit * 44
     preferredHeight: Kirigami.Units.gridUnit * 34
+    leftPadding: Kirigami.Units.largeSpacing
+    rightPadding: Kirigami.Units.largeSpacing
+    topPadding: Kirigami.Units.largeSpacing
+    bottomPadding: Kirigami.Units.largeSpacing
     closePolicy: root.creating ? QQC2.Popup.NoAutoClose : QQC2.Popup.CloseOnEscape
 
     function prepare() {
@@ -461,7 +465,9 @@ Kirigami.Dialog {
     ListModel { id: networkRows }
 
     ColumnLayout {
-        spacing: 0
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        spacing: Kirigami.Units.mediumSpacing
 
         QQC2.TabBar {
             id: tabs
@@ -666,9 +672,14 @@ Kirigami.Dialog {
         id: pullConfirmation
         title: I18n.i18nd("tuxstack", "Pull Missing Image")
         preferredWidth: Kirigami.Units.gridUnit * 30
+        leftPadding: Kirigami.Units.largeSpacing
+        rightPadding: Kirigami.Units.largeSpacing
+        topPadding: Kirigami.Units.largeSpacing
+        bottomPadding: Kirigami.Units.largeSpacing
         closePolicy: root.creating ? QQC2.Popup.NoAutoClose : QQC2.Popup.CloseOnEscape
 
         ColumnLayout {
+            Layout.fillWidth: true
             spacing: Kirigami.Units.mediumSpacing
             Kirigami.Heading {
                 Layout.fillWidth: true

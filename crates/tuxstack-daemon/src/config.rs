@@ -43,7 +43,13 @@ impl DaemonPaths {
             .parent()
             .context("mount point has no parent")?;
         secure_directory(parent)?;
-        secure_directory(&self.mount_point)?;
+        // The mount directory is owned by the FUSE filesystem while the
+        // daemon is running. chmod(2) on that read-only mount returns EROFS;
+        // verify it only when it is an ordinary directory. A stale mount is
+        // recovered by DaemonState::start before the next mount is created.
+        if !is_mountpoint(&self.mount_point) {
+            secure_directory(&self.mount_point)?;
+        }
         Ok(())
     }
 }
@@ -55,6 +61,14 @@ fn absolute_env_path(name: &str) -> Result<PathBuf> {
         bail!("{name} must be absolute");
     }
     Ok(path)
+}
+
+fn is_mountpoint(path: &Path) -> bool {
+    std::process::Command::new("mountpoint")
+        .arg("-q")
+        .arg(path)
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 fn secure_directory(path: &Path) -> Result<()> {
