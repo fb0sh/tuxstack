@@ -12,7 +12,7 @@ use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tuxstack_docker_core::{ContainerLogsOptions, DockerError, LogLine};
+use tuxstack_docker_core::{DockerError, LogLine};
 
 use crate::app_state::get_services;
 use crate::controllers::container_logs::{ContainerLogsState, DISCARDED_NOTICE, LogViewportLine};
@@ -82,13 +82,21 @@ pub struct ContainerLogsModelRust {
     pub(crate) stream_cancel: Option<CancellationToken>,
     pub(crate) status: QString,
     pub(crate) error_message: QString,
+    pub(crate) validation_error: QString,
     pub(crate) active: bool,
     pub(crate) count: i32,
+    pub(crate) stdout: bool,
+    pub(crate) stderr: bool,
     pub(crate) follow: bool,
     pub(crate) timestamps: bool,
     pub(crate) paused: bool,
     pub(crate) wrap: bool,
+    pub(crate) tail: QString,
+    pub(crate) since: QString,
     pub(crate) search_query: QString,
+    pub(crate) member_filter_id: QString,
+    pub(crate) member_model: QVariantList,
+    pub(crate) group_selection: bool,
     pub(crate) discarded: bool,
     pub(crate) discarded_message: QString,
     pub(crate) pending_count: i32,
@@ -182,12 +190,20 @@ pub mod qobject {
         #[base = QAbstractListModel]
         #[qproperty(QString, status)]
         #[qproperty(QString, error_message, cxx_name = "errorMessage")]
+        #[qproperty(QString, validation_error, cxx_name = "validationError")]
         #[qproperty(i32, count)]
+        #[qproperty(bool, stdout)]
+        #[qproperty(bool, stderr)]
         #[qproperty(bool, follow)]
         #[qproperty(bool, timestamps)]
         #[qproperty(bool, paused)]
         #[qproperty(bool, wrap)]
+        #[qproperty(QString, tail)]
+        #[qproperty(QString, since)]
         #[qproperty(QString, search_query, cxx_name = "searchQuery")]
+        #[qproperty(QString, member_filter_id, cxx_name = "memberFilterId")]
+        #[qproperty(QList_QVariant, member_model, cxx_name = "memberModel")]
+        #[qproperty(bool, group_selection, cxx_name = "groupSelection")]
         #[qproperty(bool, discarded)]
         #[qproperty(QString, discarded_message, cxx_name = "discardedMessage")]
         #[qproperty(i32, pending_count, cxx_name = "pendingCount")]
@@ -229,11 +245,26 @@ pub mod qobject {
         #[cxx_name = "setActive"]
         fn update_active(self: Pin<&mut Self>, active: bool);
         #[qinvokable]
+        #[cxx_name = "updateStdout"]
+        fn update_stdout(self: Pin<&mut Self>, enabled: bool);
+        #[qinvokable]
+        #[cxx_name = "updateStderr"]
+        fn update_stderr(self: Pin<&mut Self>, enabled: bool);
+        #[qinvokable]
         #[cxx_name = "updateFollow"]
         fn update_follow(self: Pin<&mut Self>, follow: bool);
         #[qinvokable]
         #[cxx_name = "updateTimestamps"]
         fn update_timestamps(self: Pin<&mut Self>, timestamps: bool);
+        #[qinvokable]
+        #[cxx_name = "updateTail"]
+        fn update_tail(self: Pin<&mut Self>, tail: &QString);
+        #[qinvokable]
+        #[cxx_name = "updateSince"]
+        fn update_since(self: Pin<&mut Self>, since: &QString);
+        #[qinvokable]
+        #[cxx_name = "setMemberFilter"]
+        fn set_member_filter(self: Pin<&mut Self>, container_id: &QString);
         #[qinvokable]
         #[cxx_name = "updatePaused"]
         fn update_paused(self: Pin<&mut Self>, paused: bool);
@@ -603,20 +634,46 @@ impl qobject::ContainerLogsModel {
         }
     }
 
+    pub fn update_stdout(mut self: Pin<&mut Self>, enabled: bool) {
+        self.as_mut()
+            .update_stream_option(|state| state.set_stdout(enabled), true);
+    }
+
+    pub fn update_stderr(mut self: Pin<&mut Self>, enabled: bool) {
+        self.as_mut()
+            .update_stream_option(|state| state.set_stderr(enabled), true);
+    }
+
     pub fn update_follow(mut self: Pin<&mut Self>, follow: bool) {
-        if self.as_mut().rust_mut().state.set_follow(follow) {
-            self.as_mut().cancel_stream();
-            self.as_mut().publish_logs();
-            self.as_mut().restart_logs();
-        }
+        self.as_mut()
+            .update_stream_option(|state| state.set_follow(follow), false);
     }
 
     pub fn update_timestamps(mut self: Pin<&mut Self>, timestamps: bool) {
-        if self.as_mut().rust_mut().state.set_timestamps(timestamps) {
-            self.as_mut().cancel_stream();
-            self.as_mut().rust_mut().state.clear_viewport();
+        self.as_mut()
+            .update_stream_option(|state| state.set_timestamps(timestamps), true);
+    }
+
+    pub fn update_tail(mut self: Pin<&mut Self>, tail: &QString) {
+        let tail = tail.to_string();
+        self.as_mut()
+            .update_stream_option(|state| state.set_tail(&tail), true);
+    }
+
+    pub fn update_since(mut self: Pin<&mut Self>, since: &QString) {
+        let since = since.to_string();
+        self.as_mut()
+            .update_stream_option(|state| state.set_since(&since), true);
+    }
+
+    pub fn set_member_filter(mut self: Pin<&mut Self>, container_id: &QString) {
+        if self
+            .as_mut()
+            .rust_mut()
+            .state
+            .set_member_filter(&container_id.to_string())
+        {
             self.as_mut().publish_logs();
-            self.as_mut().restart_logs();
         }
     }
 
@@ -686,6 +743,28 @@ impl qobject::ContainerLogsModel {
         cancel(&mut self.as_mut().rust_mut().stream_cancel);
     }
 
+    fn update_stream_option(
+        mut self: Pin<&mut Self>,
+        update: impl FnOnce(&mut ContainerLogsState) -> bool,
+        clear_viewport: bool,
+    ) {
+        let old_generation = self.state.generation;
+        if !update(&mut self.as_mut().rust_mut().state) {
+            return;
+        }
+        let restart = self.state.generation != old_generation;
+        if restart {
+            self.as_mut().cancel_stream();
+            if clear_viewport {
+                self.as_mut().rust_mut().state.clear_viewport();
+            }
+        }
+        self.as_mut().publish_logs();
+        if restart {
+            self.as_mut().restart_logs();
+        }
+    }
+
     fn restart_logs(mut self: Pin<&mut Self>) {
         self.as_mut().cancel_stream();
         let Some((generation, targets)) = self.as_mut().rust_mut().state.begin_stream() else {
@@ -700,13 +779,8 @@ impl qobject::ContainerLogsModel {
             self.as_mut().publish_logs();
             return;
         };
-        let tail = if self.state.entries.is_empty() {
-            self.state.tail
-        } else {
-            0
-        };
-        let timestamps = self.state.timestamps;
-        let follow = self.state.follow;
+        let include_history = self.state.entries.is_empty();
+        let options_state = self.state.clone();
         let cancel = CancellationToken::new();
         self.as_mut().rust_mut().stream_cancel = Some(cancel.clone());
         self.as_mut().publish_logs();
@@ -717,19 +791,11 @@ impl qobject::ContainerLogsModel {
         let qt = self.qt_thread();
         for target in targets {
             let services = services.clone();
+            let options = options_state.docker_options(target.running, include_history);
             let sender = sender.clone();
             let task_cancel = cancel.child_token();
             let target_qt = qt.clone();
             crate::runtime::spawn(async move {
-                let options = ContainerLogsOptions {
-                    stdout: true,
-                    stderr: true,
-                    timestamps,
-                    follow: follow && target.running,
-                    tail: Some(tail),
-                    since: None,
-                    until: None,
-                };
                 let mut stream =
                     services
                         .containers
@@ -805,13 +871,24 @@ impl qobject::ContainerLogsModel {
             .set_status(QString::from(state.status.as_str()));
         self.as_mut()
             .set_error_message(QString::from(&state.error_message));
+        self.as_mut()
+            .set_validation_error(QString::from(&state.validation_error));
         self.as_mut().set_count(count);
+        self.as_mut().set_stdout(state.stdout);
+        self.as_mut().set_stderr(state.stderr);
         self.as_mut().set_follow(state.follow);
         self.as_mut().set_timestamps(state.timestamps);
         self.as_mut().set_paused(state.paused);
         self.as_mut().set_wrap(state.wrap);
+        self.as_mut().set_tail(QString::from(state.tail.as_str()));
+        self.as_mut().set_since(QString::from(&state.since_input));
         self.as_mut()
             .set_search_query(QString::from(&state.search_query));
+        self.as_mut()
+            .set_member_filter_id(QString::from(&state.member_filter_id));
+        self.as_mut().set_member_model(log_member_variants(&state));
+        self.as_mut()
+            .set_group_selection(state.selection_kind == "group");
         self.as_mut().set_discarded(state.discarded);
         self.as_mut()
             .set_discarded_message(QString::from(if state.discarded {
@@ -852,6 +929,18 @@ fn strings(values: &QVariantList) -> Vec<String> {
         .filter_map(|value| value.value::<QString>())
         .map(|value| value.to_string())
         .collect()
+}
+
+fn log_member_variants(state: &ContainerLogsState) -> QVariantList {
+    let mut result = QVariantList::default();
+    for option in state.member_options() {
+        let mut map = QVariantMap::default();
+        map.insert(QString::from("id"), qv(&option.id));
+        map.insert(QString::from("name"), qv(&option.name));
+        map.insert(QString::from("label"), qv(&option.label));
+        result.append(QVariant::from(&map));
+    }
+    result
 }
 
 fn history_variants<'a>(history: impl Iterator<Item = &'a StatsHistoryPoint>) -> QVariantList {

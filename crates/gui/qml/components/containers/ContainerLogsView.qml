@@ -102,6 +102,115 @@ Item {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.CheckBox {
+                id: stdoutToggle
+                property bool syncing: false
+                text: I18n.i18nd("tuxstack", "stdout")
+                checked: root.logsModel ? root.logsModel.stdout : true
+                onToggled: if (root.logsModel && !syncing) {
+                    root.logsModel.updateStdout(checked)
+                    if (checked !== root.logsModel.stdout) {
+                        syncing = true
+                        checked = Qt.binding(function() {
+                            return root.logsModel ? root.logsModel.stdout : true
+                        })
+                        syncing = false
+                    }
+                }
+            }
+            QQC2.CheckBox {
+                id: stderrToggle
+                property bool syncing: false
+                text: I18n.i18nd("tuxstack", "stderr")
+                checked: root.logsModel ? root.logsModel.stderr : true
+                onToggled: if (root.logsModel && !syncing) {
+                    root.logsModel.updateStderr(checked)
+                    if (checked !== root.logsModel.stderr) {
+                        syncing = true
+                        checked = Qt.binding(function() {
+                            return root.logsModel ? root.logsModel.stderr : true
+                        })
+                        syncing = false
+                    }
+                }
+            }
+            QQC2.Label {
+                text: I18n.i18nd("tuxstack", "Tail:")
+            }
+            QQC2.ComboBox {
+                id: tailSelector
+                model: ["100", "500", "1000", "5000", "all"]
+                currentIndex: root.logsModel ? Math.max(0, model.indexOf(String(root.logsModel.tail))) : 2
+                onActivated: if (root.logsModel) root.logsModel.updateTail(currentText)
+                QQC2.ToolTip.text: I18n.i18nd("tuxstack", "Initial lines from the end of Docker history")
+                QQC2.ToolTip.visible: hovered
+            }
+            QQC2.Label {
+                text: I18n.i18nd("tuxstack", "Since:")
+            }
+            QQC2.ComboBox {
+                id: sinceSelector
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                editable: true
+                model: [I18n.i18nd("tuxstack", "All time"), "5m", "1h", "24h"]
+                editText: root.logsModel && root.logsModel.since.length > 0
+                          ? root.logsModel.since : model[0]
+                onActivated: function(index) {
+                    if (root.logsModel)
+                        root.logsModel.updateSince(index === 0 ? "" : currentText)
+                }
+                onAccepted: if (root.logsModel)
+                    root.logsModel.updateSince(editText === model[0] ? "" : editText)
+                QQC2.ToolTip.text: I18n.i18nd("tuxstack", "All time, Unix timestamp, RFC 3339, or duration (for example 30m)")
+                QQC2.ToolTip.visible: hovered
+            }
+            QQC2.Label {
+                visible: root.logsModel && root.logsModel.groupSelection
+                text: I18n.i18nd("tuxstack", "Container:")
+            }
+            QQC2.ComboBox {
+                id: memberSelector
+                Layout.fillWidth: visible
+                visible: root.logsModel && root.logsModel.groupSelection
+                model: root.logsModel ? root.logsModel.memberModel : []
+                textRole: "label"
+                valueRole: "id"
+                onActivated: if (root.logsModel) root.logsModel.setMemberFilter(currentValue)
+
+                function syncCurrentMember() {
+                    const selected = root.logsModel ? String(root.logsModel.memberFilterId) : ""
+                    for (let index = 0; index < count; ++index) {
+                        if (String(valueAt(index)) === selected) {
+                            currentIndex = index
+                            return
+                        }
+                    }
+                    currentIndex = 0
+                }
+
+                onModelChanged: syncCurrentMember()
+                Connections {
+                    target: root.logsModel
+                    function onMemberFilterIdChanged() { memberSelector.syncCurrentMember() }
+                    function onMemberModelChanged() { memberSelector.syncCurrentMember() }
+                }
+            }
+            Item {
+                Layout.fillWidth: !memberSelector.visible
+            }
+        }
+
+        Kirigami.InlineMessage {
+            Layout.fillWidth: true
+            visible: root.logsModel && root.logsModel.validationError.length > 0
+            type: Kirigami.MessageType.Error
+            text: root.logsModel ? root.logsModel.validationError : ""
+        }
+
         Kirigami.InlineMessage {
             Layout.fillWidth: true
             visible: root.logsModel && root.logsModel.discarded
