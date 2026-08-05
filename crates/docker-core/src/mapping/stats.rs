@@ -44,7 +44,16 @@ pub fn map_container_stats(
         .and_then(|u| u.total_usage);
     let system_usage = cpu.and_then(|c| c.system_cpu_usage);
     let prev_system = precpu.and_then(|c| c.system_cpu_usage);
-    let online_cpus = cpu.and_then(|c| c.online_cpus).unwrap_or(0) as u64;
+    let online_cpus = cpu
+        .and_then(|c| c.online_cpus.map(u64::from))
+        .filter(|count| *count > 0)
+        .or_else(|| {
+            cpu.and_then(|c| c.cpu_usage.as_ref())
+                .and_then(|usage| usage.percpu_usage.as_ref())
+                .map(|values| values.len() as u64)
+                .filter(|count| *count > 0)
+        })
+        .unwrap_or(1);
 
     let cpu_percent = match (total_usage, prev_total, system_usage, prev_system) {
         (Some(cur), Some(prev), Some(cur_sys), Some(prev_sys)) => {
@@ -171,6 +180,16 @@ mod tests {
         // 1000 cpu units over 1000 system units on 8 cpus → 800%
         let pct = compute_cpu_percent(2000, 1000, 11_000, 10_000, 8);
         assert!((pct - 800.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn missing_online_cpu_count_falls_back_to_per_cpu_usage() {
+        let mut response = sample_response(2000, 1000);
+        let cpu = response.cpu_stats.as_mut().unwrap();
+        cpu.online_cpus = None;
+        cpu.cpu_usage.as_mut().unwrap().percpu_usage = Some(vec![1; 4]);
+        let mapped = map_container_stats(response, None);
+        assert!((mapped.cpu_percent - 400.0).abs() < 0.001);
     }
 
     #[test]
