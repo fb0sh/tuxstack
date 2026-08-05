@@ -35,6 +35,7 @@ fn main() {
                 "qml/components/containers/ContainerListPanel.qml",
                 "qml/components/containers/ContainerLogsView.qml",
                 "qml/components/containers/ContainerStatsView.qml",
+                "qml/components/containers/ContainerTerminalView.qml",
                 "qml/components/ResourceSummaryCard.qml",
                 "qml/components/SearchField.qml",
                 "qml/components/ImageListPanel.qml",
@@ -97,6 +98,7 @@ fn main() {
     .files([
         "src/bridge/app_bridge.rs",
         "src/bridge/container_live_bridge.rs",
+        "src/bridge/container_terminal_bridge.rs",
         "src/bridge/container_tools_bridge.rs",
         "src/bridge/containers_bridge.rs",
         "src/bridge/resource_bridges.rs",

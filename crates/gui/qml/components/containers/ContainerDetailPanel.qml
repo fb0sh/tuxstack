@@ -10,12 +10,13 @@ Item {
     property var containersModel: null
     property var statsModel: null
     property var logsModel: null
+    property var terminalModel: null
     property var filesModel: null
     property bool localEndpoint: false
     property bool pageVisible: visible
     property bool statsCapability: statsModel !== null
     property bool logsCapability: logsModel !== null
-    property bool terminalCapability: false
+    property bool terminalCapability: terminalModel !== null
     property bool filesCapability: filesModel !== null
     property int currentTab: 0
 
@@ -25,7 +26,25 @@ Item {
     signal volumeRequested(string name)
     signal networkRequested(string id, string name)
     signal hostPathRequested(string path)
-    signal projectFolderRequested(string path)
+    signal notificationRequested(string message)
+
+    function openContainerTab(containerId, tabName) {
+        if (!root.containersModel || !containerId)
+            return
+        root.containersModel.selectContainer(containerId)
+        if (tabName === "stats")
+            root.currentTab = 1
+        else if (tabName === "logs")
+            root.currentTab = 2
+        else if (tabName === "terminal")
+            root.currentTab = 3
+        else if (tabName === "files")
+            root.currentTab = 4
+        else
+            root.currentTab = 0
+        root.syncLiveSelection()
+        root.syncLiveActive()
+    }
 
     function selectionArrays() {
         const ids = []
@@ -56,6 +75,12 @@ Item {
             root.statsModel.setSelection(kind, id, values.ids, values.states, values.names)
         if (root.logsModel)
             root.logsModel.setSelection(kind, id, values.ids, values.states, values.names)
+        if (root.terminalModel) {
+            if (kind === "container")
+                root.terminalModel.setSelection(id, states.length > 0 && states[0] === "running")
+            else
+                root.terminalModel.clearSelection()
+        }
         if (root.filesModel) {
             if (kind === "container")
                 root.filesModel.selectContainer(id)
@@ -74,11 +99,17 @@ Item {
             root.logsModel.setActive(Boolean(selected && root.pageVisible
                                               && root.currentTab === 2
                                               && root.logsCapability))
+        if (root.terminalModel)
+            root.terminalModel.setActive(Boolean(root.containersModel
+                                                  && root.containersModel.selectionKind === "container"
+                                                  && root.pageVisible
+                                                  && root.currentTab === 3
+                                                  && root.terminalCapability))
         if (root.filesModel)
             root.filesModel.setActive(Boolean(root.containersModel
                                                && root.containersModel.selectionKind === "container"
                                                && root.pageVisible
-                                               && root.currentTab === 3
+                                               && root.currentTab === 4
                                                && root.filesCapability))
     }
 
@@ -86,6 +117,7 @@ Item {
     onPageVisibleChanged: syncLiveActive()
     onStatsModelChanged: { syncLiveSelection(); syncLiveActive() }
     onLogsModelChanged: { syncLiveSelection(); syncLiveActive() }
+    onTerminalModelChanged: { syncLiveSelection(); syncLiveActive() }
     onFilesModelChanged: { syncLiveSelection(); syncLiveActive() }
     onStatsCapabilityChanged: syncLiveActive()
     onLogsCapabilityChanged: syncLiveActive()
@@ -129,6 +161,13 @@ Item {
                 enabled: root.logsCapability
             }
             QQC2.TabButton {
+                text: I18n.i18nd("tuxstack", "Terminal")
+                visible: root.terminalCapability
+                         && root.containersModel
+                         && root.containersModel.selectionKind === "container"
+                enabled: visible
+            }
+            QQC2.TabButton {
                 text: I18n.i18nd("tuxstack", "Files")
                 visible: root.filesCapability
                          && root.containersModel
@@ -170,10 +209,7 @@ Item {
                              && root.containersModel.detailState === "ready"
                     containersModel: root.containersModel
                     onContainerRequested: id => root.containerRequested(id)
-                    onProjectFolderRequested: function(path) {
-                        root.containersModel.requestHostPath(path)
-                        root.projectFolderRequested(path)
-                    }
+                    onProjectFolderRequested: path => root.containersModel.requestHostPath(path)
                 }
 
                 QQC2.BusyIndicator {
@@ -208,11 +244,18 @@ Item {
                 logsModel: root.logsModel
             }
 
+            ContainerTerminalView {
+                terminalModel: root.terminalModel
+                onViewLogsRequested: root.currentTab = 2
+                onViewFilesRequested: root.currentTab = 4
+            }
+
             ContainerFilesView {
                 filesModel: root.filesModel
                 localEndpoint: root.localEndpoint
                 onVolumeRequested: name => root.volumeRequested(name)
                 onHostPathRequested: path => root.hostPathRequested(path)
+                onNotificationRequested: message => root.notificationRequested(message)
             }
         }
     }

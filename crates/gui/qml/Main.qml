@@ -58,6 +58,10 @@ Kirigami.ApplicationWindow {
         id: containerLogsModel
     }
 
+    ContainerTerminalModel {
+        id: containerTerminalModel
+    }
+
     ContainerFileListModel {
         id: containerFilesModel
     }
@@ -87,6 +91,7 @@ Kirigami.ApplicationWindow {
         containersModel.shutdown()
         containerStatsModel.shutdown()
         containerLogsModel.shutdown()
+        containerTerminalModel.shutdown()
         containerFilesModel.shutdown()
         imagesModel.shutdown()
         networksModel.shutdown()
@@ -153,6 +158,8 @@ Kirigami.ApplicationWindow {
                 if (containerFilesModel.containerId.length > 0)
                     containerFilesModel.invalidateSnapshot(containerFilesModel.containerId)
                 root.refreshThrottled(containersModel, "containers")
+                if (containersModel.selectionKind === "container")
+                    containersModel.reloadDetail()
                 root.refreshThrottled(volumesModel, "volumes")
                 break
             case "daemon":
@@ -250,6 +257,7 @@ Kirigami.ApplicationWindow {
                 containersModel: containersModel
                 statsModel: containerStatsModel
                 logsModel: containerLogsModel
+                terminalModel: containerTerminalModel
                 filesModel: containerFilesModel
                 imagesModel: imagesModel
                 networksModel: networksModel
@@ -257,6 +265,11 @@ Kirigami.ApplicationWindow {
                 pendingContainerId: root.pendingContainerId
                 onNotificationRequested: function(message) {
                     root.showPassiveNotification(message)
+                }
+                onPendingContainerRequested: containerId => root.pendingContainerId = containerId
+                onPendingContainerConsumed: function(containerId) {
+                    if (root.pendingContainerId === containerId)
+                        root.pendingContainerId = ""
                 }
                 onRetryConnectionRequested: appController.startup()
                 onVolumeNavigationRequested: function(volumeName) {

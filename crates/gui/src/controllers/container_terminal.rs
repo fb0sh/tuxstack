@@ -1,10 +1,13 @@
-//! Pure lifecycle controller for a real Docker exec terminal.
+//! Lifecycle and terminal-emulation state for a real Docker exec terminal.
 //!
-//! This state machine never interprets terminal bytes. A terminal emulator
-//! surface must consume the backend stream; exposing raw/ANSI bytes through a
-//! QML TextArea is intentionally outside this controller's API.
+//! Docker TTY bytes are interpreted here with `vt100`; QML receives only
+//! rendered screen rows and cursor metadata, never ANSI escape sequences.
 
 use tuxstack_docker_core::{ContainerTerminalError, ContainerTerminalState};
+
+pub const DEFAULT_TERMINAL_ROWS: u16 = 24;
+pub const DEFAULT_TERMINAL_COLUMNS: u16 = 80;
+pub const TERMINAL_SCROLLBACK_ROWS: usize = 2_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalSelectionAction {
@@ -18,6 +21,162 @@ pub struct PendingResize {
     pub generation: u64,
     pub rows: u16,
     pub columns: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalScreenSnapshot {
+    pub rows: Vec<String>,
+    pub row_count: u16,
+    pub column_count: u16,
+    pub cursor_row: u16,
+    pub cursor_column: u16,
+    pub cursor_visible: bool,
+    pub alternate_screen: bool,
+    pub scrollback: usize,
+}
+
+/// Generation-guarded VT100 parser. Keeping the guard beside the parser makes
+/// it impossible for a queued chunk from an old Docker exec to paint a newly
+/// selected container's screen.
+pub struct ContainerTerminalRenderer {
+    generation: u64,
+    parser: vt100::Parser,
+}
+
+impl Default for ContainerTerminalRenderer {
+    fn default() -> Self {
+        Self::new(0, DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLUMNS)
+    }
+}
+
+impl ContainerTerminalRenderer {
+    pub fn new(generation: u64, rows: u16, columns: u16) -> Self {
+        Self {
+            generation,
+            parser: vt100::Parser::new(rows.max(1), columns.max(1), TERMINAL_SCROLLBACK_ROWS),
+        }
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn reset(&mut self, generation: u64, rows: u16, columns: u16) {
+        *self = Self::new(generation, rows, columns);
+    }
+
+    pub fn process(&mut self, generation: u64, bytes: &[u8]) -> bool {
+        if generation != self.generation || bytes.is_empty() {
+            return false;
+        }
+        self.parser.process(bytes);
+        true
+    }
+
+    pub fn resize(&mut self, generation: u64, rows: u16, columns: u16) -> bool {
+        if generation != self.generation || rows == 0 || columns == 0 {
+            return false;
+        }
+        if self.parser.screen().size() == (rows, columns) {
+            return false;
+        }
+        self.parser.screen_mut().set_size(rows, columns);
+        true
+    }
+
+    pub fn scroll_lines(&mut self, generation: u64, lines: i32) -> bool {
+        if generation != self.generation || lines == 0 {
+            return false;
+        }
+        let current = self.parser.screen().scrollback();
+        let next = if lines > 0 {
+            current.saturating_add(lines as usize)
+        } else {
+            current.saturating_sub(lines.unsigned_abs() as usize)
+        };
+        self.parser.screen_mut().set_scrollback(next);
+        self.parser.screen().scrollback() != current
+    }
+
+    pub fn snap_to_bottom(&mut self, generation: u64) -> bool {
+        if generation != self.generation || self.parser.screen().scrollback() == 0 {
+            return false;
+        }
+        self.parser.screen_mut().set_scrollback(0);
+        true
+    }
+
+    pub fn application_cursor(&self) -> bool {
+        self.parser.screen().application_cursor()
+    }
+
+    pub fn bracketed_paste(&self) -> bool {
+        self.parser.screen().bracketed_paste()
+    }
+
+    pub fn snapshot(&self) -> TerminalScreenSnapshot {
+        let screen = self.parser.screen();
+        let (row_count, column_count) = screen.size();
+        let (cursor_row, cursor_column) = screen.cursor_position();
+        TerminalScreenSnapshot {
+            rows: screen.rows(0, column_count).collect(),
+            row_count,
+            column_count,
+            cursor_row,
+            cursor_column,
+            cursor_visible: !screen.hide_cursor() && screen.scrollback() == 0,
+            alternate_screen: screen.alternate_screen(),
+            scrollback: screen.scrollback(),
+        }
+    }
+}
+
+/// Translate symbolic QML key names to terminal input. Cursor keys respect the
+/// VT100 application-cursor mode selected by the program inside the container.
+pub fn terminal_key_bytes(key: &str, application_cursor: bool) -> Option<Vec<u8>> {
+    let bytes: &[u8] = match key.to_ascii_lowercase().as_str() {
+        "enter" => b"\r",
+        "backspace" => b"\x7f",
+        "tab" => b"\t",
+        "escape" => b"\x1b",
+        "up" if application_cursor => b"\x1bOA",
+        "down" if application_cursor => b"\x1bOB",
+        "right" if application_cursor => b"\x1bOC",
+        "left" if application_cursor => b"\x1bOD",
+        "home" if application_cursor => b"\x1bOH",
+        "end" if application_cursor => b"\x1bOF",
+        "up" => b"\x1b[A",
+        "down" => b"\x1b[B",
+        "right" => b"\x1b[C",
+        "left" => b"\x1b[D",
+        "home" => b"\x1b[H",
+        "end" => b"\x1b[F",
+        "pageup" => b"\x1b[5~",
+        "pagedown" => b"\x1b[6~",
+        "delete" => b"\x1b[3~",
+        "insert" => b"\x1b[2~",
+        key if key.len() == 6 && key.starts_with("ctrl+") => {
+            let letter = key.as_bytes()[5];
+            if letter.is_ascii_lowercase() {
+                return Some(vec![letter - b'a' + 1]);
+            }
+            return None;
+        }
+        _ => return None,
+    };
+    Some(bytes.to_vec())
+}
+
+pub fn terminal_paste_bytes(text: &str, bracketed_paste: bool) -> Vec<u8> {
+    if bracketed_paste {
+        let mut bytes = Vec::with_capacity(text.len() + 12);
+        bytes.extend_from_slice(b"\x1b[200~");
+        bytes.extend_from_slice(text.as_bytes());
+        bytes.extend_from_slice(b"\x1b[201~");
+        bytes
+    } else {
+        text.as_bytes().to_vec()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,8 +208,8 @@ impl Default for ContainerTerminalControllerState {
             error_kind: String::new(),
             error_message: String::new(),
             exit_code: None,
-            rows: 24,
-            columns: 80,
+            rows: DEFAULT_TERMINAL_ROWS,
+            columns: DEFAULT_TERMINAL_COLUMNS,
             generation: 0,
             input_generation: 0,
             resize_generation: 0,
@@ -473,5 +632,105 @@ mod tests {
         assert!(state.apply_stream_error(generation, ContainerTerminalError::Disconnected));
         assert_eq!(state.state, ContainerTerminalState::Error);
         assert!(state.request_resize(20, 80).is_none());
+    }
+
+    #[test]
+    fn vt100_interprets_cursor_movement_and_erase() {
+        let mut renderer = ContainerTerminalRenderer::new(7, 4, 12);
+        assert!(renderer.process(7, b"hello world"));
+        assert!(renderer.process(7, b"\x1b[6D\x1b[KQt"));
+        let screen = renderer.snapshot();
+        assert_eq!(screen.rows[0], "helloQt");
+        assert_eq!((screen.cursor_row, screen.cursor_column), (0, 7));
+        assert!(!screen.rows.iter().any(|row| row.contains("\x1b")));
+    }
+
+    #[test]
+    fn vt100_preserves_utf8_split_across_docker_chunks() {
+        let mut renderer = ContainerTerminalRenderer::new(3, 2, 10);
+        let bytes = "A界B".as_bytes();
+        assert!(renderer.process(3, &bytes[..2]));
+        assert!(renderer.process(3, &bytes[2..3]));
+        assert!(renderer.process(3, &bytes[3..]));
+        assert_eq!(renderer.snapshot().rows[0], "A界B");
+    }
+
+    #[test]
+    fn vt100_switches_to_and_from_alternate_screen() {
+        let mut renderer = ContainerTerminalRenderer::new(9, 3, 12);
+        renderer.process(9, b"primary");
+        renderer.process(9, b"\x1b[?1049halt");
+        let alternate = renderer.snapshot();
+        assert!(alternate.alternate_screen);
+        assert_eq!(alternate.rows[0], "alt");
+        renderer.process(9, b"\x1b[?1049l");
+        let primary = renderer.snapshot();
+        assert!(!primary.alternate_screen);
+        assert_eq!(primary.rows[0], "primary");
+    }
+
+    #[test]
+    fn resize_updates_emulator_geometry_and_preserves_content() {
+        let mut renderer = ContainerTerminalRenderer::new(2, 2, 5);
+        renderer.process(2, b"abc");
+        assert!(renderer.resize(2, 4, 10));
+        let screen = renderer.snapshot();
+        assert_eq!((screen.row_count, screen.column_count), (4, 10));
+        assert!(screen.rows.iter().any(|row| row.contains("abc")));
+        assert!(!renderer.resize(2, 4, 10));
+        assert!(!renderer.resize(2, 0, 10));
+    }
+
+    #[test]
+    fn renderer_generation_rejects_stale_output_resize_and_scroll() {
+        let mut renderer = ContainerTerminalRenderer::new(11, 2, 8);
+        assert!(!renderer.process(10, b"secret stale output"));
+        assert!(!renderer.resize(10, 30, 100));
+        assert!(!renderer.scroll_lines(10, 5));
+        assert_eq!(renderer.snapshot().rows, vec!["", ""]);
+        renderer.reset(12, 3, 9);
+        assert!(!renderer.process(11, b"old session"));
+        assert!(renderer.process(12, b"new"));
+        assert_eq!(renderer.snapshot().rows[0], "new");
+    }
+
+    #[test]
+    fn key_mapping_covers_navigation_controls_and_application_mode() {
+        assert_eq!(terminal_key_bytes("Enter", false), Some(b"\r".to_vec()));
+        assert_eq!(terminal_key_bytes("Backspace", false), Some(vec![0x7f]));
+        assert_eq!(terminal_key_bytes("Tab", false), Some(b"\t".to_vec()));
+        assert_eq!(terminal_key_bytes("Escape", false), Some(vec![0x1b]));
+        assert_eq!(terminal_key_bytes("Up", false), Some(b"\x1b[A".to_vec()));
+        assert_eq!(terminal_key_bytes("Up", true), Some(b"\x1bOA".to_vec()));
+        assert_eq!(terminal_key_bytes("Home", false), Some(b"\x1b[H".to_vec()));
+        assert_eq!(terminal_key_bytes("End", true), Some(b"\x1bOF".to_vec()));
+        assert_eq!(
+            terminal_key_bytes("PageUp", false),
+            Some(b"\x1b[5~".to_vec())
+        );
+        assert_eq!(
+            terminal_key_bytes("PageDown", false),
+            Some(b"\x1b[6~".to_vec())
+        );
+        assert_eq!(
+            terminal_key_bytes("Delete", false),
+            Some(b"\x1b[3~".to_vec())
+        );
+        assert_eq!(
+            terminal_key_bytes("Insert", false),
+            Some(b"\x1b[2~".to_vec())
+        );
+        assert_eq!(terminal_key_bytes("Ctrl+A", false), Some(vec![1]));
+        assert_eq!(terminal_key_bytes("Ctrl+Z", false), Some(vec![26]));
+        assert_eq!(terminal_key_bytes("F1", false), None);
+    }
+
+    #[test]
+    fn bracketed_paste_is_wrapped_only_when_requested() {
+        assert_eq!(terminal_paste_bytes("hello\n", false), b"hello\n");
+        assert_eq!(
+            terminal_paste_bytes("hello\n", true),
+            b"\x1b[200~hello\n\x1b[201~"
+        );
     }
 }

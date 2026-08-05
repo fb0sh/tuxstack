@@ -88,6 +88,7 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(detail.contains("selectionKind !== \"none\""));
     assert!(detail.contains("ContainerStatsView"));
     assert!(detail.contains("ContainerLogsView"));
+    assert!(detail.contains("ContainerTerminalView"));
     assert!(detail.contains("ContainerFilesView"));
     assert!(!detail.contains("No container selected"));
     assert!(!detail.contains("Select a container"));
@@ -99,6 +100,8 @@ fn main_wires_the_long_lived_containers_model_and_events() {
     assert!(source.contains("ContainersListModel {"));
     assert!(source.contains("id: containersModel"));
     assert!(source.contains("containersModel.shutdown()"));
+    assert!(source.contains("ContainerTerminalModel {"));
+    assert!(source.contains("containerTerminalModel.shutdown()"));
     assert!(source.contains("containersModel.setConnectionState(appController.dockerStatus,"));
     assert!(source.contains("refreshThrottled(containersModel, \"containers\")"));
     assert!(source.contains("containersModel: containersModel"));
@@ -264,6 +267,7 @@ fn all_qml_components_load_without_errors() {
         "components/containers/ContainerListPanel.qml",
         "components/containers/ContainerLogsView.qml",
         "components/containers/ContainerStatsView.qml",
+        "components/containers/ContainerTerminalView.qml",
         "components/ResourceSummaryCard.qml",
         "components/SearchField.qml",
         "components/ImageListPanel.qml",
@@ -329,6 +333,7 @@ fn all_qml_components_load_without_errors() {
         "ContainersListModel",
         "ContainerStatsModel",
         "ContainerLogsModel",
+        "ContainerTerminalModel",
         "ContainerFileListModel",
         "ImageListModel",
         "ImageFileListModel",

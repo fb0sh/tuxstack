@@ -13,6 +13,7 @@ Kirigami.Page {
     property var containersModel: null
     property var statsModel: null
     property var logsModel: null
+    property var terminalModel: null
     property var filesModel: null
     property var imagesModel: null
     property var networksModel: null
@@ -21,6 +22,8 @@ Kirigami.Page {
     property bool controllerInitialized: false
 
     signal notificationRequested(string message)
+    signal pendingContainerRequested(string containerId)
+    signal pendingContainerConsumed(string containerId)
     signal retryConnectionRequested()
     signal volumeNavigationRequested(string volumeName)
     signal networkNavigationRequested(string networkId, string networkName)
@@ -28,21 +31,26 @@ Kirigami.Page {
     title: I18n.i18nd("tuxstack", "Containers")
     padding: 0
 
+    function applyPendingContainerSelection() {
+        if (!root.containersModel || root.pendingContainerId.length === 0)
+            return
+        root.containersModel.selectContainer(root.pendingContainerId)
+        if (root.containersModel.selectionKind === "container"
+                && root.containersModel.selectionId === root.pendingContainerId)
+            root.pendingContainerConsumed(root.pendingContainerId)
+    }
+
     function initializeController() {
         if (!root.containersModel || root.controllerInitialized)
             return
         root.controllerInitialized = true
         root.containersModel.initialize()
-        if (root.pendingContainerId.length > 0)
-            root.containersModel.selectContainer(root.pendingContainerId)
+        root.applyPendingContainerSelection()
     }
 
     Component.onCompleted: root.initializeController()
     onContainersModelChanged: root.initializeController()
-    onPendingContainerIdChanged: {
-        if (root.containersModel && root.pendingContainerId.length > 0)
-            root.containersModel.selectContainer(root.pendingContainerId)
-    }
+    onPendingContainerIdChanged: root.applyPendingContainerSelection()
 
     RowLayout {
         anchors.fill: parent
@@ -57,11 +65,9 @@ Kirigami.Page {
                                                      root.width * 0.38))
             Layout.maximumWidth: Kirigami.Units.gridUnit * 24
             containersModel: root.containersModel
-            // Live-tab capabilities stay false until the corresponding real
-            // controllers are registered; no non-functional menu items appear.
-            logsCapability: false
-            terminalCapability: false
-            filesCapability: false
+            logsCapability: root.logsModel !== null
+            terminalCapability: root.terminalModel !== null
+            filesCapability: root.filesModel !== null
 
             onCreateRequested: createDialog.prepare()
             onRemoveContainerRequested: function(id) {
@@ -81,6 +87,9 @@ Kirigami.Page {
                                   ? root.containersModel.detailName : id
                 killDialog.prepare(id, currentName)
             }
+            onLogsRequested: id => detailPanel.openContainerTab(id, "logs")
+            onTerminalRequested: id => detailPanel.openContainerTab(id, "terminal")
+            onFilesRequested: id => detailPanel.openContainerTab(id, "files")
         }
 
         Kirigami.Separator { Layout.fillHeight: true }
@@ -95,6 +104,7 @@ Kirigami.Page {
             containersModel: root.containersModel
             statsModel: root.statsModel
             logsModel: root.logsModel
+            terminalModel: root.terminalModel
             filesModel: root.filesModel
             localEndpoint: root.containersModel ? root.containersModel.localEndpoint : false
             pageVisible: root.visible
@@ -106,7 +116,7 @@ Kirigami.Page {
             onVolumeRequested: function(name) { root.volumeNavigationRequested(name) }
             onNetworkRequested: function(id, name) { root.networkNavigationRequested(id, name) }
             onHostPathRequested: function(path) { Qt.openUrlExternally("file://" + encodeURIComponent(path).replace(/%2F/g, "/")) }
-            onProjectFolderRequested: function(path) { Qt.openUrlExternally("file://" + encodeURIComponent(path).replace(/%2F/g, "/")) }
+            onNotificationRequested: message => root.notificationRequested(message)
         }
     }
 
@@ -126,9 +136,11 @@ Kirigami.Page {
         target: root.containersModel
         ignoreUnknownSignals: true
 
+        function onCountChanged() { root.applyPendingContainerSelection() }
+        function onListStateChanged() { root.applyPendingContainerSelection() }
         function onContainerCreated(containerId, started, message) {
             createDialog.close()
-            root.pendingContainerId = containerId
+            root.pendingContainerRequested(containerId)
             root.notificationRequested(message)
         }
         function onRemoveContainerPrepared(id, name, image, state, composeProject, mounts) {
