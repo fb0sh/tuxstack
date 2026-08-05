@@ -143,8 +143,13 @@ Kirigami.Page {
             root.pendingContainerRequested(containerId)
             root.notificationRequested(message)
         }
-        function onRemoveContainerPrepared(id, name, image, state, composeProject, mounts) {
-            removeDialog.prepare(id, name, image, state, composeProject, mounts)
+        function onRemoveContainerPrepared(preparation) {
+            removeDialog.prepare(String(preparation.id || ""),
+                                 String(preparation.name || ""),
+                                 String(preparation.image || ""),
+                                 String(preparation.state || ""),
+                                 String(preparation.composeProject || ""),
+                                 preparation.mounts || [])
         }
         function onRemoveContainerPreparationFailed(id, message) {
             root.notificationRequested(message)

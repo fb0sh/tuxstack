@@ -279,15 +279,7 @@ pub mod qobject {
         fn host_path_requested(self: Pin<&mut Self>, path: QString);
         #[qsignal]
         #[cxx_name = "removeContainerPrepared"]
-        fn remove_container_prepared(
-            self: Pin<&mut Self>,
-            id: QString,
-            name: QString,
-            image: QString,
-            state: QString,
-            compose_project: QString,
-            mounts: QList_QVariant,
-        );
+        fn remove_container_prepared(self: Pin<&mut Self>, preparation: QVariant);
         #[qsignal]
         #[cxx_name = "removeContainerPreparationFailed"]
         fn remove_container_preparation_failed(self: Pin<&mut Self>, id: QString, message: QString);
@@ -1001,14 +993,9 @@ impl qobject::ContainersListModel {
                                 &detail,
                                 &endpoint_key,
                             );
-                            model.as_mut().remove_container_prepared(
-                                QString::from(&view.id),
-                                QString::from(&view.name),
-                                QString::from(&view.image),
-                                QString::from(&view.state_name),
-                                QString::from(&view.compose_project),
-                                mount_rows(&view.mounts),
-                            );
+                            model
+                                .as_mut()
+                                .remove_container_prepared(remove_preparation_payload(&view));
                         }
                         Err(error) => model.as_mut().remove_container_preparation_failed(
                             QString::from(&id),
@@ -1886,6 +1873,24 @@ fn endpoint_host(endpoint_key: &str) -> Option<String> {
         return Some(authority[1..end].to_string());
     }
     Some(authority.split(':').next().unwrap_or(authority).to_string())
+}
+
+fn remove_preparation_payload(view: &ContainerDetailView) -> QVariant {
+    let mut map = QVariantMap::default();
+    for (key, value) in [
+        ("id", view.id.as_str()),
+        ("name", view.name.as_str()),
+        ("image", view.image.as_str()),
+        ("state", view.state_name.as_str()),
+        ("composeProject", view.compose_project.as_str()),
+    ] {
+        insert(&mut map, key, value);
+    }
+    map.insert(
+        QString::from("mounts"),
+        QVariant::from(&mount_rows(&view.mounts)),
+    );
+    QVariant::from(&map)
 }
 
 fn property_rows(rows: &[PropertyViewRow]) -> QVariantList {

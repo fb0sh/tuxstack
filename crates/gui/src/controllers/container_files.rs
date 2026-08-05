@@ -197,7 +197,7 @@ impl ContainerFilesControllerState {
     /// before using the returned generation, providing single-active-request
     /// semantics even for repeated manual refreshes.
     pub fn begin_snapshot(&mut self, now: DateTime<Utc>, force: bool) -> Option<u64> {
-        if self.container_id.is_empty() {
+        if self.container_id.is_empty() || self.snapshot_in_flight {
             return None;
         }
         if !force && self.snapshot_decision(now, false) == SnapshotDecision::Reuse {
@@ -392,15 +392,6 @@ impl ContainerFilesControllerState {
         self.update_content_state();
     }
 
-    pub fn set_sort(&mut self, column: ContainerFileSortColumn, descending: bool) -> bool {
-        if self.sort_column == column && self.sort_descending == descending {
-            return false;
-        }
-        self.sort_column = column;
-        self.sort_descending = descending;
-        true
-    }
-
     pub fn toggle_sort(&mut self, column: ContainerFileSortColumn) {
         if self.sort_column == column {
             self.sort_descending = !self.sort_descending;
@@ -481,17 +472,6 @@ impl ContainerFilesControllerState {
         } else {
             format!("Snapshot updated {} minutes ago{suffix}", seconds / 60)
         }
-    }
-
-    pub fn breadcrumb_components(&self) -> Vec<(String, String)> {
-        let mut result = vec![("/".into(), "/".into())];
-        let mut path = String::new();
-        for component in self.current_path.split('/').filter(|part| !part.is_empty()) {
-            path.push('/');
-            path.push_str(component);
-            result.push((component.to_string(), path.clone()));
-        }
-        result
     }
 
     pub fn cancel_all(&mut self) {
@@ -664,6 +644,21 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_snapshot_requests_share_the_in_flight_operation() {
+        let mut state = ContainerFilesControllerState::default();
+        state.select_container("container-a");
+        let generation = state.begin_snapshot(now(), false).unwrap();
+        assert!(state.snapshot_in_flight);
+        assert!(state.begin_snapshot(now(), false).is_none());
+        assert!(state.begin_snapshot(now(), true).is_none());
+        assert_eq!(state.snapshot_generation, generation);
+
+        assert!(state.apply_snapshot(generation, now(), vec![]));
+        assert!(!state.snapshot_in_flight);
+        assert!(state.begin_snapshot(now(), true).is_some());
+    }
+
+    #[test]
     fn selection_change_invalidates_requests_and_drops_old_snapshot() {
         let mut state = loaded();
         let generation = state.snapshot_generation;
@@ -700,6 +695,7 @@ mod tests {
         let mut state = loaded();
         let stale_list = state.begin_list().unwrap().0;
         let stale_snapshot = state.begin_snapshot(now(), true).unwrap();
+        state.invalidate();
         let fresh_snapshot = state.begin_snapshot(now(), true).unwrap();
         assert!(!state.apply_snapshot(stale_snapshot, now(), vec![]));
         assert!(state.apply_snapshot(fresh_snapshot, now(), vec![]));
@@ -714,9 +710,10 @@ mod tests {
     }
 
     #[test]
-    fn repeated_refresh_has_one_logical_active_generation() {
+    fn invalidation_allows_a_new_snapshot_generation() {
         let mut state = loaded();
         let first = state.begin_snapshot(now(), true).unwrap();
+        state.invalidate();
         let second = state.begin_snapshot(now(), true).unwrap();
         assert!(second > first);
         assert!(state.snapshot_in_flight);
@@ -759,7 +756,8 @@ mod tests {
     fn hidden_sort_and_search_are_reflected_in_queries_and_rows() {
         let mut state = loaded();
         state.set_show_hidden(true);
-        state.set_sort(ContainerFileSortColumn::Size, true);
+        state.toggle_sort(ContainerFileSortColumn::Size);
+        state.toggle_sort(ContainerFileSortColumn::Size);
         let (generation, query) = state.begin_list().unwrap();
         assert!(query.include_hidden);
         assert!(!query.include_shadowed);
@@ -781,17 +779,10 @@ mod tests {
     }
 
     #[test]
-    fn navigation_back_up_and_breadcrumbs_are_consistent() {
+    fn navigation_back_and_up_are_consistent() {
         let mut state = loaded();
-        assert!(state.navigate_to("/usr/local", true));
-        assert_eq!(
-            state.breadcrumb_components(),
-            vec![
-                ("/".into(), "/".into()),
-                ("usr".into(), "/usr".into()),
-                ("local".into(), "/usr/local".into())
-            ]
-        );
+        assert!(state.navigate_to("/usr//local/.", true));
+        assert_eq!(state.current_path, "/usr/local");
         assert!(state.go_up());
         assert_eq!(state.current_path, "/usr");
         assert!(state.go_back());
