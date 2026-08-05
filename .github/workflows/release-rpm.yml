@@ -1,0 +1,64 @@
+name: Build RPM release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to package (for example v0.3.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rpm:
+    name: Build Fedora RPM
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Build RPM and source RPM in Fedora
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            fedora:latest \
+            bash -euc '
+              dnf -y install \
+                cargo rust rust-std-static \
+                gcc-c++ cmake make pkgconf-pkg-config \
+                systemd-rpm-macros \
+                qt6-qtbase-devel qt6-qtdeclarative-devel \
+                qt6-qtquickcontrols2-devel \
+                kf6-kirigami kf6-kirigami-addons \
+                fuse3-devel musl-gcc \
+                rpm-build rpmdevtools tar gzip git ca-certificates
+              ./packaging/rpm/build-rpm.sh
+            '
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuxstack-rpm-${{ github.ref_name }}
+          if-no-files-found: error
+          path: packaging/rpm/RPMS/
+          retention-days: 30
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: packaging/rpm/RPMS/*
