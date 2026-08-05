@@ -305,6 +305,9 @@ pub mod qobject {
         fn shutdown(self: Pin<&mut Self>);
 
         #[qinvokable]
+        #[cxx_name = "clearCreateError"]
+        fn clear_create_error(self: Pin<&mut Self>);
+        #[qinvokable]
         #[cxx_name = "createContainer"]
         fn create_container(self: Pin<&mut Self>, request_json: &QString);
 
@@ -661,6 +664,10 @@ impl qobject::ContainersListModel {
         state.group_operations.clear();
         state.refresh_in_progress = false;
         self.as_mut().apply_state(state);
+    }
+
+    pub fn clear_create_error(mut self: Pin<&mut Self>) {
+        self.as_mut().set_create_error_message(QString::default());
     }
 
     pub fn create_container(mut self: Pin<&mut Self>, request_json: &QString) {

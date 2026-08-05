@@ -16,11 +16,8 @@ Kirigami.Dialog {
     property bool submitted: false
 
     readonly property bool creating: root.containersModel && root.containersModel.creating
-    readonly property bool valid: imageBox.editText.trim().length > 0
-                                  && nameField.acceptableInput
-                                  && mountRowsValid()
-                                  && portRowsValid()
-                                  && environmentRowsValid()
+    readonly property string localValidationError: validationError()
+    readonly property bool valid: root.localValidationError.length === 0
 
     title: I18n.i18nd("tuxstack", "Create Container")
     preferredWidth: Kirigami.Units.gridUnit * 44
@@ -29,6 +26,8 @@ Kirigami.Dialog {
 
     function prepare() {
         root.submitted = false
+        if (root.containersModel)
+            root.containersModel.clearCreateError()
         nameField.clear()
         imageBox.editText = ""
         createAndStart.checked = true
@@ -78,7 +77,8 @@ Kirigami.Dialog {
     }
 
     function parseAliases(text) {
-        return String(text).split(",").map(value => value.trim()).filter(value => value.length > 0)
+        const raw = String(text).trim()
+        return raw.length === 0 ? [] : raw.split(",").map(value => value.trim())
     }
 
     function parseLabels() {
@@ -88,57 +88,262 @@ Kirigami.Dialog {
             if (line.length === 0)
                 continue
             const equals = line.indexOf("=")
-            if (equals <= 0)
-                throw new Error(I18n.i18nd("tuxstack", "Labels must use key=value, one per line."))
-            labels[line.substring(0, equals).trim()] = line.substring(equals + 1)
+            const key = line.substring(0, equals).trim()
+            labels[key] = line.substring(equals + 1)
         }
         return labels
     }
 
-    function portRowsValid() {
+    function validContainerPath(value) {
+        const path = String(value).trim()
+        if (path === "/")
+            return true
+        if (path.length === 0 || path[0] !== "/" || path.indexOf("\u0000") >= 0)
+            return false
+        const components = path.substring(1).split("/")
+        return components.every(component => component.length > 0 && component !== "." && component !== "..")
+    }
+
+    function validIpv4(value) {
+        const parts = String(value).split(".")
+        if (parts.length !== 4)
+            return false
+        return parts.every(part => /^(0|[1-9][0-9]{0,2})$/.test(part)
+                           && Number(part) <= 255)
+    }
+
+    function validIpv6(value) {
+        const address = String(value)
+        if (address.length === 0 || address.indexOf("%") >= 0 || !/^[0-9A-Fa-f:.]+$/.test(address))
+            return false
+        const compressed = address.indexOf("::")
+        if (compressed >= 0 && address.indexOf("::", compressed + 2) >= 0)
+            return false
+        const halves = compressed >= 0 ? address.split("::") : [address]
+        const left = halves[0].length === 0 ? [] : halves[0].split(":")
+        const right = compressed < 0 || halves[1].length === 0 ? [] : halves[1].split(":")
+        const components = left.concat(right)
+        let units = 0
+        for (let index = 0; index < components.length; ++index) {
+            const component = components[index]
+            if (component.indexOf(".") >= 0) {
+                if (index !== components.length - 1 || !validIpv4(component))
+                    return false
+                units += 2
+            } else {
+                if (!/^[0-9A-Fa-f]{1,4}$/.test(component))
+                    return false
+                units += 1
+            }
+        }
+        return compressed >= 0 ? units < 8 : units === 8
+    }
+
+    function validIpAddress(value) {
+        const address = String(value).trim()
+        return validIpv4(address) || validIpv6(address)
+    }
+
+    function positiveDecimal(value) {
+        const text = String(value).trim()
+        if (!/^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/.test(text))
+            return null
+        const number = Number(text)
+        return Number.isFinite(number) && number > 0 ? number : null
+    }
+
+    function unsignedInteger(value) {
+        const text = String(value).trim()
+        if (!/^[0-9]+$/.test(text))
+            return null
+        const number = Number(text)
+        return Number.isSafeInteger(number) ? number : null
+    }
+
+    function portValidationError() {
         const seen = ({})
         for (let index = 0; index < portRows.count; ++index) {
             const row = portRows.get(index)
-            const containerPort = Number(row.containerPort)
-            if (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535)
-                return false
-            if (String(row.hostPort).length > 0) {
-                const hostPort = Number(row.hostPort)
-                if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535)
-                    return false
-                const key = String(row.hostIp) + ":" + hostPort + "/" + String(row.protocol)
-                if (seen[key]) return false
+            const containerText = String(row.containerPort).trim()
+            const containerPort = unsignedInteger(containerText)
+            if (containerPort === null || containerPort < 1 || containerPort > 65535)
+                return I18n.i18nd("tuxstack", "Container ports must be whole numbers from 1 to 65535.")
+            const hostIp = String(row.hostIp).trim()
+            if (hostIp.length > 0 && !validIpAddress(hostIp))
+                return I18n.i18nd("tuxstack", "Published host IP addresses must be valid IPv4 or IPv6 addresses.")
+            const protocol = String(row.protocol)
+            if (["Tcp", "Udp", "Sctp"].indexOf(protocol) < 0)
+                return I18n.i18nd("tuxstack", "Published port protocols must be TCP, UDP, or SCTP.")
+            const hostText = String(row.hostPort).trim()
+            if (hostText.length > 0) {
+                const hostPort = unsignedInteger(hostText)
+                if (hostPort === null || hostPort < 1 || hostPort > 65535)
+                    return I18n.i18nd("tuxstack", "Host ports must be whole numbers from 1 to 65535.")
+                const key = "binding:" + hostIp + "\u0000" + hostPort + "\u0000" + protocol
+                if (seen[key])
+                    return I18n.i18nd("tuxstack", "Published host IP, port, and protocol combinations must be unique.")
                 seen[key] = true
             }
         }
-        return true
+        return ""
     }
 
-    function mountRowsValid() {
+    function mountValidationError() {
         const seen = ({})
         for (let index = 0; index < mountRows.count; ++index) {
             const row = mountRows.get(index)
             const destination = String(row.destination).trim()
-            if (destination.length === 0 || destination[0] !== "/" || seen[destination])
-                return false
-            seen[destination] = true
-            if (row.kind !== "Tmpfs" && String(row.source).trim().length === 0)
-                return false
-            if (row.kind === "Bind" && String(row.source).trim()[0] !== "/")
-                return false
+            if (!validContainerPath(destination))
+                return I18n.i18nd("tuxstack", "Mount destinations must be absolute container paths without empty, '.' or '..' components.")
+            const destinationKey = "destination:" + destination
+            if (seen[destinationKey])
+                return I18n.i18nd("tuxstack", "Mount destinations must be unique.")
+            seen[destinationKey] = true
+            const source = String(row.source).trim()
+            if (row.kind === "Volume" && (source.length === 0 || source.indexOf("\u0000") >= 0))
+                return I18n.i18nd("tuxstack", "Volume mounts require a nonempty source name without NUL.")
+            if (row.kind === "Bind" && !validContainerPath(source))
+                return I18n.i18nd("tuxstack", "Bind mount sources must be absolute host paths without empty, '.' or '..' components.")
+            if (["Volume", "Bind", "Tmpfs"].indexOf(String(row.kind)) < 0)
+                return I18n.i18nd("tuxstack", "Mount types must be volume, bind, or tmpfs.")
+            if (row.kind === "Tmpfs") {
+                const sizeText = String(row.sizeMiB).trim()
+                if (sizeText.length > 0) {
+                    const sizeMiB = positiveDecimal(sizeText)
+                    const sizeBytes = sizeMiB === null ? 0 : Math.round(sizeMiB * 1024 * 1024)
+                    if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1)
+                        return I18n.i18nd("tuxstack", "Tmpfs size must be a positive MiB value in the supported numeric range.")
+                }
+                const modeText = String(row.mode).trim()
+                if (modeText.length > 0
+                        && (!/^0?[0-7]{1,4}$/.test(modeText) || parseInt(modeText, 8) > 0o7777))
+                    return I18n.i18nd("tuxstack", "Tmpfs mode must be an octal value from 0 to 07777.")
+            }
         }
-        return true
+        return ""
     }
 
-    function environmentRowsValid() {
+    function environmentValidationError() {
         const seen = ({})
         for (let index = 0; index < environmentRows.count; ++index) {
-            const key = String(environmentRows.get(index).key).trim()
-            if (key.length === 0 || key.indexOf("=") >= 0 || seen[key])
-                return false
-            seen[key] = true
+            const row = environmentRows.get(index)
+            const key = String(row.key).trim()
+            if (key.length === 0 || key.indexOf("=") >= 0 || key.indexOf("\u0000") >= 0)
+                return I18n.i18nd("tuxstack", "Environment keys must be nonempty and cannot contain '=' or NUL.")
+            if (String(row.value).indexOf("\u0000") >= 0)
+                return I18n.i18nd("tuxstack", "Environment values cannot contain NUL.")
+            const seenKey = "environment:" + key
+            if (seen[seenKey])
+                return I18n.i18nd("tuxstack", "Environment keys must be unique.")
+            seen[seenKey] = true
         }
-        return true
+        return ""
+    }
+
+    function networkValidationError() {
+        const seenNetworks = ({})
+        for (let index = 0; index < networkRows.count; ++index) {
+            const row = networkRows.get(index)
+            const name = String(row.name).trim()
+            if (name.length === 0 || name.indexOf("\u0000") >= 0)
+                return I18n.i18nd("tuxstack", "Network names must be nonempty and cannot contain NUL.")
+            const networkKey = "network:" + name
+            if (seenNetworks[networkKey])
+                return I18n.i18nd("tuxstack", "Network names must be unique.")
+            seenNetworks[networkKey] = true
+            const aliases = parseAliases(row.aliases)
+            const seenAliases = ({})
+            for (const alias of aliases) {
+                if (alias.length === 0 || alias.indexOf("\u0000") >= 0)
+                    return I18n.i18nd("tuxstack", "Network aliases must be nonempty and cannot contain NUL.")
+                const aliasKey = "alias:" + alias
+                if (seenAliases[aliasKey])
+                    return I18n.i18nd("tuxstack", "Aliases on the same network must be unique.")
+                seenAliases[aliasKey] = true
+            }
+            const ipv4 = String(row.ipv4).trim()
+            if (ipv4.length > 0 && !validIpv4(ipv4))
+                return I18n.i18nd("tuxstack", "Network IPv4 addresses must use valid IPv4 syntax.")
+            const ipv6 = String(row.ipv6).trim()
+            if (ipv6.length > 0 && !validIpv6(ipv6))
+                return I18n.i18nd("tuxstack", "Network IPv6 addresses must use valid IPv6 syntax.")
+        }
+        return ""
+    }
+
+    function resourceValidationError() {
+        const cpuText = cpuField.text.trim()
+        if (cpuText.length > 0) {
+            const cpu = positiveDecimal(cpuText)
+            const millis = cpu === null ? 0 : Math.round(cpu * 1000)
+            if (!Number.isSafeInteger(millis) || millis < 1 || millis > 4294967295)
+                return I18n.i18nd("tuxstack", "CPU limit must be positive and fit the supported range.")
+        }
+        const memoryText = memoryField.text.trim()
+        if (memoryText.length > 0) {
+            const memory = positiveDecimal(memoryText)
+            const bytes = memory === null ? 0 : Math.round(memory * 1024 * 1024)
+            if (!Number.isSafeInteger(bytes) || bytes < 1)
+                return I18n.i18nd("tuxstack", "Memory limit must be a positive MiB value in the supported range.")
+        }
+        const pidsText = pidsField.text.trim()
+        if (pidsText.length > 0) {
+            const pids = unsignedInteger(pidsText)
+            if (pids === null || pids < 1)
+                return I18n.i18nd("tuxstack", "PIDs limit must be a positive whole number.")
+        }
+        return ""
+    }
+
+    function restartValidationError() {
+        if (autoRemoveCheck.checked && restartPolicy.currentIndex !== 0)
+            return I18n.i18nd("tuxstack", "Auto remove cannot be combined with a restart policy.")
+        if (restartPolicy.currentIndex === 3 && retryField.text.trim().length > 0) {
+            const retries = unsignedInteger(retryField.text)
+            if (retries === null)
+                return I18n.i18nd("tuxstack", "Maximum retries must be a nonnegative whole number.")
+        }
+        return ""
+    }
+
+    function labelValidationError() {
+        const seen = ({})
+        for (const raw of labelsField.text.split(/\r?\n/)) {
+            const line = raw.trim()
+            if (line.length === 0)
+                continue
+            const equals = line.indexOf("=")
+            const key = equals < 0 ? "" : line.substring(0, equals).trim()
+            const value = equals < 0 ? "" : line.substring(equals + 1)
+            if (equals < 0)
+                return I18n.i18nd("tuxstack", "Labels must use key=value, one per line.")
+            if (key.length === 0 || key.indexOf("\u0000") >= 0)
+                return I18n.i18nd("tuxstack", "Label keys must be nonempty and cannot contain NUL.")
+            if (value.indexOf("\u0000") >= 0)
+                return I18n.i18nd("tuxstack", "Label values cannot contain NUL.")
+            const seenKey = "label:" + key
+            if (seen[seenKey])
+                return I18n.i18nd("tuxstack", "Label keys must be unique.")
+            seen[seenKey] = true
+        }
+        return ""
+    }
+
+    function validationError() {
+        if (imageBox.editText.trim().length === 0)
+            return I18n.i18nd("tuxstack", "An image reference is required.")
+        const name = nameField.text.trim()
+        if (name.length > 0 && !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name))
+            return I18n.i18nd("tuxstack", "Container name must start with a letter or digit and contain only letters, digits, '_', '.', or '-'.")
+        if (workingDirectory.text.trim().length > 0 && !validContainerPath(workingDirectory.text))
+            return I18n.i18nd("tuxstack", "Working directory must be an absolute container path without empty, '.' or '..' components.")
+        return portValidationError()
+                || mountValidationError()
+                || environmentValidationError()
+                || networkValidationError()
+                || resourceValidationError()
+                || restartValidationError()
+                || labelValidationError()
     }
 
     function buildRequest() {
@@ -146,8 +351,8 @@ Kirigami.Dialog {
         for (let index = 0; index < portRows.count; ++index) {
             const row = portRows.get(index)
             ports.push({
-                container_port: Number(row.containerPort),
-                protocol: String(row.protocol),
+                container_port: Number(String(row.containerPort).trim()),
+                protocol: String(row.protocol).toLowerCase(),
                 host_ip: optionalText(row.hostIp),
                 host_port: optionalNumber(row.hostPort)
             })
@@ -175,7 +380,7 @@ Kirigami.Dialog {
             const row = networkRows.get(index)
             networks.push({ name: String(row.name).trim(), aliases: parseAliases(row.aliases), ipv4_address: optionalText(row.ipv4), ipv6_address: optionalText(row.ipv6) })
         }
-        const policyNames = ["No", "Always", "UnlessStopped", "OnFailure"]
+        const policyNames = ["no", "always", "unless_stopped", "on_failure"]
         const cpu = optionalNumber(cpuField.text)
         const memory = optionalNumber(memoryField.text)
         return {
@@ -215,11 +420,7 @@ Kirigami.Dialog {
         if (!root.valid || root.creating || !root.containersModel)
             return
         root.submitted = true
-        try {
-            root.containersModel.createContainer(JSON.stringify(buildRequest()))
-        } catch (error) {
-            localError.text = String(error)
-        }
+        root.containersModel.createContainer(JSON.stringify(buildRequest()))
     }
 
     ListModel { id: portRows }
@@ -318,7 +519,7 @@ Kirigami.Dialog {
                     delegate: RowLayout {
                         required property int index; required property string key; required property string value
                         QQC2.TextField { Layout.fillWidth: true; placeholderText: "KEY"; text: parent.key; onTextEdited: environmentRows.setProperty(parent.index, "key", text) }
-                        QQC2.TextField { Layout.fillWidth: true; placeholderText: I18n.i18nd("tuxstack", "Value"); text: parent.value; echoMode: QQC2.TextInput.PasswordEchoOnEdit; onTextEdited: environmentRows.setProperty(parent.index, "value", text) }
+                        QQC2.TextField { Layout.fillWidth: true; placeholderText: I18n.i18nd("tuxstack", "Value"); text: parent.value; echoMode: TextInput.PasswordEchoOnEdit; onTextEdited: environmentRows.setProperty(parent.index, "value", text) }
                         QQC2.ToolButton { icon.name: "list-remove"; onClicked: environmentRows.remove(parent.index) }
                     }
                 }
@@ -371,9 +572,11 @@ Kirigami.Dialog {
         Kirigami.InlineMessage {
             id: localError
             Layout.fillWidth: true
-            visible: text.length > 0 || (root.containersModel && root.containersModel.createErrorMessage.length > 0)
+            visible: text.length > 0
             type: Kirigami.MessageType.Error
-            text: root.containersModel && root.containersModel.createErrorMessage.length > 0 ? root.containersModel.createErrorMessage : ""
+            text: root.containersModel && root.containersModel.createErrorMessage.length > 0
+                  ? root.containersModel.createErrorMessage
+                  : root.localValidationError
         }
     }
 

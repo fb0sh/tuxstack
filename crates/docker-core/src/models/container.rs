@@ -5,7 +5,8 @@ use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::ComposeContainerMetadata;
 
@@ -635,11 +636,44 @@ pub struct CreateContainerRequest {
     pub networks: Vec<CreateContainerNetwork>,
     pub resources: CreateContainerResources,
     pub restart_policy: ContainerRestartPolicy,
+    #[serde(deserialize_with = "deserialize_unique_labels")]
     pub labels: BTreeMap<String, String>,
     pub read_only_rootfs: bool,
     pub privileged: bool,
     pub auto_remove: bool,
     pub create_and_start: bool,
+}
+
+fn deserialize_unique_labels<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct UniqueLabelsVisitor;
+
+    impl<'de> Visitor<'de> for UniqueLabelsVisitor {
+        type Value = BTreeMap<String, String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an object with unique container label keys")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut labels = BTreeMap::new();
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                if labels.insert(key.clone(), value).is_some() {
+                    return Err(serde::de::Error::custom(format!(
+                        "duplicate container label key: {key}"
+                    )));
+                }
+            }
+            Ok(labels)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueLabelsVisitor)
 }
 
 impl Default for CreateContainerRequest {
@@ -695,9 +729,16 @@ impl CreateContainerRequest {
             {
                 return Err(CreateContainerValidationError::InvalidHostIp);
             }
+            if port.host_port == Some(0) {
+                return Err(CreateContainerValidationError::InvalidHostPort);
+            }
             if let Some(host_port) = port.host_port {
                 let key = (
-                    port.host_ip.clone().unwrap_or_default(),
+                    port.host_ip
+                        .as_deref()
+                        .map(str::parse::<IpAddr>)
+                        .transpose()
+                        .map_err(|_| CreateContainerValidationError::InvalidHostIp)?,
                     host_port,
                     port.protocol.as_str(),
                 );
@@ -729,6 +770,10 @@ impl CreateContainerRequest {
                     return Err(CreateContainerValidationError::InvalidMountSource);
                 }
                 CreateContainerMount::Tmpfs {
+                    size_bytes: Some(0),
+                    ..
+                } => return Err(CreateContainerValidationError::InvalidTmpfsSize),
+                CreateContainerMount::Tmpfs {
                     mode: Some(mode), ..
                 } if *mode > 0o7777 => {
                     return Err(CreateContainerValidationError::InvalidTmpfsMode);
@@ -758,9 +803,14 @@ impl CreateContainerRequest {
         }
         let mut networks = BTreeSet::new();
         for network in &self.networks {
+            let mut aliases = BTreeSet::new();
             if network.name.trim().is_empty()
                 || network.name.as_bytes().contains(&0)
-                || network.aliases.iter().any(|alias| alias.trim().is_empty())
+                || network.aliases.iter().any(|alias| {
+                    alias.trim().is_empty()
+                        || alias.as_bytes().contains(&0)
+                        || !aliases.insert(alias.as_str())
+                })
                 || network
                     .ipv4_address
                     .as_deref()
@@ -782,11 +832,7 @@ impl CreateContainerRequest {
         if self.resources.memory_bytes == Some(0) {
             return Err(CreateContainerValidationError::InvalidMemoryLimit);
         }
-        if self
-            .resources
-            .pids_limit
-            .is_some_and(|limit| limit == 0 || limit < -1)
-        {
+        if self.resources.pids_limit.is_some_and(|limit| limit <= 0) {
             return Err(CreateContainerValidationError::InvalidPidsLimit);
         }
         if (self.restart_policy.name != ContainerRestartPolicyName::OnFailure
@@ -835,6 +881,8 @@ pub enum CreateContainerValidationError {
     InvalidName(String),
     #[error("container port must be between 1 and 65535")]
     InvalidContainerPort,
+    #[error("host port must be between 1 and 65535")]
+    InvalidHostPort,
     #[error("published host IP address is invalid")]
     InvalidHostIp,
     #[error("duplicate published host port binding")]
@@ -845,6 +893,8 @@ pub enum CreateContainerValidationError {
     DuplicateMountDestination(String),
     #[error("mount source is invalid")]
     InvalidMountSource,
+    #[error("tmpfs size must be greater than zero")]
+    InvalidTmpfsSize,
     #[error("tmpfs mode must be between 0 and 07777")]
     InvalidTmpfsMode,
     #[error("working directory must be an absolute container path")]
@@ -859,7 +909,7 @@ pub enum CreateContainerValidationError {
     InvalidCpuLimit,
     #[error("memory limit must be greater than zero")]
     InvalidMemoryLimit,
-    #[error("PIDs limit must not be zero")]
+    #[error("PIDs limit must be greater than zero")]
     InvalidPidsLimit,
     #[error("maximum retry count is only valid for on-failure restart policy")]
     InvalidRestartPolicy,
@@ -1042,6 +1092,107 @@ mod tests {
         assert_eq!(
             request.validate(),
             Err(CreateContainerValidationError::InvalidCpuLimit)
+        );
+    }
+
+    #[test]
+    fn create_validation_rejects_zero_host_port_tmpfs_size_and_pids() {
+        let mut request = CreateContainerRequest {
+            image: "busybox:latest".into(),
+            ..Default::default()
+        };
+        request.ports.push(CreateContainerPort {
+            container_port: 80,
+            protocol: ContainerPortProtocol::Tcp,
+            host_ip: None,
+            host_port: Some(0),
+        });
+        assert_eq!(
+            request.validate(),
+            Err(CreateContainerValidationError::InvalidHostPort)
+        );
+
+        request.ports.clear();
+        request.mounts.push(CreateContainerMount::Tmpfs {
+            destination: "/run".into(),
+            size_bytes: Some(0),
+            mode: None,
+        });
+        assert_eq!(
+            request.validate(),
+            Err(CreateContainerValidationError::InvalidTmpfsSize)
+        );
+
+        request.mounts.clear();
+        request.resources.pids_limit = Some(-1);
+        assert_eq!(
+            request.validate(),
+            Err(CreateContainerValidationError::InvalidPidsLimit)
+        );
+    }
+
+    #[test]
+    fn create_validation_rejects_duplicate_network_aliases_and_canonical_bindings() {
+        let mut request = CreateContainerRequest {
+            image: "busybox:latest".into(),
+            networks: vec![CreateContainerNetwork {
+                name: "front".into(),
+                aliases: vec!["web".into(), "web".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            request.validate(),
+            Err(CreateContainerValidationError::InvalidOrDuplicateNetwork(
+                "front".into()
+            ))
+        );
+
+        request.networks.clear();
+        request.ports = vec![
+            CreateContainerPort {
+                container_port: 80,
+                protocol: ContainerPortProtocol::Tcp,
+                host_ip: Some("0:0:0:0:0:0:0:1".into()),
+                host_port: Some(8080),
+            },
+            CreateContainerPort {
+                container_port: 81,
+                protocol: ContainerPortProtocol::Tcp,
+                host_ip: Some("::1".into()),
+                host_port: Some(8080),
+            },
+        ];
+        assert_eq!(
+            request.validate(),
+            Err(CreateContainerValidationError::DuplicatePortBinding)
+        );
+    }
+
+    #[test]
+    fn create_label_deserializer_rejects_duplicate_keys() {
+        #[derive(Deserialize)]
+        struct LabelsOnly {
+            #[serde(deserialize_with = "deserialize_unique_labels")]
+            labels: BTreeMap<String, String>,
+        }
+
+        let parsed = serde_json::from_str::<LabelsOnly>(
+            r#"{"labels":{"team":"platform","team":"runtime"}}"#,
+        );
+        let error = parsed.err().expect("duplicate label key must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("duplicate container label key: team")
+        );
+
+        let parsed = serde_json::from_str::<LabelsOnly>(r#"{"labels":{"team":"platform"}}"#)
+            .expect("unique labels must parse");
+        assert_eq!(
+            parsed.labels.get("team").map(String::as_str),
+            Some("platform")
         );
     }
 
