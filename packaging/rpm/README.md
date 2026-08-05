@@ -14,7 +14,7 @@ and the per-user daemon unit:
 On Fedora/RHEL-like systems install the build toolchain first:
 
 ```bash
-sudo dnf install rpm-build rpmdevtools cargo rust cargo-vendor \
+sudo dnf install rpm-build rpmdevtools cargo rust rustup \
   gcc-c++ cmake make pkgconf-pkg-config \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtquickcontrols2-devel \
   kf6-kirigami kf6-kirigami-addons fuse3-devel musl-gcc

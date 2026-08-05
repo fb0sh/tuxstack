@@ -24,12 +24,7 @@ BuildRequires:  qt6-qtquickcontrols2-devel
 BuildRequires:  kf6-kirigami
 BuildRequires:  kf6-kirigami-addons
 BuildRequires:  musl-gcc
-%ifarch x86_64
-BuildRequires:  rust-std-static-x86_64-unknown-linux-musl
-%endif
-%ifarch aarch64
-BuildRequires:  rust-std-static-aarch64-unknown-linux-musl
-%endif
+BuildRequires:  rustup
 
 Requires:       systemd
 Requires:       qt6-qtbase
@@ -52,6 +47,20 @@ read-only FUSE namespace under ~/TuxStack/docker.
 %setup -q -n %{name}-%{version}
 
 %build
+# Fedora's rust-std-static package contains only the host standard library;
+# it does not provide the linux-musl target package required by the embedded
+# filesystem helper. Bootstrap an isolated stable rustup toolchain instead of
+# referring to the nonexistent rust-std-static-* RPM capabilities.
+export RUSTUP_HOME="%{_builddir}/.rustup"
+export CARGO_HOME="%{_builddir}/.cargo-rustup"
+rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
+export PATH="$CARGO_HOME/bin:$PATH"
+case "$(uname -m)" in
+    x86_64) rustup target add x86_64-unknown-linux-musl ;;
+    aarch64) rustup target add aarch64-unknown-linux-musl ;;
+    *) echo "Unsupported RPM architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
 # docker-core's build script also builds the static filesystem helper for the
 # host architecture. cargo is intentionally used directly here so this spec
 # remains usable outside Fedora's cargo-rpm macro set.

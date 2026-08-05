@@ -7,8 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to package (for example v0.3.1)"
+        description: "Release tag to publish (for example v0.3.1)"
         required: true
+        type: string
+      source_ref:
+        description: "Git ref to build; use main to rebuild an existing release tag"
+        required: true
+        default: main
         type: string
 
 permissions:
@@ -16,6 +21,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  SOURCE_DATE_EPOCH: "1785974400"
 
 jobs:
   rpm:
@@ -25,18 +31,19 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref }}
           fetch-depth: 0
 
       - name: Build RPM and source RPM in Fedora
         run: |
           docker run --rm \
+            --env SOURCE_DATE_EPOCH \
             --volume "$GITHUB_WORKSPACE:/workspace" \
             --workdir /workspace \
             fedora:latest \
             bash -euc '
               dnf -y install \
-                cargo rust rust-std-static \
+                cargo rust rustup \
                 gcc-c++ cmake make pkgconf-pkg-config \
                 systemd-rpm-macros \
                 qt6-qtbase-devel qt6-qtdeclarative-devel \
@@ -50,7 +57,7 @@ jobs:
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tuxstack-rpm-${{ github.ref_name }}
+          name: tuxstack-rpm-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           if-no-files-found: error
           path: packaging/rpm/RPMS/
           retention-days: 30
@@ -60,5 +67,6 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           generate_release_notes: true
+          overwrite_files: true
           fail_on_unmatched_files: true
           files: packaging/rpm/RPMS/*
