@@ -175,6 +175,18 @@ pub enum Request {
     GetProviderDescriptor(ResourcePath),
     PerformResourceOperation(ResourceOperation),
     Docker(Box<DockerRequest>),
+    ContainerTerminalInput {
+        subscription_id: SubscriptionId,
+        bytes: Vec<u8>,
+    },
+    ContainerTerminalResize {
+        subscription_id: SubscriptionId,
+        rows: u16,
+        cols: u16,
+    },
+    ContainerTerminalClose {
+        subscription_id: SubscriptionId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -655,6 +667,7 @@ pub enum ResourceChange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SubscriptionEndReason {
+    Completed,
     Unsubscribed,
     ServerShutdown,
     ResourceRemoved,

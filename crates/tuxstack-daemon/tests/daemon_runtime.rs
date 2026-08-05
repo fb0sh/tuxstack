@@ -2,11 +2,52 @@
 
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use tuxstack_client::{Client, ClientConfig};
-use tuxstack_protocol::{DockerResourceRef, MountState, Request, Response};
+use tuxstack_protocol::{DockerResourceRef, MountState, ProtocolErrorCode, Request, Response};
+
+struct DaemonGuard {
+    child: Option<Child>,
+    mount: std::path::PathBuf,
+}
+
+impl DaemonGuard {
+    fn child_mut(&mut self) -> &mut Child {
+        self.child.as_mut().expect("daemon child is present")
+    }
+
+    fn stop(&mut self) -> Option<ExitStatus> {
+        let mut child = self.child.take()?;
+        unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+        for _ in 0..200 {
+            if let Some(status) = child.try_wait().ok().flatten() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        child.wait().ok()
+    }
+}
+
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        let _ = self.stop();
+        if Command::new("mountpoint")
+            .arg("-q")
+            .arg(&self.mount)
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            let _ = Command::new("fusermount3")
+                .args(["-u", "-z"])
+                .arg(&self.mount)
+                .status();
+        }
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires local Docker, /dev/fuse, and fusermount3"]
@@ -29,7 +70,7 @@ async fn daemon_owns_secure_ipc_and_persistent_readonly_mount() {
     fs::create_dir_all(&cache).unwrap();
     fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tuxstackd"))
+    let child = Command::new(env!("CARGO_BIN_EXE_tuxstackd"))
         .env("HOME", &home)
         .env("XDG_RUNTIME_DIR", &runtime)
         .env("XDG_CACHE_HOME", &cache)
@@ -39,6 +80,10 @@ async fn daemon_owns_secure_ipc_and_persistent_readonly_mount() {
         .unwrap();
     let socket = runtime.join("tuxstack/control.sock");
     let mount = home.join("TuxStack/docker");
+    let mut daemon = DaemonGuard {
+        child: Some(child),
+        mount: mount.clone(),
+    };
     let ready = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             if socket.exists()
@@ -50,7 +95,10 @@ async fn daemon_owns_secure_ipc_and_persistent_readonly_mount() {
             {
                 break;
             }
-            assert!(child.try_wait().unwrap().is_none(), "daemon exited early");
+            assert!(
+                daemon.child_mut().try_wait().unwrap().is_none(),
+                "daemon exited early"
+            );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
@@ -73,25 +121,16 @@ async fn daemon_owns_secure_ipc_and_persistent_readonly_mount() {
     let resource = DockerResourceRef::Volume {
         volume_name: "nonexistent-integration-volume".into(),
     };
-    let Response::ResourceFusePath(path) = client
-        .request(Request::GetResourceFusePath(resource.clone()))
+    let Response::Error(error) = client
+        .request(Request::GetResourceFusePath(resource))
         .await
         .unwrap()
     else {
-        panic!("unexpected resource-path response");
+        panic!("unknown resources must not receive guessed FUSE paths");
     };
-    assert_eq!(path.resource, resource);
-    assert!(path.path.starts_with(&mount));
-    assert!(matches!(
-        path.descriptor.status,
-        tuxstack_protocol::ProviderStatus::Unavailable { .. }
-    ));
+    assert_eq!(error.code, ProtocolErrorCode::NotFound);
 
-    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-    let status = tokio::task::spawn_blocking(move || child.wait())
-        .await
-        .unwrap()
-        .unwrap();
+    let status = daemon.stop().expect("stop daemon");
     assert!(status.success());
     assert!(!socket.exists());
     assert!(
