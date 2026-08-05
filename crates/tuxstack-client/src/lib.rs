@@ -225,12 +225,12 @@ impl Client {
         let (request_id, body) = self
             .inner
             .round_trip(
-                ProtocolBody::Request(request),
+                ProtocolBody::Request(Box::new(request)),
                 self.inner.config.request_timeout,
             )
             .await?;
         match body {
-            ProtocolBody::Response(response) => Ok(response),
+            ProtocolBody::Response(response) => Ok(*response),
             other => Err(ClientError::UnexpectedMessage {
                 request_id,
                 expected: "Response",
@@ -395,7 +395,7 @@ impl Subscription {
             )
             .await?;
         match body {
-            ProtocolBody::Response(Response::Acknowledged) => Ok(()),
+            ProtocolBody::Response(response) if *response == Response::Acknowledged => Ok(()),
             other => Err(ClientError::UnexpectedMessage {
                 request_id,
                 expected: "Response::Acknowledged",

@@ -1752,8 +1752,19 @@ dependencies = [
  "tokio-util",
  "toml",
  "tracing",
+ "tuxstack-domain",
  "tuxstack-fs-protocol",
  "uuid",
+]
+
+[[package]]
+name = "tuxstack-domain"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1780,6 +1791,7 @@ dependencies = [
  "ciborium",
  "serde",
  "thiserror 2.0.18",
+ "tuxstack-domain",
 ]
 
 [[package]]

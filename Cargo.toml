@@ -4,6 +4,7 @@ members = [
     "crates/docker-core",
     "crates/gui",
     "crates/tuxstack-client",
+    "crates/tuxstack-domain",
     "crates/tuxstack-fs-helper",
     "crates/tuxstack-fs-protocol",
     "crates/tuxstack-protocol",
@@ -46,6 +47,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 slab = "0.4"
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tuxstack-domain = { path = "crates/tuxstack-domain" }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [profile.release]

@@ -115,7 +115,7 @@ async fn handshake_concurrent_requests_subscription_and_ping_are_typed() {
             &mut stream,
             &ProtocolEnvelope::new(
                 second.request_id,
-                ProtocolBody::Response(Response::MountStatus(status().mount)),
+                ProtocolBody::Response(Box::new(Response::MountStatus(status().mount))),
             ),
         )
         .await;
@@ -123,7 +123,7 @@ async fn handshake_concurrent_requests_subscription_and_ping_are_typed() {
             &mut stream,
             &ProtocolEnvelope::new(
                 first.request_id,
-                ProtocolBody::Response(Response::DaemonStatus(status())),
+                ProtocolBody::Response(Box::new(Response::DaemonStatus(status()))),
             ),
         )
         .await;
@@ -163,7 +163,7 @@ async fn handshake_concurrent_requests_subscription_and_ping_are_typed() {
             &mut stream,
             &ProtocolEnvelope::new(
                 unsubscribe.request_id,
-                ProtocolBody::Response(Response::Acknowledged),
+                ProtocolBody::Response(Box::new(Response::Acknowledged)),
             ),
         )
         .await;

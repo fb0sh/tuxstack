@@ -77,7 +77,7 @@ pub struct VolumeContainerReference {
     pub id: String,
     pub short_id: String,
     pub name: String,
-    pub state: crate::models::ContainerState,
+    pub state: crate::ContainerState,
     pub destination: String,
     pub read_only: bool,
     pub propagation: Option<String>,

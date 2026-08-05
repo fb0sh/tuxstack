@@ -1,14 +1,16 @@
 [package]
-name = "tuxstack-protocol"
+name = "tuxstack-domain"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Domain-neutral typed local IPC protocol for TuxStack"
+description = "Protocol-neutral Docker and filesystem domain models for TuxStack"
 publish = false
 
 [dependencies]
-ciborium.workspace = true
+chrono.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tuxstack-domain.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

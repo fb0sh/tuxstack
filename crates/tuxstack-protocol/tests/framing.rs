@@ -1,8 +1,9 @@
 use std::io::Cursor;
 
+use tuxstack_domain::{CreateContainerRequest, CreateEnvironmentVariable};
 use tuxstack_protocol::{
-    ClientHello, FrameError, PROTOCOL_VERSION, ProtocolBody, ProtocolEnvelope, Request,
-    decode_frame, encode_frame, encode_frame_with_limit, read_frame,
+    ClientHello, DockerRequest, FrameError, PROTOCOL_VERSION, ProtocolBody, ProtocolEnvelope,
+    Request, decode_frame, encode_frame, encode_frame_with_limit, read_frame,
 };
 
 fn ping() -> ProtocolEnvelope {
@@ -13,13 +14,13 @@ fn ping() -> ProtocolEnvelope {
 fn cbor_frame_round_trips() {
     let envelope = ProtocolEnvelope::new(
         42,
-        ProtocolBody::Request(Request::GetProviderDescriptor(
+        ProtocolBody::Request(Box::new(Request::GetProviderDescriptor(
             tuxstack_protocol::ResourcePath::root(
                 tuxstack_protocol::DockerResourceRef::Container {
                     container_id: "abc".into(),
                 },
             ),
-        )),
+        ))),
     );
     let encoded = encode_frame(&envelope).unwrap();
     assert_eq!(decode_frame(&encoded).unwrap(), envelope);
@@ -28,6 +29,29 @@ fn cbor_frame_round_trips() {
         encode_frame_with_limit(&envelope, 1),
         Err(FrameError::Oversized { maximum: 1, .. })
     ));
+}
+
+#[test]
+fn typed_docker_request_round_trips_without_untyped_payloads() {
+    let request = CreateContainerRequest {
+        image: "postgres:17".into(),
+        environment: vec![CreateEnvironmentVariable {
+            key: "POSTGRES_PASSWORD".into(),
+            value: "secret-not-logged".into(),
+        }],
+        create_and_start: true,
+        ..Default::default()
+    };
+    let envelope = ProtocolEnvelope::new(
+        43,
+        ProtocolBody::Request(Box::new(Request::Docker(Box::new(
+            DockerRequest::CreateContainer {
+                request: Box::new(request),
+            },
+        )))),
+    );
+    let encoded = encode_frame(&envelope).unwrap();
+    assert_eq!(decode_frame(&encoded).unwrap(), envelope);
 }
 
 #[test]

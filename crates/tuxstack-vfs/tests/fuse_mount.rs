@@ -114,7 +114,10 @@ fn mount_in_memory_namespace_read_only() {
         .unwrap_err()
         .raw_os_error();
     assert!(
-        matches!(special_error, Some(libc::ENXIO | libc::EACCES | libc::EPERM)),
+        matches!(
+            special_error,
+            Some(libc::ENXIO | libc::EACCES | libc::EPERM)
+        ),
         "special node open must be denied safely, got {special_error:?}"
     );
 

@@ -9,17 +9,7 @@ use crate::mapping::containers::short_id;
 use crate::models::{
     ContainerSummary, EnvironmentVariable, ImageContainerReference, ImageDetail, ImageSummary,
 };
-
-/// Normalize an image ID for comparisons while retaining only hexadecimal
-/// digest data. Docker may return `sha256:`, `sha256-`, or a bare full/short ID.
-pub fn normalize_image_id(id: &str) -> String {
-    let trimmed = id.trim();
-    trimmed
-        .strip_prefix("sha256:")
-        .or_else(|| trimmed.strip_prefix("sha256-"))
-        .unwrap_or(trimmed)
-        .to_ascii_lowercase()
-}
+pub use tuxstack_domain::normalize_image_id;
 
 /// Return Docker's canonical full-ID representation while still accepting
 /// short IDs used by old daemons and tests.

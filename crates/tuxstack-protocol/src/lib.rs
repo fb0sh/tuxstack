@@ -12,6 +12,16 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tuxstack_domain::{
+    CloneVolumeRequest, ContainerDetail, ContainerGroupId, ContainerGroupOperationResult,
+    ContainerGroupSummary, ContainerLogsOptions, ContainerRuntimeState, ContainerStats,
+    ContainerSummary, CreateContainerRequest, CreateContainerResult, CreateNetworkOptions,
+    CreateNetworkResult, CreateVolumeRequest, DockerSystemInfo, ImageDeleteResult, ImageDetail,
+    ImagePullProgress, ImageSummary, KillContainerOptions, LogLine, NetworkDetail, NetworkSummary,
+    OverviewData, PruneVolumeFilters, PullImageOptions, RemoveContainerOptions, RemoveImageOptions,
+    RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions, VolumeDetail,
+    VolumePruneResult, VolumeSummary,
+};
 
 /// Current wire protocol version. Incompatible changes require a new value.
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -72,7 +82,7 @@ impl ProviderCapabilities {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProtocolEnvelope {
     pub protocol_version: u32,
     pub request_id: RequestId,
@@ -90,14 +100,14 @@ impl ProtocolEnvelope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ProtocolBody {
     Hello(ClientHello),
     Accepted(ServerHello),
     Rejected(HandshakeRejection),
-    Request(Request),
-    Response(Response),
+    Request(Box<Request>),
+    Response(Box<Response>),
     Subscribe(SubscriptionRequest),
     Subscribed(SubscriptionAccepted),
     Unsubscribe { subscription_id: SubscriptionId },
@@ -155,7 +165,7 @@ pub enum HandshakeRejectionCode {
     ServerUnavailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {
     GetDaemonStatus,
@@ -164,9 +174,10 @@ pub enum Request {
     GetResourceFusePath(DockerResourceRef),
     GetProviderDescriptor(ResourcePath),
     PerformResourceOperation(ResourceOperation),
+    Docker(Box<DockerRequest>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Response {
     DaemonStatus(DaemonStatus),
@@ -174,8 +185,151 @@ pub enum Response {
     ResourceFusePath(ResourceFusePath),
     ProviderDescriptor(ProviderDescriptor),
     ResourceOperation(ResourceOperationResult),
+    Docker(Box<DockerResponse>),
     Acknowledged,
     Error(ProtocolError),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum DockerRequest {
+    SystemInfo,
+    Overview,
+    ListContainers {
+        all: bool,
+        limit: Option<usize>,
+        search: Option<String>,
+        state: Option<ContainerRuntimeState>,
+    },
+    InspectContainer {
+        id: String,
+    },
+    StartContainer {
+        id: String,
+    },
+    StopContainer {
+        id: String,
+        options: StopContainerOptions,
+    },
+    RestartContainer {
+        id: String,
+        options: RestartContainerOptions,
+    },
+    PauseContainer {
+        id: String,
+    },
+    UnpauseContainer {
+        id: String,
+    },
+    KillContainer {
+        id: String,
+        options: KillContainerOptions,
+    },
+    RemoveContainer {
+        id: String,
+        options: RemoveContainerOptions,
+    },
+    RenameContainer {
+        id: String,
+        new_name: String,
+    },
+    CreateContainer {
+        request: Box<CreateContainerRequest>,
+    },
+    ContainerStats {
+        id: String,
+    },
+    ContainerLogs {
+        id: String,
+        options: ContainerLogsOptions,
+    },
+    ListComposeProjects,
+    ExecuteComposeTargets {
+        group_id: ContainerGroupId,
+        target_ids: Vec<String>,
+        action: ComposeAction,
+    },
+    ListImages {
+        search: Option<String>,
+    },
+    InspectImage {
+        id: String,
+    },
+    RemoveImage {
+        id: String,
+        options: RemoveImageOptions,
+    },
+    PullImage {
+        options: PullImageOptions,
+    },
+    ListNetworks {
+        search: Option<String>,
+    },
+    InspectNetwork {
+        id: String,
+    },
+    CreateNetwork {
+        options: CreateNetworkOptions,
+    },
+    RemoveNetwork {
+        id: String,
+    },
+    ListVolumes {
+        search: Option<String>,
+    },
+    InspectVolume {
+        name: String,
+    },
+    CreateVolume {
+        request: CreateVolumeRequest,
+    },
+    RemoveVolume {
+        name: String,
+        options: RemoveVolumeOptions,
+    },
+    PruneVolumes {
+        filters: PruneVolumeFilters,
+    },
+    CloneVolume {
+        request: CloneVolumeRequest,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ComposeAction {
+    Start,
+    Stop(StopContainerOptions),
+    Restart(RestartContainerOptions),
+    Kill(KillContainerOptions),
+    Pause,
+    Unpause,
+    Remove(RemoveContainerOptions),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum DockerResponse {
+    SystemInfo(DockerSystemInfo),
+    Overview(OverviewData),
+    Containers(Vec<ContainerSummary>),
+    ContainerDetail(ContainerDetail),
+    ContainerCreated(CreateContainerResult),
+    ContainerStats(ContainerStats),
+    ContainerLogs(Vec<LogLine>),
+    ComposeProjects(Vec<ContainerGroupSummary>),
+    ComposeOperation(ContainerGroupOperationResult),
+    Images(Vec<ImageSummary>),
+    ImageDetail(ImageDetail),
+    ImagesRemoved(Vec<ImageDeleteResult>),
+    ImagePullAccepted { subscription_id: SubscriptionId },
+    Networks(Vec<NetworkSummary>),
+    NetworkDetail(NetworkDetail),
+    NetworkCreated(CreateNetworkResult),
+    Volumes(Vec<VolumeSummary>),
+    VolumeDetail(VolumeDetail),
+    VolumesPruned(VolumePruneResult),
+    Acknowledged,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,8 +509,27 @@ pub enum ProtocolErrorCode {
 pub enum SubscriptionRequest {
     DaemonStatus,
     MountStatus,
-    ResourceChanges { kinds: Vec<ResourceKind> },
-    ProviderStatus { resource: DockerResourceRef },
+    ResourceChanges {
+        kinds: Vec<ResourceKind>,
+    },
+    ProviderStatus {
+        resource: DockerResourceRef,
+    },
+    ContainerStats {
+        container_ids: Vec<String>,
+    },
+    ContainerLogs {
+        container_ids: Vec<String>,
+        options: ContainerLogsOptions,
+    },
+    ImagePull {
+        options: PullImageOptions,
+    },
+    ContainerTerminal {
+        container_id: String,
+        rows: u16,
+        cols: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -372,7 +545,7 @@ pub enum ResourceKind {
     Volume,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ServerEvent {
     DaemonStatus {
@@ -393,6 +566,28 @@ pub enum ServerEvent {
         subscription_id: SubscriptionId,
         path: ResourcePath,
         descriptor: ProviderDescriptor,
+    },
+    ContainerStats {
+        subscription_id: SubscriptionId,
+        container_id: String,
+        stats: ContainerStats,
+    },
+    ContainerLog {
+        subscription_id: SubscriptionId,
+        container_id: String,
+        line: LogLine,
+    },
+    ImagePullProgress {
+        subscription_id: SubscriptionId,
+        progress: ImagePullProgress,
+    },
+    TerminalOutput {
+        subscription_id: SubscriptionId,
+        bytes: Vec<u8>,
+    },
+    TerminalState {
+        subscription_id: SubscriptionId,
+        state: TerminalState,
     },
     SubscriptionEnded {
         subscription_id: SubscriptionId,
@@ -416,11 +611,35 @@ impl ServerEvent {
             | Self::ProviderStatus {
                 subscription_id, ..
             }
+            | Self::ContainerStats {
+                subscription_id, ..
+            }
+            | Self::ContainerLog {
+                subscription_id, ..
+            }
+            | Self::ImagePullProgress {
+                subscription_id, ..
+            }
+            | Self::TerminalOutput {
+                subscription_id, ..
+            }
+            | Self::TerminalState {
+                subscription_id, ..
+            }
             | Self::SubscriptionEnded {
                 subscription_id, ..
             } => *subscription_id,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TerminalState {
+    Connecting,
+    Running { shell: String },
+    Exited { exit_code: Option<i64> },
+    Failed { reason: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

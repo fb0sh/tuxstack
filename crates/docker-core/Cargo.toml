@@ -19,6 +19,7 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 toml = "0.8"
+tuxstack-domain.workspace = true
 tuxstack-fs-protocol = { path = "../tuxstack-fs-protocol" }
 uuid = { workspace = true }
 base64 = "0.22"

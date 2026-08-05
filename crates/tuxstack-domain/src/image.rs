@@ -30,6 +30,15 @@ pub struct ImageSummary {
 ///
 /// Registry ports are preserved (`registry:5000/repo:tag`), while digest-only,
 /// untagged, and dangling references return `None`.
+pub fn normalize_image_id(id: &str) -> String {
+    let trimmed = id.trim();
+    trimmed
+        .strip_prefix("sha256:")
+        .or_else(|| trimmed.strip_prefix("sha256-"))
+        .unwrap_or(trimmed)
+        .to_ascii_lowercase()
+}
+
 pub fn parse_repo_tag(reference: &str) -> Option<(&str, &str)> {
     if reference.is_empty() || reference == "<none>:<none>" || reference.contains('@') {
         return None;
@@ -50,7 +59,7 @@ impl ImageSummary {
         let mut seen = std::collections::HashSet::new();
         images
             .iter()
-            .filter(|image| seen.insert(crate::mapping::images::normalize_image_id(&image.id)))
+            .filter(|image| seen.insert(normalize_image_id(&image.id)))
             .map(|image| image.size_bytes)
             .sum()
     }

@@ -1011,11 +1011,10 @@ mod tests {
 
         value
             .labels
-            .insert(crate::models::COMPOSE_PROJECT_LABEL.into(), "demo".into());
-        value.labels.insert(
-            crate::models::COMPOSE_SERVICE_LABEL.into(),
-            "frontend".into(),
-        );
+            .insert(crate::COMPOSE_PROJECT_LABEL.into(), "demo".into());
+        value
+            .labels
+            .insert(crate::COMPOSE_SERVICE_LABEL.into(), "frontend".into());
         assert!(container_matches_search(&value, "DEMO"));
         assert!(container_matches_search(&value, "front"));
     }
