@@ -9,8 +9,8 @@ use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
-use futures_util::{StreamExt, stream};
 use tokio_util::sync::CancellationToken;
+use tuxstack_docker_core::services::ComposeGroupAction;
 use tuxstack_docker_core::{
     ContainerOperationState, ContainerSortMode, DockerError, GroupOperationState,
     RemoveContainerOptions, RestartContainerOptions, StopContainerOptions,
@@ -667,16 +667,16 @@ impl qobject::ContainersListModel {
         if self.creating {
             return;
         }
-        let request =
-            match parse_create_request(&request_json.to_string()) {
-                Ok(request) => request,
-                Err(error) => {
-                    self.as_mut().set_create_error_message(QString::from(format!(
+        let request = match parse_create_request(&request_json.to_string()) {
+            Ok(request) => request,
+            Err(error) => {
+                self.as_mut()
+                    .set_create_error_message(QString::from(format!(
                         "Invalid create request: {error}"
                     )));
-                    return;
-                }
-            };
+                return;
+            }
+        };
         if let Err(error) = request.validate() {
             self.as_mut()
                 .set_create_error_message(QString::from(error.to_string()));
@@ -702,7 +702,9 @@ impl qobject::ContainersListModel {
                                 format!("Network {}: {}", failure.network, failure.error)
                             }));
                             if let Some(error) = &result.start_error {
-                                messages.push(format!("Container was created but did not start: {error}"));
+                                messages.push(format!(
+                                    "Container was created but did not start: {error}"
+                                ));
                             }
                             let message = if messages.is_empty() {
                                 if result.started {
@@ -721,9 +723,9 @@ impl qobject::ContainersListModel {
                             model.as_mut().refresh();
                         }
                         Err(error) => {
-                            model
-                                .as_mut()
-                                .set_create_error_message(QString::from(operation_error_message(&error)));
+                            model.as_mut().set_create_error_message(QString::from(
+                                operation_error_message(&error),
+                            ));
                         }
                     }
                 })
@@ -1101,57 +1103,42 @@ impl qobject::ContainersListModel {
             .insert(id.clone(), cancel.clone());
         let qt_thread = self.qt_thread();
         crate::runtime::spawn(async move {
-            let results = if matches!(
-                &action,
-                GroupBridgeAction::Remove { force: true, .. }
-                    | GroupBridgeAction::Remove {
-                        remove_volumes: true,
-                        ..
-                    }
-            ) {
-                // The current Compose API deliberately exposes safe removal
-                // only. Explicit force/anonymous-volume options therefore use
-                // the documented real-container fallback, bounded to six.
-                run_group_container_fallback(
-                    services.clone(),
-                    targets.clone(),
-                    names.clone(),
-                    action.clone(),
-                    cancel.clone(),
-                )
-                .await
-            } else {
-                let official = tokio::select! {
-                    _ = cancel.cancelled() => return,
-                    result = execute_compose_action(&services, &group_id, &action) => result,
-                };
-                match official {
-                    Ok(result) => result
-                        .members
-                        .into_iter()
-                        .map(|member| GroupTargetResult {
-                            container_name: names
-                                .get(&member.container_id)
-                                .cloned()
-                                .unwrap_or_else(|| member.container_id.clone()),
-                            success: member.error.is_none(),
-                            error: member.error.unwrap_or_default(),
-                            container_id: member.container_id,
-                        })
-                        .collect(),
-                    Err(error) => targets
-                        .into_iter()
-                        .map(|container_id| GroupTargetResult {
-                            container_name: names
-                                .get(&container_id)
-                                .cloned()
-                                .unwrap_or_else(|| container_id.clone()),
-                            container_id,
-                            success: false,
-                            error: operation_error_message(&error),
-                        })
-                        .collect(),
-                }
+            let explicit_targets = targets.clone();
+            let executed = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = execute_compose_action(
+                    &services,
+                    &group_id,
+                    &explicit_targets,
+                    &action,
+                ) => result,
+            };
+            let results: Vec<GroupTargetResult> = match executed {
+                Ok(result) => result
+                    .members
+                    .into_iter()
+                    .map(|member| GroupTargetResult {
+                        container_name: names
+                            .get(&member.container_id)
+                            .cloned()
+                            .unwrap_or_else(|| member.container_id.clone()),
+                        success: member.error.is_none(),
+                        error: member.error.unwrap_or_default(),
+                        container_id: member.container_id,
+                    })
+                    .collect(),
+                Err(error) => targets
+                    .into_iter()
+                    .map(|container_id| GroupTargetResult {
+                        container_name: names
+                            .get(&container_id)
+                            .cloned()
+                            .unwrap_or_else(|| container_id.clone()),
+                        container_id,
+                        success: false,
+                        error: operation_error_message(&error),
+                    })
+                    .collect(),
             };
             qt_thread
                 .queue(move |mut model| {
@@ -1421,20 +1408,25 @@ impl GroupBridgeAction {
         }
     }
 
-    fn container_action(&self) -> BridgeAction {
+    fn compose_action(&self) -> ComposeGroupAction {
         match self {
-            Self::Start => BridgeAction::Start,
-            Self::Stop => BridgeAction::Stop,
-            Self::Restart => BridgeAction::Restart,
-            Self::Pause => BridgeAction::Pause,
-            Self::Unpause => BridgeAction::Unpause,
+            Self::Start => ComposeGroupAction::Start,
+            Self::Stop => ComposeGroupAction::Stop(StopContainerOptions {
+                timeout_seconds: Some(10),
+            }),
+            Self::Restart => ComposeGroupAction::Restart(RestartContainerOptions {
+                timeout_seconds: Some(10),
+            }),
+            Self::Pause => ComposeGroupAction::Pause,
+            Self::Unpause => ComposeGroupAction::Unpause,
             Self::Remove {
                 force,
                 remove_volumes,
-            } => BridgeAction::Remove {
+            } => ComposeGroupAction::Remove(RemoveContainerOptions {
                 force: *force,
                 remove_volumes: *remove_volumes,
-            },
+                remove_links: false,
+            }),
         }
     }
 }
@@ -1442,50 +1434,13 @@ impl GroupBridgeAction {
 async fn execute_compose_action(
     services: &tuxstack_docker_core::DockerServices,
     group_id: &tuxstack_docker_core::ContainerGroupId,
+    targets: &[String],
     action: &GroupBridgeAction,
 ) -> Result<tuxstack_docker_core::ContainerGroupOperationResult, DockerError> {
-    match action {
-        GroupBridgeAction::Start => services.compose.start_group(group_id).await,
-        GroupBridgeAction::Stop => services.compose.stop_group(group_id).await,
-        GroupBridgeAction::Restart => services.compose.restart_group(group_id).await,
-        GroupBridgeAction::Pause => services.compose.pause_group(group_id).await,
-        GroupBridgeAction::Unpause => services.compose.unpause_group(group_id).await,
-        GroupBridgeAction::Remove { .. } => services.compose.remove_group(group_id).await,
-    }
-}
-
-async fn run_group_container_fallback(
-    services: std::sync::Arc<tuxstack_docker_core::DockerServices>,
-    targets: Vec<String>,
-    names: HashMap<String, String>,
-    action: GroupBridgeAction,
-    cancel: CancellationToken,
-) -> Vec<GroupTargetResult> {
-    stream::iter(targets.into_iter().map(|target| {
-        let services = services.clone();
-        let action = action.clone();
-        let name = names
-            .get(&target)
-            .cloned()
-            .unwrap_or_else(|| target.clone());
-        async move {
-            let result =
-                execute_container_action(&services, &target, &action.container_action()).await;
-            GroupTargetResult {
-                container_id: target,
-                container_name: name,
-                success: result.is_ok(),
-                error: result
-                    .err()
-                    .map(|error| operation_error_message(&error))
-                    .unwrap_or_default(),
-            }
-        }
-    }))
-    .buffer_unordered(6)
-    .take_until(cancel.cancelled_owned())
-    .collect::<Vec<_>>()
-    .await
+    services
+        .compose
+        .execute_group_targets(group_id, targets, action.compose_action())
+        .await
 }
 
 async fn execute_container_action(
@@ -1899,10 +1854,10 @@ mod tests {
     }
 
     #[test]
-    fn group_actions_map_to_real_container_fallback_actions() {
+    fn group_actions_map_to_explicit_target_compose_actions() {
         assert_eq!(
-            GroupBridgeAction::Start.container_action(),
-            BridgeAction::Start
+            GroupBridgeAction::Start.compose_action(),
+            ComposeGroupAction::Start
         );
         assert_eq!(
             GroupBridgeAction::Pause.operation(),
@@ -1913,11 +1868,12 @@ mod tests {
                 force: true,
                 remove_volumes: false
             }
-            .container_action(),
-            BridgeAction::Remove {
+            .compose_action(),
+            ComposeGroupAction::Remove(RemoveContainerOptions {
                 force: true,
-                remove_volumes: false
-            }
+                remove_volumes: false,
+                remove_links: false,
+            })
         );
     }
 

@@ -473,16 +473,14 @@ fn create_body(
     let mut port_bindings: HashMap<String, Option<Vec<BollardPortBinding>>> = HashMap::new();
     for port in &request.ports {
         let key = format!("{}/{}", port.container_port, port.protocol.as_str());
-        if port.host_ip.is_some() || port.host_port.is_some() {
-            port_bindings
-                .entry(key)
-                .or_default()
-                .get_or_insert_with(Vec::new)
-                .push(BollardPortBinding {
-                    host_ip: port.host_ip.clone(),
-                    host_port: port.host_port.map(|value| value.to_string()),
-                });
-        }
+        port_bindings
+            .entry(key)
+            .or_default()
+            .get_or_insert_with(Vec::new)
+            .push(BollardPortBinding {
+                host_ip: port.host_ip.clone(),
+                host_port: port.host_port.map(|value| value.to_string()),
+            });
     }
     let mounts = request
         .mounts
@@ -709,6 +707,28 @@ mod tests {
         assert_eq!(binding.host_port.as_deref(), Some("8080"));
         let endpoint = &body.networking_config.unwrap().endpoints_config.unwrap()["front"];
         assert_eq!(endpoint.aliases.as_deref(), Some(&["web".into()][..]));
+    }
+
+    #[test]
+    fn create_body_publishes_port_with_daemon_assigned_host_binding() {
+        let request = CreateContainerRequest {
+            image: "busybox:latest".into(),
+            ports: vec![CreateContainerPort {
+                container_port: 8080,
+                protocol: ContainerPortProtocol::Tcp,
+                host_ip: None,
+                host_port: None,
+            }],
+            ..Default::default()
+        };
+
+        request.validate().unwrap();
+        let body = create_body(&request, None).unwrap();
+        assert_eq!(body.exposed_ports, Some(vec!["8080/tcp".into()]));
+        let bindings = body.host_config.unwrap().port_bindings.unwrap();
+        let binding = &bindings["8080/tcp"].as_ref().unwrap()[0];
+        assert_eq!(binding.host_ip, None);
+        assert_eq!(binding.host_port, None);
     }
 
     #[test]
