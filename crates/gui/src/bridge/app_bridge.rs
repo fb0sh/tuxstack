@@ -45,11 +45,18 @@ pub mod qobject {
         #[cxx_name = "refreshOverview"]
         fn refresh_overview(self: Pin<&mut Self>);
 
-        /// Emitted when the Docker event monitor publishes a debounced change
-        /// batch; `kind` is one of images/containers/volumes/networks/daemon.
+        /// Emitted once per changed non-container resource kind in a
+        /// debounced batch; `kind` is images/volumes/networks/daemon.
         #[qsignal]
         #[cxx_name = "dockerChanged"]
         fn docker_changed(self: Pin<&mut Self>, kind: QString);
+
+        /// Emitted for each distinct `(actorId, action)` container event in
+        /// first-seen order within the debounced batch.
+        #[qsignal]
+        #[cxx_name = "containerChanged"]
+        fn container_changed(self: Pin<&mut Self>, actor_id: QString, action: QString);
+
     }
 }
 
@@ -119,8 +126,8 @@ impl qobject::AppController {
                         Ok(services) => {
                             app_state::set_services(services.clone());
                             // Start the global Docker event monitor: it
-                            // debounces /events bursts and emits dockerChanged
-                            // so pages refresh only what changed.
+                            // debounces /events bursts and forwards precise
+                            // resource and container change signals.
                             let monitor = app_state::get_store().events.clone();
                             monitor.rebind_client(services.client());
                             let watch_loop = monitor.clone();
@@ -148,18 +155,35 @@ impl qobject::AppController {
                                         "dockerChanged notification forwarded"
                                     );
                                     let kinds = notification.kinds.clone();
+                                    let container_changes = notification.container_changes.clone();
+                                    let container_batch_fallback = kinds.contains(
+                                        &tuxstack_docker_core::cache::ChangeKind::Containers,
+                                    ) && (notification.reconnected
+                                        || notification.container_changes_truncated);
                                     qt_thread
                                         .queue(move |mut controller| {
                                             for kind in kinds {
                                                 let name = match kind {
                                                     tuxstack_docker_core::cache::ChangeKind::Images => "images",
-                                                    tuxstack_docker_core::cache::ChangeKind::Containers => "containers",
+                                                    tuxstack_docker_core::cache::ChangeKind::Containers => continue,
                                                     tuxstack_docker_core::cache::ChangeKind::Volumes => "volumes",
                                                     tuxstack_docker_core::cache::ChangeKind::Networks => "networks",
                                                     tuxstack_docker_core::cache::ChangeKind::Daemon => "daemon",
                                                 };
                                                 controller.as_mut().docker_changed(
                                                     QString::from(name),
+                                                );
+                                            }
+                                            for change in container_changes {
+                                                controller.as_mut().container_changed(
+                                                    QString::from(change.actor_id),
+                                                    QString::from(change.action),
+                                                );
+                                            }
+                                            if container_batch_fallback {
+                                                controller.as_mut().container_changed(
+                                                    QString::default(),
+                                                    QString::default(),
                                                 );
                                             }
                                         })
@@ -245,5 +269,30 @@ impl qobject::AppController {
                 })
                 .unwrap_or_else(|error| tracing::debug!(%error, "Qt object destroyed before async result delivery"));
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    const MAIN_QML: &str = include_str!("../../qml/Main.qml");
+
+    #[test]
+    fn main_handles_precise_container_event_details() {
+        assert!(MAIN_QML.contains("function onContainerChanged(actorId, action)"));
+        assert!(MAIN_QML.contains("containersModel.selectionId === actorId"));
+        assert!(MAIN_QML.contains("containerFilesModel.invalidateSnapshot(actorId)"));
+        assert!(MAIN_QML.contains("containerTerminalModel.invalidateContainer(actorId)"));
+        assert!(MAIN_QML.contains("root.scheduleSelectedDetail(\"\", true)"));
+    }
+
+    #[test]
+    fn main_uses_trailing_refresh_timers_and_filters_exec_events() {
+        assert!(MAIN_QML.contains("imagesRefreshTimer.restart()"));
+        assert!(MAIN_QML.contains("containersRefreshTimer.restart()"));
+        assert!(MAIN_QML.contains("volumesRefreshTimer.restart()"));
+        assert!(MAIN_QML.contains("networksRefreshTimer.restart()"));
+        assert!(!MAIN_QML.contains("lastRefreshAt"));
+        assert!(!MAIN_QML.contains("\"exec_start\""));
+        assert!(!MAIN_QML.contains("\"exec_die\""));
     }
 }

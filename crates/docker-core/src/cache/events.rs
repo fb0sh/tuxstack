@@ -27,15 +27,77 @@ pub enum ChangeKind {
     Daemon,
 }
 
+/// A container event retained in a debounced change batch.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ContainerChange {
+    /// Docker actor ID. Empty only when the daemon omitted the actor ID.
+    pub actor_id: String,
+    /// Docker container event action.
+    pub action: String,
+}
+
+/// Maximum number of distinct container changes retained in one batch.
+const MAX_CONTAINER_CHANGES: usize = 256;
+
 /// A debounced batch of changes ready for the consumer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeNotification {
     /// Distinct resource classes touched by the batch (order-stable).
     pub kinds: Vec<ChangeKind>,
+    /// Distinct container changes in first-seen order.
+    pub container_changes: Vec<ContainerChange>,
+    /// Whether additional distinct container changes exceeded the batch cap.
+    pub container_changes_truncated: bool,
     /// Number of raw events coalesced into this notification.
     pub burst: usize,
     /// Whether the stream had to reconnect before this batch.
     pub reconnected: bool,
+}
+
+struct PendingBatch {
+    start: tokio::time::Instant,
+    kinds: HashSet<ChangeKind>,
+    container_changes: Vec<ContainerChange>,
+    seen_container_changes: HashSet<ContainerChange>,
+    container_changes_truncated: bool,
+    burst: usize,
+}
+
+impl PendingBatch {
+    fn new(kind: ChangeKind, event: &DockerEvent) -> Self {
+        let mut batch = Self {
+            start: tokio::time::Instant::now(),
+            kinds: HashSet::new(),
+            container_changes: Vec::new(),
+            seen_container_changes: HashSet::new(),
+            container_changes_truncated: false,
+            burst: 0,
+        };
+        batch.add(kind, event);
+        batch
+    }
+
+    fn add(&mut self, kind: ChangeKind, event: &DockerEvent) {
+        self.kinds.insert(kind);
+        self.burst += 1;
+        if kind != ChangeKind::Containers {
+            return;
+        }
+
+        let change = ContainerChange {
+            actor_id: event.actor_id.clone().unwrap_or_default(),
+            action: event.action.clone(),
+        };
+        if self.seen_container_changes.contains(&change) {
+            return;
+        }
+        if self.container_changes.len() >= MAX_CONTAINER_CHANGES {
+            self.container_changes_truncated = true;
+            return;
+        }
+        self.seen_container_changes.insert(change.clone());
+        self.container_changes.push(change);
+    }
 }
 
 /// Classifies a raw Docker event into a [`ChangeKind`].
@@ -167,7 +229,7 @@ pub async fn run_monitor<C: EventClassifier>(
 ) {
     tracing::debug!("Docker event monitor loop started");
     let debounce = Duration::from_millis(250);
-    let mut pending: Option<(tokio::time::Instant, HashSet<ChangeKind>, usize)> = None;
+    let mut pending: Option<PendingBatch> = None;
     let mut reconnected = false;
     // Exponential backoff across reconnect attempts: 1s -> 30s (+ jitter).
     let mut backoff = Duration::from_secs(1);
@@ -187,31 +249,18 @@ pub async fn run_monitor<C: EventClassifier>(
                             continue;
                         };
                         tracing::debug!(kind = ?kind, action = %ev.action, "Docker event received");
+                        if pending
+                            .as_ref()
+                            .is_some_and(|batch| batch.start.elapsed() >= debounce)
+                        {
+                            // Window closed while we were away: flush and
+                            // open a new one without losing this event.
+                            flush(&monitor.tx, &mut pending, reconnected);
+                            reconnected = false;
+                        }
                         match &mut pending {
-                            Some((start, kinds, count)) => {
-                                let elapsed = start.elapsed();
-                                if elapsed >= debounce {
-                                    // Window closed while we were away:
-                                    // flush and open a new one.
-                                    flush(&monitor.tx, &mut pending, reconnected);
-                                    reconnected = false;
-                                    pending = Some((
-                                        tokio::time::Instant::now(),
-                                        HashSet::from([kind]),
-                                        1,
-                                    ));
-                                } else {
-                                    kinds.insert(kind);
-                                    *count += 1;
-                                }
-                            }
-                            None => {
-                                pending = Some((
-                                    tokio::time::Instant::now(),
-                                    HashSet::from([kind]),
-                                    1,
-                                ));
-                            }
+                            Some(batch) => batch.add(kind, &ev),
+                            None => pending = Some(PendingBatch::new(kind, &ev)),
                         }
                         // A successful event resets the reconnect backoff.
                         backoff = Duration::from_secs(1);
@@ -252,7 +301,11 @@ pub async fn run_monitor<C: EventClassifier>(
                     }
                 }
             }
-            _ = debounce_tick(&mut pending, &monitor.tx, debounce, reconnected) => {}
+            flushed = debounce_tick(&mut pending, &monitor.tx, debounce, reconnected) => {
+                if flushed {
+                    reconnected = false;
+                }
+            }
         }
     }
     flush(&monitor.tx, &mut pending, reconnected);
@@ -261,19 +314,20 @@ pub async fn run_monitor<C: EventClassifier>(
 /// Debounce timer select arm: sleeps until the debounce window closes and
 /// flushes the pending batch.
 async fn debounce_tick(
-    pending: &mut Option<(tokio::time::Instant, HashSet<ChangeKind>, usize)>,
+    pending: &mut Option<PendingBatch>,
     tx: &watch::Sender<Option<ChangeNotification>>,
     debounce: Duration,
     reconnected: bool,
-) {
-    let Some((start, _kinds, _count)) = pending.as_ref() else {
+) -> bool {
+    let Some(batch) = pending.as_ref() else {
         tokio::time::sleep(Duration::from_secs(3600)).await;
-        return;
+        return false;
     };
-    let remaining = debounce.saturating_sub(start.elapsed());
+    let remaining = debounce.saturating_sub(batch.start.elapsed());
     tokio::time::sleep(remaining).await;
     let mut batch = pending.take();
     flush(tx, &mut batch, reconnected);
+    true
 }
 
 /// Wait for the reconnect backoff; returns false if cancelled.
@@ -288,13 +342,13 @@ async fn wait_backoff(token: &CancellationToken, delay: Duration) -> bool {
 /// Publish a pending batch (if any) as a [`ChangeNotification`].
 fn flush(
     tx: &watch::Sender<Option<ChangeNotification>>,
-    pending: &mut Option<(tokio::time::Instant, HashSet<ChangeKind>, usize)>,
+    pending: &mut Option<PendingBatch>,
     reconnected: bool,
 ) {
-    let Some((_start, kinds, burst)) = pending.take() else {
+    let Some(batch) = pending.take() else {
         return;
     };
-    let mut kinds: Vec<ChangeKind> = kinds.into_iter().collect();
+    let mut kinds: Vec<ChangeKind> = batch.kinds.into_iter().collect();
     // Deterministic order: Images, Containers, Volumes, Networks, Daemon.
     let order = [
         ChangeKind::Images,
@@ -306,7 +360,9 @@ fn flush(
     kinds.sort_by_key(|k| order.iter().position(|c| c == k).unwrap_or(usize::MAX));
     let _ = tx.send(Some(ChangeNotification {
         kinds,
-        burst,
+        container_changes: batch.container_changes,
+        container_changes_truncated: batch.container_changes_truncated,
+        burst: batch.burst,
         reconnected,
     }));
 }
@@ -334,10 +390,14 @@ mod tests {
     use super::*;
 
     fn event(event_type: &str) -> DockerEvent {
+        container_event(event_type, "abc", "create")
+    }
+
+    fn container_event(event_type: &str, actor_id: &str, action: &str) -> DockerEvent {
         DockerEvent {
             event_type: event_type.to_string(),
-            action: "create".to_string(),
-            actor_id: Some("abc".to_string()),
+            action: action.to_string(),
+            actor_id: Some(actor_id.to_string()),
             actor_attributes: vec![],
             time: None,
         }
@@ -370,17 +430,18 @@ mod tests {
     }
 
     #[test]
-    fn flush_orders_kinds_deterministically() {
+    fn flush_orders_kinds_and_retains_container_details() {
         let (tx, _rx) = watch::channel(None);
-        let mut pending = Some((
-            tokio::time::Instant::now(),
-            HashSet::from([
-                ChangeKind::Containers,
-                ChangeKind::Images,
-                ChangeKind::Networks,
-            ]),
-            4,
-        ));
+        let first = container_event("container", "first", "start");
+        let mut pending = Some(PendingBatch::new(ChangeKind::Containers, &first));
+        let batch = pending.as_mut().unwrap();
+        batch.add(ChangeKind::Images, &event("image"));
+        batch.add(ChangeKind::Networks, &event("network"));
+        batch.add(
+            ChangeKind::Containers,
+            &container_event("container", "second", "die"),
+        );
+
         flush(&tx, &mut pending, true);
         let value = tx.borrow().clone().expect("sent");
         assert_eq!(
@@ -391,8 +452,84 @@ mod tests {
                 ChangeKind::Networks
             ]
         );
+        assert_eq!(
+            value.container_changes,
+            vec![
+                ContainerChange {
+                    actor_id: "first".to_string(),
+                    action: "start".to_string(),
+                },
+                ContainerChange {
+                    actor_id: "second".to_string(),
+                    action: "die".to_string(),
+                },
+            ]
+        );
+        assert!(!value.container_changes_truncated);
         assert_eq!(value.burst, 4);
         assert!(value.reconnected);
+    }
+
+    #[test]
+    fn container_changes_dedupe_by_id_and_action_in_first_seen_order() {
+        let first = container_event("container", "same", "start");
+        let mut batch = PendingBatch::new(ChangeKind::Containers, &first);
+        batch.add(ChangeKind::Containers, &first);
+        batch.add(
+            ChangeKind::Containers,
+            &container_event("container", "same", "die"),
+        );
+        batch.add(
+            ChangeKind::Containers,
+            &container_event("container", "other", "start"),
+        );
+
+        assert_eq!(batch.burst, 4);
+        assert_eq!(
+            batch.container_changes,
+            vec![
+                ContainerChange {
+                    actor_id: "same".to_string(),
+                    action: "start".to_string(),
+                },
+                ContainerChange {
+                    actor_id: "same".to_string(),
+                    action: "die".to_string(),
+                },
+                ContainerChange {
+                    actor_id: "other".to_string(),
+                    action: "start".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn container_change_batch_is_capped_without_affecting_burst() {
+        let first = container_event("container", "container-0", "start");
+        let mut batch = PendingBatch::new(ChangeKind::Containers, &first);
+        for index in 1..=MAX_CONTAINER_CHANGES {
+            batch.add(
+                ChangeKind::Containers,
+                &container_event("container", &format!("container-{index}"), "start"),
+            );
+        }
+
+        assert_eq!(batch.container_changes.len(), MAX_CONTAINER_CHANGES);
+        assert_eq!(batch.container_changes[0].actor_id, "container-0");
+        assert_eq!(
+            batch.container_changes[MAX_CONTAINER_CHANGES - 1].actor_id,
+            format!("container-{}", MAX_CONTAINER_CHANGES - 1)
+        );
+        assert!(batch.container_changes_truncated);
+        assert_eq!(batch.burst, MAX_CONTAINER_CHANGES + 1);
+    }
+
+    #[test]
+    fn non_container_change_keeps_container_details_empty() {
+        let batch = PendingBatch::new(ChangeKind::Images, &event("image"));
+        assert!(batch.container_changes.is_empty());
+        assert!(!batch.container_changes_truncated);
     }
 
     #[test]

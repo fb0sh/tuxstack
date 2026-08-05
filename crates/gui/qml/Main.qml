@@ -17,19 +17,68 @@ Kirigami.ApplicationWindow {
     property string pendingContainerId: ""
     property bool userCollapsed: false
 
-    property var lastRefreshAt: ({}) // model key -> timestamp
+    property string pendingDetailContainerId: ""
+    property bool pendingDetailFallback: false
 
     function refreshThrottled(model, key) {
-        // A single debounced event burst can carry both Containers and
-        // Volumes kinds; both map to volumesModel. Refresh each model at
-        // most once per burst so the list does not rebuild twice.
-        const now = Date.now()
-        const last = root.lastRefreshAt[key]
-        if (last !== undefined && now - last < 600) {
-            return
+        // Trailing debounce: every request restarts the model's timer, so a
+        // final daemon state is never discarded by a leading-edge throttle.
+        switch (key) {
+        case "images": imagesRefreshTimer.restart(); break
+        case "containers": containersRefreshTimer.restart(); break
+        case "volumes": volumesRefreshTimer.restart(); break
+        case "networks": networksRefreshTimer.restart(); break
         }
-        root.lastRefreshAt[key] = now
-        model.refresh()
+    }
+
+    function rootfsSnapshotAffected(action) {
+        return ["start", "restart", "die", "stop", "kill", "destroy", "rename"]
+                .indexOf(action) !== -1
+    }
+
+    function terminalAffected(action) {
+        return ["stop", "die", "kill", "destroy", "restart", "pause"]
+                .indexOf(action) !== -1
+    }
+
+    function scheduleSelectedDetail(actorId, fallback) {
+        root.pendingDetailContainerId = actorId
+        root.pendingDetailFallback = fallback
+        containerDetailRefreshTimer.restart()
+    }
+
+    Timer {
+        id: imagesRefreshTimer
+        interval: 200
+        onTriggered: imagesModel.refresh()
+    }
+    Timer {
+        id: containersRefreshTimer
+        interval: 200
+        onTriggered: containersModel.refresh()
+    }
+    Timer {
+        id: volumesRefreshTimer
+        interval: 200
+        onTriggered: volumesModel.refresh()
+    }
+    Timer {
+        id: networksRefreshTimer
+        interval: 200
+        onTriggered: networksModel.refresh()
+    }
+    Timer {
+        id: containerDetailRefreshTimer
+        interval: 200
+        onTriggered: {
+            if (containersModel.selectionKind !== "container")
+                return
+            if (root.pendingDetailFallback
+                    || containersModel.selectionId === root.pendingDetailContainerId)
+                containersModel.reloadDetail()
+            root.pendingDetailContainerId = ""
+            root.pendingDetailFallback = false
+        }
     }
 
     readonly property bool compactMode: width < Kirigami.Units.gridUnit * 45
@@ -138,7 +187,8 @@ Kirigami.ApplicationWindow {
         }
 
         function onDockerChanged(kind) {
-            // Event-driven targeted refresh: only the affected model reloads.
+            // Resource-level refreshes remain one signal per kind. Container
+            // detail side effects are handled by onContainerChanged below.
             if (appController.dockerStatus !== 1) {
                 return
             }
@@ -150,22 +200,41 @@ Kirigami.ApplicationWindow {
                 root.refreshThrottled(networksModel, "networks")
                 break
             case "volumes":
-                // Container mounts affect volume usage association too, so
-                // both kinds refresh volumesModel.
-                root.refreshThrottled(volumesModel, "volumes")
-                break
-            case "containers":
-                if (containerFilesModel.containerId.length > 0)
-                    containerFilesModel.invalidateSnapshot(containerFilesModel.containerId)
-                root.refreshThrottled(containersModel, "containers")
-                if (containersModel.selectionKind === "container")
-                    containersModel.reloadDetail()
                 root.refreshThrottled(volumesModel, "volumes")
                 break
             case "daemon":
                 appController.refreshOverview()
                 break
             }
+        }
+
+        function onContainerChanged(actorId, action) {
+            if (appController.dockerStatus !== 1)
+                return
+
+            root.refreshThrottled(containersModel, "containers")
+            // Container mount associations can change without a volume
+            // event, so every container batch also refreshes volumes.
+            root.refreshThrottled(volumesModel, "volumes")
+
+            // Empty IDs mark a reconnect, omitted actor ID, or bounded-batch
+            // fallback: refresh selected detail because precise matching is
+            // impossible, but do not invalidate unrelated tools.
+            if (actorId.length === 0) {
+                if (containersModel.selectionKind === "container")
+                    root.scheduleSelectedDetail("", true)
+                return
+            }
+
+            const selected = containersModel.selectionKind === "container"
+                    && containersModel.selectionId === actorId
+            if (selected) {
+                root.scheduleSelectedDetail(actorId, false)
+                if (root.rootfsSnapshotAffected(action))
+                    containerFilesModel.invalidateSnapshot(actorId)
+            }
+            if (root.terminalAffected(action))
+                containerTerminalModel.invalidateContainer(actorId)
         }
     }
 
