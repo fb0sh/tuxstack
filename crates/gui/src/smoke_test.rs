@@ -110,6 +110,13 @@ fn main_wires_the_long_lived_containers_model_and_events() {
     assert!(source.contains("containersModel.setConnectionState(appController.dockerStatus,"));
     assert!(source.contains("refreshThrottled(containersModel, \"containers\")"));
     assert!(source.contains("containersModel: containersModel"));
+    assert!(
+        source
+            .matches("onStartServiceRequested: appController.requestStartService()")
+            .count()
+            == 3,
+        "containers, images, and volumes pages must all forward Start Service to the app controller"
+    );
 }
 
 #[test]

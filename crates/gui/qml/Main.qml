@@ -337,6 +337,7 @@ Kirigami.ApplicationWindow {
                         root.pendingContainerId = ""
                 }
                 onRetryConnectionRequested: appController.startup()
+                onStartServiceRequested: appController.requestStartService()
                 onVolumeNavigationRequested: function(volumeName) {
                     root.currentPage = "volumes"
                     volumesModel.selectVolume(volumeName)
@@ -361,6 +362,7 @@ Kirigami.ApplicationWindow {
                                                    appController.dockerStatusText)
                 }
                 onRetryConnectionRequested: appController.startup()
+                onStartServiceRequested: appController.requestStartService()
             }
             VolumesPage {
                 volumesModel: volumesModel
@@ -373,6 +375,7 @@ Kirigami.ApplicationWindow {
                                                     appController.dockerStatusText)
                 }
                 onRetryConnectionRequested: appController.startup()
+                onStartServiceRequested: appController.requestStartService()
             }
             NetworksPage {
                 networksModel: networksModel

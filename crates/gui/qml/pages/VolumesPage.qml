@@ -16,6 +16,7 @@ Kirigami.Page {
 
     signal initializationRequested()
     signal retryConnectionRequested()
+    signal startServiceRequested()
     signal containerNavigationRequested(string containerId)
     signal notificationRequested(string message)
 
@@ -171,5 +172,12 @@ Kirigami.Page {
             cloneDialog.close()
             root.notify(I18n.i18nd("tuxstack", "Volume “%1” cloned as “%2”.", sourceVolume, targetVolume))
         }
+    }
+
+    Connections {
+        target: root.filesModel
+        ignoreUnknownSignals: true
+
+        function onStartServiceRequested() { root.startServiceRequested() }
     }
 }

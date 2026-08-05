@@ -25,6 +25,7 @@ Kirigami.Page {
     signal pendingContainerRequested(string containerId)
     signal pendingContainerConsumed(string containerId)
     signal retryConnectionRequested()
+    signal startServiceRequested()
     signal volumeNavigationRequested(string volumeName)
     signal networkNavigationRequested(string networkId, string networkName)
 
@@ -170,5 +171,12 @@ Kirigami.Page {
         function onHostPathRequested(path) {
             Qt.openUrlExternally("file://" + encodeURIComponent(path).replace(/%2F/g, "/"))
         }
+    }
+
+    Connections {
+        target: root.filesModel
+        ignoreUnknownSignals: true
+
+        function onStartServiceRequested() { root.startServiceRequested() }
     }
 }

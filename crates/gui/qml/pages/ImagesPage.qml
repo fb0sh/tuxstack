@@ -24,6 +24,7 @@ Kirigami.Page {
     signal containerNavigationRequested(string containerId)
     signal notificationRequested(string message)
     signal retryConnectionRequested()
+    signal startServiceRequested()
     signal initializationRequested()
 
     title: qsTr("Images")
@@ -168,5 +169,12 @@ Kirigami.Page {
         function onExportCompleted(destinationPath) {
             root.notify(qsTr("Image exported to %1").arg(destinationPath))
         }
+    }
+
+    Connections {
+        target: root.filesModel
+        ignoreUnknownSignals: true
+
+        function onStartServiceRequested() { root.startServiceRequested() }
     }
 }

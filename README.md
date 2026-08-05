@@ -109,18 +109,21 @@ cargo build --workspace
 ## 运行
 
 ```bash
-# 启动 tuxstackd（仅需要 Docker 管理时）
-systemctl --user start tuxstackd
-
-# 或一次性后台服务
-systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
-
-# 运行 GUI
+# 开发环境直接运行 GUI；若 daemon 未运行，GUI 会自动启动同目录的 tuxstackd
 cargo run
+
+# 也可以在另一个终端手动运行 daemon
+cargo run -p tuxstackd
+```
+
+安装后的桌面环境可使用 systemd 用户服务：
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
 ```
 
 等价于 `cargo run -p tuxstack`。GUI 通过 `$XDG_RUNTIME_DIR/tuxstack/control.sock`
-连接 tuxstackd；服务或 Docker Engine 不可用时在概览页显示状态并提供重试按钮。
+连接 tuxstackd；服务或 Docker Engine 不可用时显示明确状态并提供重试/启动服务操作。
 
 ## 配置
 
@@ -312,19 +315,22 @@ cargo build --workspace
 ## Running
 
 ```bash
-# Start tuxstackd (required for Docker management)
-systemctl --user start tuxstackd
-
-# Enable it as a user service
-systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
-
-# Run the GUI
+# Development: run the GUI directly; it auto-starts the sibling tuxstackd when needed
 cargo run
+
+# Alternatively run the daemon in another terminal
+cargo run -p tuxstackd
 ```
 
-Equivalent to `cargo run -p tuxstack`. The GUI connects to tuxstackd over
+For an installed desktop setup, use the systemd user service:
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now tuxstackd
+```
+
+This is equivalent to `cargo run -p tuxstack`. The GUI connects to tuxstackd over
 `$XDG_RUNTIME_DIR/tuxstack/control.sock`; when the service or Docker Engine is
-unavailable it shows a status with a retry button on the Overview page.
+unavailable it shows an explicit state and provides retry/start-service actions.
 
 ## Configuration
 

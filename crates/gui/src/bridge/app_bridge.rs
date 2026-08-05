@@ -39,6 +39,9 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "refreshOverview"]
         fn refresh_overview(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "requestStartService"]
+        fn request_start_service(self: Pin<&mut Self>);
 
         #[qsignal]
         #[cxx_name = "dockerChanged"]
@@ -52,6 +55,7 @@ pub mod qobject {
 #[derive(Default)]
 pub struct AppControllerRust {
     connection_generation: u64,
+    last_spawn_attempt: Option<std::time::Instant>,
     docker_status: i32,
     docker_status_text: QString,
     docker_host: QString,
@@ -116,6 +120,9 @@ impl qobject::AppController {
                             .as_mut()
                             .set_docker_status_text(QString::from(app_error.user_message()));
                         controller.as_mut().schedule_reconnect(generation);
+                        // Auto-heal: if the daemon is not running, bring it up
+                        // so a plain `cargo run` (or desktop launch) works.
+                        controller.as_mut().try_start_service();
                     }
                 }
             })
@@ -242,6 +249,152 @@ impl qobject::AppController {
             .ok();
         });
     }
+
+    /// Start the tuxstackd service when it is not running. The daemon is
+    /// spawned detached; the periodic reconnect loop in [`Self::startup`]
+    /// then picks it up as soon as its control socket appears.
+    pub fn request_start_service(mut self: Pin<&mut Self>) {
+        if app_state::get_client().is_some() {
+            return;
+        }
+        self.as_mut().try_start_service();
+    }
+
+    /// Spawn the daemon at most once per 15 s window, then let the reconnect
+    /// loop connect once the control socket appears.
+    fn try_start_service(mut self: Pin<&mut Self>) {
+        let now = std::time::Instant::now();
+        let throttled = self
+            .as_mut()
+            .rust()
+            .last_spawn_attempt
+            .is_some_and(|attempt| {
+                now.duration_since(attempt) < std::time::Duration::from_secs(15)
+            });
+        if throttled {
+            return;
+        }
+        self.as_mut().rust_mut().last_spawn_attempt = Some(now);
+        self.as_mut().set_docker_status(0);
+        self.as_mut()
+            .set_docker_status_text(QString::from("Starting TuxStack service…"));
+        let qt = self.qt_thread();
+        crate::runtime::spawn(async move {
+            match spawn_tuxstackd().await {
+                Ok(binary) => {
+                    tracing::info!(
+                        launch = %binary,
+                        "tuxstackd service started"
+                    );
+                    qt.queue(move |mut controller| {
+                        controller
+                            .as_mut()
+                            .set_docker_status_text(QString::from("TuxStack service is starting…"));
+                    })
+                    .ok();
+                }
+                Err(message) => {
+                    tracing::error!(%message, "could not start tuxstackd");
+                    qt.queue(move |mut controller| {
+                        controller
+                            .as_mut()
+                            .set_docker_status_text(QString::from(message));
+                    })
+                    .ok();
+                }
+            }
+        });
+    }
+}
+
+struct DaemonLaunch {
+    program: std::path::PathBuf,
+    args: Vec<String>,
+    current_dir: Option<std::path::PathBuf>,
+}
+
+impl DaemonLaunch {
+    fn description(&self) -> String {
+        if self.args.is_empty() {
+            self.program.display().to_string()
+        } else {
+            format!("{} {}", self.program.display(), self.args.join(" "))
+        }
+    }
+}
+
+/// Locate the daemon launch command. Installed/dev builds put `tuxstackd`
+/// next to the GUI or on `PATH`. A fresh checkout may only have built the
+/// default GUI member, so development builds can fall back to Cargo itself.
+fn resolve_daemon_launch() -> Option<DaemonLaunch> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let sibling = parent.join("tuxstackd");
+            if sibling.is_file() {
+                return Some(DaemonLaunch {
+                    program: sibling,
+                    args: Vec::new(),
+                    current_dir: None,
+                });
+            }
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("tuxstackd"))
+            .find(|candidate| candidate.is_file())
+    }) {
+        return Some(DaemonLaunch {
+            program: path,
+            args: Vec::new(),
+            current_dir: None,
+        });
+    }
+
+    let exe = std::env::current_exe().ok()?;
+    let workspace = exe.parent()?.parent()?.parent()?.to_path_buf();
+    if !workspace.join("Cargo.toml").is_file() {
+        return None;
+    }
+    let cargo = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("cargo"))
+            .find(|candidate| candidate.is_file())
+    })?;
+    Some(DaemonLaunch {
+        program: cargo,
+        args: vec![
+            "run".into(),
+            "--quiet".into(),
+            "-p".into(),
+            "tuxstack-daemon".into(),
+            "--bin".into(),
+            "tuxstackd".into(),
+        ],
+        current_dir: Some(workspace),
+    })
+}
+
+/// Spawn the daemon detached. stdin/stdout are closed so the GUI never
+/// blocks on the daemon; stderr is inherited so daemon diagnostics reach the
+/// launching terminal in development.
+async fn spawn_tuxstackd() -> Result<String, String> {
+    let launch = resolve_daemon_launch().ok_or_else(|| {
+        "the tuxstackd service binary was not found next to this application, on PATH, or in the workspace".to_string()
+    })?;
+    let description = launch.description();
+    let mut command = tokio::process::Command::new(&launch.program);
+    command.args(&launch.args);
+    if let Some(current_dir) = launch.current_dir {
+        command.current_dir(current_dir);
+    }
+    command.stdin(std::process::Stdio::null());
+    command.stdout(std::process::Stdio::null());
+    command.stderr(std::process::Stdio::inherit());
+    command
+        .spawn()
+        .map_err(|error| format!("failed to start {description}: {error}"))?;
+    Ok(description)
 }
 
 fn daemon_status_text(status: &DaemonStatus) -> (i32, String) {
