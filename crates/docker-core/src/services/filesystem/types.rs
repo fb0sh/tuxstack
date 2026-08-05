@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 
-use tuxstack_fs_protocol::{FilesystemPathToken, encode_base64};
+use tuxstack_fs_protocol::FilesystemPathToken;
 
 // ---------------------------------------------------------------------------
 // Source
@@ -15,13 +15,8 @@ use tuxstack_fs_protocol::{FilesystemPathToken, encode_base64};
 /// What we are browsing: either a Docker image or a mounted volume.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FilesystemSource {
-    Image {
-        image_id: String,
-        platform: String,
-    },
-    Volume {
-        volume_name: String,
-    },
+    Image { image_id: String, platform: String },
+    Volume { volume_name: String },
 }
 
 impl std::fmt::Display for FilesystemSource {
@@ -137,9 +132,7 @@ pub struct FilesystemEntry {
 
 impl FilesystemEntry {
     /// Build from protocol `Entry` message + parent token.
-    pub fn from_protocol_entry(
-        msg: &tuxstack_fs_protocol::HelperMessage,
-    ) -> Option<Self> {
+    pub fn from_protocol_entry(msg: &tuxstack_fs_protocol::HelperMessage) -> Option<Self> {
         if let tuxstack_fs_protocol::HelperMessage::Entry {
             name_b64,
             path_token,
@@ -156,20 +149,20 @@ impl FilesystemEntry {
             let name_raw = encode_base64_to_raw(name_b64)?;
             let display_name = String::from_utf8_lossy(&name_raw).into_owned();
             let hidden = name_raw.first() == Some(&b'.');
-            let symlink_target_raw = symlink_target_b64.as_ref().and_then(|b| {
-                tuxstack_fs_protocol::decode_base64(b).ok()
-            });
-            let symlink_target_display =
-                symlink_target_raw.as_ref().map(|raw| String::from_utf8_lossy(raw).into_owned());
+            let symlink_target_raw = symlink_target_b64
+                .as_ref()
+                .and_then(|b| tuxstack_fs_protocol::decode_base64(b).ok());
+            let symlink_target_display = symlink_target_raw
+                .as_ref()
+                .map(|raw| String::from_utf8_lossy(raw).into_owned());
             Some(Self {
                 name_raw,
                 display_name,
                 path_token: FilesystemPathToken(path_token.clone()),
                 entry_type: FilesystemEntryType::from_protocol(*file_type),
                 size_bytes: *size,
-                modified_at: mtime.and_then(|ts| {
-                    chrono::TimeZone::timestamp_opt(&chrono::Utc, ts, 0).single()
-                }),
+                modified_at: mtime
+                    .and_then(|ts| chrono::TimeZone::timestamp_opt(&chrono::Utc, ts, 0).single()),
                 mode: *mode,
                 uid: *uid,
                 gid: *gid,
@@ -300,7 +293,10 @@ mod tests {
         };
         let entry = FilesystemEntry::from_protocol_entry(&msg).unwrap();
         assert_eq!(entry.entry_type, FilesystemEntryType::SymbolicLink);
-        assert_eq!(entry.symlink_target_raw.as_deref(), Some(b"target".as_slice()));
+        assert_eq!(
+            entry.symlink_target_raw.as_deref(),
+            Some(b"target".as_slice())
+        );
         assert_eq!(entry.symlink_target_display.as_deref(), Some("target"));
     }
 

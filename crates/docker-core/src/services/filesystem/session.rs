@@ -1,8 +1,8 @@
 //! Session lifecycle: invalidation, force-removal, and orphan cleanup.
 
-use bollard::query_parameters::RemoveContainerOptions;
 use super::error::FilesystemError;
 use super::types::FilesystemSession;
+use bollard::query_parameters::RemoveContainerOptions;
 
 /// Force-remove the container backing a session. Errors are best-effort;
 /// a missing container is treated as success.

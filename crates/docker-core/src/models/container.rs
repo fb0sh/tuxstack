@@ -155,17 +155,16 @@ pub enum ContainerOperationState {
     Renaming,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContainerSelection {
+    #[default]
     None,
-    Group { group_id: super::ContainerGroupId },
-    Container { container_id: String },
-}
-
-impl Default for ContainerSelection {
-    fn default() -> Self {
-        Self::None
-    }
+    Group {
+        group_id: super::ContainerGroupId,
+    },
+    Container {
+        container_id: String,
+    },
 }
 
 /// A host-to-container port mapping.
@@ -617,7 +616,7 @@ pub struct CreateContainerResources {
     pub pids_limit: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateContainerRequest {
     pub name: Option<String>,
     pub image: String,
@@ -674,35 +673,6 @@ where
     }
 
     deserializer.deserialize_map(UniqueLabelsVisitor)
-}
-
-impl Default for CreateContainerRequest {
-    fn default() -> Self {
-        Self {
-            name: None,
-            image: String::new(),
-            platform: None,
-            hostname: None,
-            domain_name: None,
-            entrypoint: Vec::new(),
-            command: Vec::new(),
-            working_directory: None,
-            user: None,
-            tty: false,
-            open_stdin: false,
-            ports: Vec::new(),
-            mounts: Vec::new(),
-            environment: Vec::new(),
-            networks: Vec::new(),
-            resources: CreateContainerResources::default(),
-            restart_policy: ContainerRestartPolicy::default(),
-            labels: BTreeMap::new(),
-            read_only_rootfs: false,
-            privileged: false,
-            auto_remove: false,
-            create_and_start: false,
-        }
-    }
 }
 
 impl CreateContainerRequest {

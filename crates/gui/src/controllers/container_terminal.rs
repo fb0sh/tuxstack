@@ -57,10 +57,6 @@ impl ContainerTerminalRenderer {
         }
     }
 
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-
     pub fn reset(&mut self, generation: u64, rows: u16, columns: u16) {
         *self = Self::new(generation, rows, columns);
     }

@@ -10,10 +10,10 @@ use std::io::{Read, Seek, SeekFrom};
 
 use tuxstack_fs_protocol::{HelperMessage, encode_base64};
 
-use crate::error::{HelperError, Result};
-use tuxstack_fs_protocol::HelperErrorCode;
-use crate::path::{self, confine_to_root, resolve_token};
 use crate::emit;
+use crate::error::{HelperError, Result};
+use crate::path::{self, confine_to_root, resolve_token};
+use tuxstack_fs_protocol::HelperErrorCode;
 
 const CHUNK_SIZE: u64 = 32 * 1024;
 

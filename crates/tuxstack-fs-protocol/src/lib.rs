@@ -172,7 +172,9 @@ impl FilesystemPathToken {
     }
 
     pub fn is_root(&self) -> bool {
-        self.decode_relative().map(|b| b.is_empty()).unwrap_or(false)
+        self.decode_relative()
+            .map(|b| b.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -210,8 +212,7 @@ fn validate_relative(relative: &[u8]) -> Result<(), String> {
 // Base64 byte fields
 // ---------------------------------------------------------------------------
 
-const B64_ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub fn encode_base64(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
@@ -261,8 +262,7 @@ pub fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
             if *byte == b'=' {
                 quad[i] = 0;
             } else {
-                quad[i] = value(*byte)
-                    .ok_or_else(|| "invalid base64 character".to_string())?;
+                quad[i] = value(*byte).ok_or_else(|| "invalid base64 character".to_string())?;
             }
         }
         let triple = (quad[0] << 18) | (quad[1] << 12) | (quad[2] << 6) | quad[3];
@@ -483,7 +483,10 @@ mod tests {
             (HelperErrorCode::IsDirectory, "is_directory"),
             (HelperErrorCode::PermissionDenied, "permission_denied"),
             (HelperErrorCode::SymlinkLoop, "symlink_loop"),
-            (HelperErrorCode::UnsupportedFileType, "unsupported_file_type"),
+            (
+                HelperErrorCode::UnsupportedFileType,
+                "unsupported_file_type",
+            ),
             (HelperErrorCode::Io, "io"),
         ] {
             assert_eq!(code.as_str(), expected);
@@ -508,7 +511,11 @@ mod tests {
         assert!(FilesystemPathToken::from_relative("a//b").is_err());
         assert!(FilesystemPathToken::from_relative("a/../b").is_err());
         assert!(FilesystemPathToken::from_relative(".").is_err());
-        assert!(FilesystemPathToken("v2:abc".into()).decode_relative().is_err());
+        assert!(
+            FilesystemPathToken("v2:abc".into())
+                .decode_relative()
+                .is_err()
+        );
         assert!(FilesystemPathToken::from_relative("").unwrap().is_root());
     }
 

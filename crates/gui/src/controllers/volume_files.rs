@@ -212,27 +212,6 @@ impl VolumeFilesControllerState {
         true
     }
 
-    pub fn apply_more(
-        &mut self,
-        generation: u64,
-        result: tuxstack_docker_core::ListDirectoryResult,
-    ) -> bool {
-        if generation != self.list_generation {
-            return false;
-        }
-        self.truncated = result.truncated;
-        self.next_cursor = result.next_cursor;
-        let mut new_entries = result.entries;
-        sort_entries(
-            &mut new_entries,
-            self.sort_column,
-            self.sort_descending,
-            self.directories_first,
-        );
-        self.entries.extend(new_entries);
-        true
-    }
-
     pub fn apply_error(&mut self, generation: u64, kind: &str, message: &str) -> bool {
         if generation != self.list_generation && generation != self.session_generation {
             // Accept session-start errors against either generation.

@@ -324,10 +324,6 @@ pub struct ContainerDetailView {
 }
 
 impl ContainerDetailView {
-    pub fn from_detail(detail: &ContainerDetail) -> Self {
-        Self::from_detail_for_endpoint(detail, "local")
-    }
-
     pub fn from_detail_for_endpoint(detail: &ContainerDetail, endpoint_key: &str) -> Self {
         let summary = &detail.summary;
         let compose_project = summary
@@ -837,7 +833,7 @@ mod tests {
 
     #[test]
     fn detail_is_structured_and_environment_is_masked_by_default() {
-        let view = ContainerDetailView::from_detail(&detail());
+        let view = ContainerDetailView::from_detail_for_endpoint(&detail(), "local");
         assert_eq!(view.general[0].key, "Name");
         assert_eq!(view.ports[0].browser_url, "http://localhost:8080");
         assert_eq!(view.mounts[0].access, "Read-only");
@@ -847,7 +843,7 @@ mod tests {
 
     #[test]
     fn environment_reveal_is_per_row_and_debug_is_redacted() {
-        let mut view = ContainerDetailView::from_detail(&detail());
+        let mut view = ContainerDetailView::from_detail_for_endpoint(&detail(), "local");
         assert!(view.reveal_environment(0));
         assert_eq!(view.environment[0].masked_value(), "top-secret");
         assert!(!view.reveal_environment(0));

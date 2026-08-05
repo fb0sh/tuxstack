@@ -7,16 +7,13 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::{
-    FilesystemError, FilesystemSession, FilesystemSource, HashRequest,
-    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, StatRequest, VolumePath,
-    FilesystemPathToken, filesystem_decode_base64,
+    FilesystemError, FilesystemPathToken, FilesystemSession, FilesystemSource,
+    ListDirectoryRequest, PreviewRequest, StatRequest, VolumePath, filesystem_decode_base64,
 };
 
 use crate::app_state::{get_services, get_store};
 use crate::bridge::resource_bridges::qobject;
-use crate::controllers::image_files::{
-    ImageFilesControllerState, ImageFilesState,
-};
+use crate::controllers::image_files::{ImageFilesControllerState, ImageFilesState};
 use crate::controllers::volume_files::VolumeFileSortColumn;
 use crate::models::volume_file_model::{VolumeFileRow, map_filesystem_row};
 
@@ -97,8 +94,6 @@ pub struct ImageFileListModelRust {
 
     pub(crate) session_bridge_generation: u64,
     pub(crate) list_bridge_generation: u64,
-    pub(crate) preview_bridge_generation: u64,
-    pub(crate) download_bridge_generation: u64,
 }
 
 impl ImageFileListModelRust {
@@ -175,7 +170,11 @@ impl qobject::ImageFileListModel {
         roles
     }
 
-    pub(crate) fn set_connection_state(mut self: Pin<&mut Self>, docker_status: i32, _message: &QString) {
+    pub(crate) fn set_connection_state(
+        mut self: Pin<&mut Self>,
+        docker_status: i32,
+        _message: &QString,
+    ) {
         if docker_status == 1 {
             return;
         }
@@ -239,9 +238,7 @@ impl qobject::ImageFileListModel {
         if self.state.image_id == id && self.session.is_some() {
             tracing::debug!(image = %id, "Reusing existing image preview session");
             match self.state.state {
-                ImageFilesState::Idle
-                | ImageFilesState::Error
-                | ImageFilesState::Unsupported => {
+                ImageFilesState::Idle | ImageFilesState::Error | ImageFilesState::Unsupported => {
                     self.load_current_directory();
                 }
                 ImageFilesState::StartingSession | ImageFilesState::Loading => {
@@ -382,7 +379,12 @@ impl qobject::ImageFileListModel {
             .unwrap_or_default();
         if entry_type == "directory" {
             // When entering a directory, store its path token for the next list call.
-            if let Some(fs_entry) = self.state.entries.iter().find(|e| e.path_display() == logical.display()) {
+            if let Some(fs_entry) = self
+                .state
+                .entries
+                .iter()
+                .find(|e| e.path_display() == logical.display())
+            {
                 self.as_mut().rust_mut().state.current_path_token = fs_entry.path_token.clone();
             }
             self.as_mut().rust_mut().state.navigate_to(logical, true);
@@ -436,7 +438,10 @@ impl qobject::ImageFileListModel {
                 let mut state = model.as_mut().rust_mut().state.clone();
                 match result {
                     Ok(list_result) => {
-                        tracing::info!(count = list_result.entries.len(), "Received more directory entries");
+                        tracing::info!(
+                            count = list_result.entries.len(),
+                            "Received more directory entries"
+                        );
                         state.apply_more(list_generation, list_result);
                     }
                     Err(error) => {
@@ -529,7 +534,6 @@ impl qobject::ImageFileListModel {
 
     pub(crate) fn cancel_preview(mut self: Pin<&mut Self>) {
         cancel(&mut self.as_mut().rust_mut().preview_cancel);
-        bump(&mut self.as_mut().rust_mut().preview_bridge_generation);
         self.as_mut().rust_mut().preview_loading = false;
         self.as_mut().clear_preview_temp();
         self.as_mut().reset_preview_fields();
@@ -558,10 +562,8 @@ impl qobject::ImageFileListModel {
         self.as_mut().rust_mut().download_bytes_written = 0;
         self.as_mut().rust_mut().download_progress_text = qstring("0 B");
         self.as_mut().rust_mut().download_error = QString::default();
-        let bridge_generation = bump(&mut self.as_mut().rust_mut().download_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().download_cancel = Some(token.clone());
-        let image_id = self.state.image_id.clone();
         let qt = self.qt_thread();
         crate::runtime::spawn(async move {
             let path_token = volume_path_to_token(&logical);
@@ -584,11 +586,11 @@ impl qobject::ImageFileListModel {
                         let (_, message) = map_filesystem_error(&error);
                         model.as_mut().rust_mut().download_error = qstring(&message);
                         model.as_mut().download_failed(qstring(&message));
-                    }).ok();
+                    })
+                    .ok();
                     return;
                 }
             };
-            let total_size = stat_entry.size_bytes.unwrap_or(0);
             // Create parent directory.
             if let Some(parent) = dest.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -633,7 +635,8 @@ impl qobject::ImageFileListModel {
                             let (_, message) = map_filesystem_error(&error);
                             model.as_mut().rust_mut().download_error = qstring(&message);
                             model.as_mut().download_failed(qstring(&message));
-                        }).ok();
+                        })
+                        .ok();
                         return;
                     }
                 }
@@ -641,14 +644,16 @@ impl qobject::ImageFileListModel {
             qt.queue(move |mut model| {
                 model.as_mut().rust_mut().download_in_progress = false;
                 model.as_mut().rust_mut().download_bytes_written = offset as i64;
-                model.as_mut().download_completed(qstring(&dest.display().to_string()));
-            }).ok();
+                model
+                    .as_mut()
+                    .download_completed(qstring(&dest.display().to_string()));
+            })
+            .ok();
         });
     }
 
     pub(crate) fn cancel_download(mut self: Pin<&mut Self>) {
         cancel(&mut self.as_mut().rust_mut().download_cancel);
-        bump(&mut self.as_mut().rust_mut().download_bridge_generation);
         self.as_mut().rust_mut().download_in_progress = false;
     }
 
@@ -746,7 +751,11 @@ impl qobject::ImageFileListModel {
                                 .unwrap_or_else(|_| VolumePath::root());
                             if entry.entry_type.is_directory() {
                                 model.as_mut().rust_mut().state.current_path_token = resolved_token;
-                                model.as_mut().rust_mut().state.navigate_to(resolved_path, true);
+                                model
+                                    .as_mut()
+                                    .rust_mut()
+                                    .state
+                                    .navigate_to(resolved_path, true);
                                 model.as_mut().load_current_directory();
                             } else {
                                 model.as_mut().open_with_system_default(&resolved_path);
@@ -804,10 +813,8 @@ impl qobject::ImageFileListModel {
         self.as_mut().rust_mut().preview_path = qstring(&path.display());
         self.as_mut().rust_mut().preview_name = qstring(&file_name);
         self.as_mut().rust_mut().preview_error = QString::default();
-        let bridge_generation = bump(&mut self.as_mut().rust_mut().preview_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().preview_cancel = Some(token.clone());
-        let image_id = self.state.image_id.clone();
         let logical = path.clone();
         let qt = self.qt_thread();
         tracing::info!(path = %logical.display(), "Opening image file with system default app");
@@ -827,7 +834,8 @@ impl qobject::ImageFileListModel {
                         model.as_mut().rust_mut().preview_loading = false;
                         model.as_mut().rust_mut().preview_error = qstring(&e.to_string());
                         model.as_mut().preview_failed(qstring(&e.to_string()));
-                    }).ok();
+                    })
+                    .ok();
                     return;
                 }
             };
@@ -865,7 +873,8 @@ impl qobject::ImageFileListModel {
                             let (_, message) = map_filesystem_error(&error);
                             model.as_mut().rust_mut().preview_error = qstring(&message);
                             model.as_mut().preview_failed(qstring(&message));
-                        }).ok();
+                        })
+                        .ok();
                         return;
                     }
                 }
@@ -888,7 +897,8 @@ impl qobject::ImageFileListModel {
                         model.as_mut().preview_failed(qstring(&message));
                     }
                 }
-            }).ok();
+            })
+            .ok();
         });
     }
 
@@ -940,7 +950,10 @@ impl qobject::ImageFileListModel {
                 let mut state = model.as_mut().rust_mut().state.clone();
                 match result {
                     Ok(list_result) => {
-                        tracing::info!(count = list_result.entries.len(), "Received directory entries");
+                        tracing::info!(
+                            count = list_result.entries.len(),
+                            "Received directory entries"
+                        );
                         let _ = state.apply_list(list_generation, path, path_token, list_result);
                     }
                     Err(error) => {
@@ -1139,7 +1152,8 @@ fn volume_path_to_token(path: &VolumePath) -> FilesystemPathToken {
         FilesystemPathToken::root_token()
     } else {
         let relative = path.components().join("/");
-        FilesystemPathToken::from_relative(&relative).unwrap_or_else(|_| FilesystemPathToken::root_token())
+        FilesystemPathToken::from_relative(&relative)
+            .unwrap_or_else(|_| FilesystemPathToken::root_token())
     }
 }
 

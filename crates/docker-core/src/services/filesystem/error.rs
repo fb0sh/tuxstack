@@ -82,7 +82,10 @@ impl fmt::Display for FilesystemError {
             Self::HelperContainerStartFailed(msg) => write!(f, "container start failed: {msg}"),
             Self::HelperHandshakeFailed(msg) => write!(f, "helper handshake failed: {msg}"),
             Self::HelperProtocolMismatch { expected, got } => {
-                write!(f, "protocol version mismatch: expected {expected}, got {got}")
+                write!(
+                    f,
+                    "protocol version mismatch: expected {expected}, got {got}"
+                )
             }
             Self::HelperProtocolError(msg) => write!(f, "helper protocol error: {msg}"),
             Self::InvalidPathToken(msg) => write!(f, "invalid path token: {msg}"),

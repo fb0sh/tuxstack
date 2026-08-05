@@ -7,9 +7,8 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QModelIndex, QString, QVariant};
 use tokio_util::sync::CancellationToken;
 use tuxstack_docker_core::{
-    FilesystemError, FilesystemSession, FilesystemSource,
-    ListDirectoryRequest, ListDirectoryResult, PreviewRequest, StatRequest,
-    VolumePath, FilesystemPathToken, filesystem_decode_base64,
+    FilesystemError, FilesystemPathToken, FilesystemSession, FilesystemSource,
+    ListDirectoryRequest, PreviewRequest, StatRequest, VolumePath, filesystem_decode_base64,
 };
 
 use crate::app_state::{get_services, get_store};
@@ -96,8 +95,6 @@ pub struct VolumeFileListModelRust {
 
     pub(crate) session_bridge_generation: u64,
     pub(crate) list_bridge_generation: u64,
-    pub(crate) preview_bridge_generation: u64,
-    pub(crate) download_bridge_generation: u64,
 }
 
 impl VolumeFileListModelRust {
@@ -174,7 +171,11 @@ impl qobject::VolumeFileListModel {
         roles
     }
 
-    pub(crate) fn set_connection_state(mut self: Pin<&mut Self>, docker_status: i32, _message: &QString) {
+    pub(crate) fn set_connection_state(
+        mut self: Pin<&mut Self>,
+        docker_status: i32,
+        _message: &QString,
+    ) {
         if docker_status == 1 {
             return;
         }
@@ -381,7 +382,12 @@ impl qobject::VolumeFileListModel {
             .unwrap_or_default();
         if entry_type == "directory" {
             // When entering a directory, store its path token for the next list call.
-            if let Some(fs_entry) = self.state.entries.iter().find(|e| e.path_display() == logical.display()) {
+            if let Some(fs_entry) = self
+                .state
+                .entries
+                .iter()
+                .find(|e| e.path_display() == logical.display())
+            {
                 self.as_mut().rust_mut().state.current_path_token = fs_entry.path_token.clone();
             }
             self.as_mut().rust_mut().state.navigate_to(logical, true);
@@ -394,61 +400,6 @@ impl qobject::VolumeFileListModel {
         }
         // Files open with the host's default application — no in-app preview.
         self.open_with_system_default(&logical);
-    }
-
-    pub(crate) fn load_more(mut self: Pin<&mut Self>) {
-        let Some(session) = self.session.clone() else {
-            return;
-        };
-        let Some(services) = get_services() else {
-            return;
-        };
-        let Some(cursor) = self.state.next_cursor.clone() else {
-            return;
-        };
-        if !self.state.truncated {
-            return;
-        }
-        cancel(&mut self.as_mut().rust_mut().list_cancel);
-        let list_generation = self.state.list_generation;
-        let bridge_generation = bump(&mut self.as_mut().rust_mut().list_bridge_generation);
-        let path_token = self.state.current_path_token.clone();
-        let show_hidden = self.state.show_hidden;
-        let token = CancellationToken::new();
-        self.as_mut().rust_mut().list_cancel = Some(token.clone());
-        let qt = self.qt_thread();
-        crate::runtime::spawn(async move {
-            let request = ListDirectoryRequest {
-                path_token,
-                show_hidden,
-                limit: Some(1000),
-                cursor: Some(cursor),
-            };
-            let result = tokio::select! {
-                _ = token.cancelled() => return,
-                result = services.filesystem.list_directory(&session, &request, token.clone()) => result,
-            };
-            qt.queue(move |mut model| {
-                if bridge_generation != model.list_bridge_generation {
-                    return;
-                }
-                let mut state = model.as_mut().rust_mut().state.clone();
-                match result {
-                    Ok(list_result) => {
-                        tracing::info!(count = list_result.entries.len(), "Received more directory entries");
-                        state.apply_more(list_generation, list_result);
-                    }
-                    Err(error) => {
-                        tracing::warn!(error = %error, "Failed to load more entries");
-                        let (kind, message) = map_filesystem_error(&error);
-                        let _ = state.apply_error(list_generation, kind, &message);
-                    }
-                }
-                model.as_mut().rust_mut().state = state;
-                model.as_mut().publish_state();
-            })
-            .ok();
-        });
     }
 
     pub(crate) fn go_back(mut self: Pin<&mut Self>) {
@@ -528,7 +479,6 @@ impl qobject::VolumeFileListModel {
 
     pub(crate) fn cancel_preview(mut self: Pin<&mut Self>) {
         cancel(&mut self.as_mut().rust_mut().preview_cancel);
-        bump(&mut self.as_mut().rust_mut().preview_bridge_generation);
         self.as_mut().rust_mut().preview_loading = false;
         self.as_mut().clear_preview_temp();
         self.as_mut().reset_preview_fields();
@@ -557,10 +507,8 @@ impl qobject::VolumeFileListModel {
         self.as_mut().rust_mut().download_bytes_written = 0;
         self.as_mut().rust_mut().download_progress_text = qstring("0 B");
         self.as_mut().rust_mut().download_error = QString::default();
-        let bridge_generation = bump(&mut self.as_mut().rust_mut().download_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().download_cancel = Some(token.clone());
-        let volume_name = self.state.volume_name.clone();
         let qt = self.qt_thread();
         crate::runtime::spawn(async move {
             let path_token = volume_path_to_token(&logical);
@@ -582,7 +530,8 @@ impl qobject::VolumeFileListModel {
                         let (_, message) = map_filesystem_error(&error);
                         model.as_mut().rust_mut().download_error = qstring(&message);
                         model.as_mut().download_failed(qstring(&message));
-                    }).ok();
+                    })
+                    .ok();
                     return;
                 }
             };
@@ -628,7 +577,8 @@ impl qobject::VolumeFileListModel {
                             let (_, message) = map_filesystem_error(&error);
                             model.as_mut().rust_mut().download_error = qstring(&message);
                             model.as_mut().download_failed(qstring(&message));
-                        }).ok();
+                        })
+                        .ok();
                         return;
                     }
                 }
@@ -636,14 +586,16 @@ impl qobject::VolumeFileListModel {
             qt.queue(move |mut model| {
                 model.as_mut().rust_mut().download_in_progress = false;
                 model.as_mut().rust_mut().download_bytes_written = offset as i64;
-                model.as_mut().download_completed(qstring(&dest.display().to_string()));
-            }).ok();
+                model
+                    .as_mut()
+                    .download_completed(qstring(&dest.display().to_string()));
+            })
+            .ok();
         });
     }
 
     pub(crate) fn cancel_download(mut self: Pin<&mut Self>) {
         cancel(&mut self.as_mut().rust_mut().download_cancel);
-        bump(&mut self.as_mut().rust_mut().download_bridge_generation);
         self.as_mut().rust_mut().download_in_progress = false;
     }
 
@@ -739,7 +691,11 @@ impl qobject::VolumeFileListModel {
                                 .unwrap_or_else(|_| VolumePath::root());
                             if entry.entry_type.is_directory() {
                                 model.as_mut().rust_mut().state.current_path_token = resolved_token;
-                                model.as_mut().rust_mut().state.navigate_to(resolved_path, true);
+                                model
+                                    .as_mut()
+                                    .rust_mut()
+                                    .state
+                                    .navigate_to(resolved_path, true);
                                 model.as_mut().load_current_directory();
                             } else {
                                 model.as_mut().open_with_system_default(&resolved_path);
@@ -797,10 +753,8 @@ impl qobject::VolumeFileListModel {
         self.as_mut().rust_mut().preview_path = qstring(&path.display());
         self.as_mut().rust_mut().preview_name = qstring(&file_name);
         self.as_mut().rust_mut().preview_error = QString::default();
-        let bridge_generation = bump(&mut self.as_mut().rust_mut().preview_bridge_generation);
         let token = CancellationToken::new();
         self.as_mut().rust_mut().preview_cancel = Some(token.clone());
-        let volume_name = self.state.volume_name.clone();
         let logical = path.clone();
         let qt = self.qt_thread();
         tracing::info!(path = %logical.display(), "Opening volume file with system default app");
@@ -819,7 +773,8 @@ impl qobject::VolumeFileListModel {
                         model.as_mut().rust_mut().preview_loading = false;
                         model.as_mut().rust_mut().preview_error = qstring(&e.to_string());
                         model.as_mut().preview_failed(qstring(&e.to_string()));
-                    }).ok();
+                    })
+                    .ok();
                     return;
                 }
             };
@@ -857,7 +812,8 @@ impl qobject::VolumeFileListModel {
                             let (_, message) = map_filesystem_error(&error);
                             model.as_mut().rust_mut().preview_error = qstring(&message);
                             model.as_mut().preview_failed(qstring(&message));
-                        }).ok();
+                        })
+                        .ok();
                         return;
                     }
                 }
@@ -933,7 +889,10 @@ impl qobject::VolumeFileListModel {
                 let mut state = model.as_mut().rust_mut().state.clone();
                 match result {
                     Ok(list_result) => {
-                        tracing::info!(count = list_result.entries.len(), "Received directory entries");
+                        tracing::info!(
+                            count = list_result.entries.len(),
+                            "Received directory entries"
+                        );
                         let _ = state.apply_list(list_generation, path, path_token, list_result);
                     }
                     Err(error) => {
@@ -1130,7 +1089,8 @@ fn volume_path_to_token(path: &VolumePath) -> FilesystemPathToken {
         FilesystemPathToken::root_token()
     } else {
         let relative = path.components().join("/");
-        FilesystemPathToken::from_relative(&relative).unwrap_or_else(|_| FilesystemPathToken::root_token())
+        FilesystemPathToken::from_relative(&relative)
+            .unwrap_or_else(|_| FilesystemPathToken::root_token())
     }
 }
 

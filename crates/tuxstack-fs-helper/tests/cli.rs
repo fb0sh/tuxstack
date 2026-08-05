@@ -31,10 +31,7 @@ impl Drop for TempDir {
 }
 
 fn run(args: &[&str]) -> (i32, Vec<HelperMessage>) {
-    let output = Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("spawn helper");
+    let output = Command::new(BIN).args(args).output().expect("spawn helper");
     let mut messages = Vec::new();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         if line.trim().is_empty() {
@@ -64,7 +61,9 @@ fn entry_names(messages: &[HelperMessage]) -> Vec<String> {
 }
 
 fn end_of(messages: &[HelperMessage]) -> Option<&HelperMessage> {
-    messages.iter().find(|message| matches!(message, HelperMessage::End { .. }))
+    messages
+        .iter()
+        .find(|message| matches!(message, HelperMessage::End { .. }))
 }
 
 // ---------------------------------------------------------------------------
@@ -79,20 +78,34 @@ fn list_plain_directory() {
 
     let root = dir.0.to_str().unwrap();
     let (code, messages) = run(&[
-        "list", "--root", root, "--path-token", &token_of(""), "--limit", "1000",
+        "list",
+        "--root",
+        root,
+        "--path-token",
+        &token_of(""),
+        "--limit",
+        "1000",
     ]);
     assert_eq!(code, 0);
     assert_eq!(
         entry_names(&messages),
         vec!["app.log", "bin", "etc", "usr", "var"] // sorted by raw bytes
     );
-    assert!(matches!(end_of(&messages), Some(HelperMessage::End { truncated: false, next_cursor: None })));
+    assert!(matches!(
+        end_of(&messages),
+        Some(HelperMessage::End {
+            truncated: false,
+            next_cursor: None
+        })
+    ));
     // Every entry carries a usable token.
     for message in &messages {
         if let HelperMessage::Entry { path_token, .. } = message {
-            assert!(tuxstack_fs_protocol::FilesystemPathToken(path_token.clone())
-                .decode_relative()
-                .is_ok());
+            assert!(
+                tuxstack_fs_protocol::FilesystemPathToken(path_token.clone())
+                    .decode_relative()
+                    .is_ok()
+            );
         }
     }
 }
@@ -101,26 +114,35 @@ fn list_plain_directory() {
 fn list_empty_directory() {
     let dir = TempDir::new("empty");
     let root = dir.0.to_str().unwrap();
-    let (code, messages) =
-        run(&["list", "--root", root, "--path-token", &token_of("")]);
+    let (code, messages) = run(&["list", "--root", root, "--path-token", &token_of("")]);
     assert_eq!(code, 0);
     assert!(entry_names(&messages).is_empty());
     assert!(matches!(
         end_of(&messages),
-        Some(HelperMessage::End { truncated: false, next_cursor: None })
+        Some(HelperMessage::End {
+            truncated: false,
+            next_cursor: None
+        })
     ));
 }
 
 #[test]
 fn list_hidden_filtering_and_special_names() {
     let dir = TempDir::new("names");
-    for name in ["visible", ".hidden", "with space", "tab\there", "new\nline", "dash-name"] {
+    for name in [
+        "visible",
+        ".hidden",
+        "with space",
+        "tab\there",
+        "new\nline",
+        "dash-name",
+    ] {
         std::fs::create_dir(dir.0.join(name)).unwrap();
     }
     // Non-UTF-8 name (raw bytes).
-    std::fs::create_dir(
-        dir.0.join(PathBuf::from(OsString::from_vec(vec![b'v', 0xff, b'a', b't']))),
-    )
+    std::fs::create_dir(dir.0.join(PathBuf::from(OsString::from_vec(vec![
+        b'v', 0xff, b'a', b't',
+    ]))))
     .unwrap();
 
     let root = dir.0.to_str().unwrap();
@@ -139,13 +161,7 @@ fn list_hidden_filtering_and_special_names() {
     assert!(names.iter().any(|name| name == "new\nline"));
     assert!(names.iter().any(|name| name.contains('\u{fffd}'))); // lossy display
 
-    let (_, hidden_on) = run(&[
-        "list",
-        "--root",
-        root,
-        "--path-token",
-        &token_of(""),
-    ]);
+    let (_, hidden_on) = run(&["list", "--root", root, "--path-token", &token_of("")]);
     assert!(!entry_names(&hidden_on).iter().any(|name| name == ".hidden"));
 }
 
@@ -169,7 +185,11 @@ fn list_pagination_and_cursor() {
     assert_eq!(code, 0);
     let names1 = entry_names(&page1);
     assert_eq!(names1, vec!["entry-00", "entry-01", "entry-02", "entry-03"]);
-    let HelperMessage::End { truncated, next_cursor } = end_of(&page1).unwrap() else {
+    let HelperMessage::End {
+        truncated,
+        next_cursor,
+    } = end_of(&page1).unwrap()
+    else {
         panic!("no end");
     };
     assert!(truncated);
@@ -210,7 +230,10 @@ fn list_pagination_and_cursor() {
     assert_eq!(entry_names(&page3), vec!["entry-08", "entry-09"]);
     assert!(matches!(
         end_of(&page3),
-        Some(HelperMessage::End { truncated: false, next_cursor: None })
+        Some(HelperMessage::End {
+            truncated: false,
+            next_cursor: None
+        })
     ));
 }
 
@@ -227,9 +250,12 @@ fn list_symlinks_and_dangling() {
     let good = messages
         .iter()
         .find_map(|message| match message {
-            HelperMessage::Entry { name_b64, file_type, symlink_target_b64, .. }
-                if decode_base64(name_b64).unwrap() == b"good" =>
-            {
+            HelperMessage::Entry {
+                name_b64,
+                file_type,
+                symlink_target_b64,
+                ..
+            } if decode_base64(name_b64).unwrap() == b"good" => {
                 Some((*file_type, symlink_target_b64.clone()))
             }
             _ => None,
@@ -239,7 +265,11 @@ fn list_symlinks_and_dangling() {
     assert_eq!(decode_base64(&good.1.unwrap()).unwrap(), b"real.txt");
 
     let dangling = messages.iter().any(|message| match message {
-        HelperMessage::Entry { name_b64, file_type, .. } => {
+        HelperMessage::Entry {
+            name_b64,
+            file_type,
+            ..
+        } => {
             decode_base64(name_b64).unwrap() == b"dangling"
                 && *file_type == tuxstack_fs_protocol::HelperFileType::Symlink
         }
@@ -268,7 +298,10 @@ fn list_large_directory_truncates_at_limit() {
     assert_eq!(entry_names(&messages).len(), 100);
     assert!(matches!(
         end_of(&messages),
-        Some(HelperMessage::End { truncated: true, next_cursor: Some(_) })
+        Some(HelperMessage::End {
+            truncated: true,
+            next_cursor: Some(_)
+        })
     ));
 }
 
@@ -276,17 +309,14 @@ fn list_large_directory_truncates_at_limit() {
 fn list_missing_and_not_directory() {
     let dir = TempDir::new("missing");
     let root = dir.0.to_str().unwrap();
-    let (code, messages) = run(&[
-        "list",
-        "--root",
-        root,
-        "--path-token",
-        &token_of("nope"),
-    ]);
+    let (code, messages) = run(&["list", "--root", root, "--path-token", &token_of("nope")]);
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::NotFound, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::NotFound,
+            ..
+        })
     ));
 
     std::fs::write(dir.0.join("file.txt"), b"x").unwrap();
@@ -300,7 +330,10 @@ fn list_missing_and_not_directory() {
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::NotDirectory, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::NotDirectory,
+            ..
+        })
     ));
 }
 
@@ -315,18 +348,15 @@ fn list_permission_denied() {
     std::fs::create_dir(&locked).unwrap();
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
     let root = dir.0.to_str().unwrap();
-    let (code, messages) = run(&[
-        "list",
-        "--root",
-        root,
-        "--path-token",
-        &token_of("locked"),
-    ]);
+    let (code, messages) = run(&["list", "--root", root, "--path-token", &token_of("locked")]);
     let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755));
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::PermissionDenied, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::PermissionDenied,
+            ..
+        })
     ));
 }
 
@@ -339,12 +369,18 @@ fn path_token_escape_is_rejected() {
 
     // A forged token with ".." must be refused by the helper (the token
     // decoder rejects it before any filesystem access).
-    let forged = format!("v1:{}", tuxstack_fs_protocol::encode_base64(b"../secret.txt"));
+    let forged = format!(
+        "v1:{}",
+        tuxstack_fs_protocol::encode_base64(b"../secret.txt")
+    );
     let (code, messages) = run(&["stat", "--root", root, "--path-token", &forged]);
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::InvalidToken, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::InvalidToken,
+            ..
+        })
     ));
 
     // Absolute-path token.
@@ -372,7 +408,10 @@ fn symlink_escape_is_rejected_for_reads() {
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::PathEscapeRejected, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::PathEscapeRejected,
+            ..
+        })
     ));
 
     // In-root symlink is fine.
@@ -416,17 +455,14 @@ fn stat_regular_file_and_missing() {
         })
     ));
 
-    let (code, messages) = run(&[
-        "stat",
-        "--root",
-        root,
-        "--path-token",
-        &token_of("missing"),
-    ]);
+    let (code, messages) = run(&["stat", "--root", root, "--path-token", &token_of("missing")]);
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::NotFound, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::NotFound,
+            ..
+        })
     ));
 }
 
@@ -453,7 +489,13 @@ fn preview_bounded_offset_and_directory_refusal() {
     let mut eof = false;
     let mut truncated = false;
     for message in &messages {
-        if let HelperMessage::PreviewChunk { data_b64, eof: e, truncated: t, .. } = message {
+        if let HelperMessage::PreviewChunk {
+            data_b64,
+            eof: e,
+            truncated: t,
+            ..
+        } = message
+        {
             collected.extend_from_slice(&decode_base64(data_b64).unwrap());
             eof = *e;
             truncated = *t;
@@ -465,17 +507,14 @@ fn preview_bounded_offset_and_directory_refusal() {
     assert_eq!(collected.len(), 100);
 
     // Directory preview is refused.
-    let (code, messages) = run(&[
-        "preview",
-        "--root",
-        root,
-        "--path-token",
-        &token_of(""),
-    ]);
+    let (code, messages) = run(&["preview", "--root", root, "--path-token", &token_of("")]);
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::IsDirectory, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::IsDirectory,
+            ..
+        })
     ));
 }
 
@@ -488,17 +527,14 @@ fn preview_refuses_fifo() {
         libc::mkfifo(c_string.as_ptr(), 0o644);
     }
     let root = dir.0.to_str().unwrap();
-    let (code, messages) = run(&[
-        "preview",
-        "--root",
-        root,
-        "--path-token",
-        &token_of("pipe"),
-    ]);
+    let (code, messages) = run(&["preview", "--root", root, "--path-token", &token_of("pipe")]);
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::UnsupportedFileType, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::UnsupportedFileType,
+            ..
+        })
     ));
 }
 
@@ -563,6 +599,9 @@ fn unknown_command_fails_cleanly() {
     assert_ne!(code, 0);
     assert!(matches!(
         messages.last(),
-        Some(HelperMessage::Error { code: tuxstack_fs_protocol::HelperErrorCode::InvalidArgs, .. })
+        Some(HelperMessage::Error {
+            code: tuxstack_fs_protocol::HelperErrorCode::InvalidArgs,
+            ..
+        })
     ));
 }

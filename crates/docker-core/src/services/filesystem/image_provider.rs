@@ -4,7 +4,6 @@
 
 use bollard::models::{ContainerCreateBody, HostConfig, ResourcesUlimits};
 use bollard::query_parameters::{CreateContainerOptions, UploadToContainerOptions};
-use bollard::Docker;
 use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
@@ -19,9 +18,7 @@ const LABEL_PURPOSE: &str = "io.github.tuxstack.purpose";
 const PURPOSE_VALUE: &str = "filesystem-helper";
 
 /// Helper binary path inside the container.
-const HELPER_DIR: &str = "/.tuxstack";
 const HELPER_PATH: &str = "/.tuxstack/tuxstack-fs-helper";
-const HELPER_BUNDLE_PATH: &str = "/.tuxstack";
 
 /// Create a filesystem session for an image. The preview container is
 /// created from the image itself, with the static helper injected via
@@ -32,26 +29,19 @@ pub async fn create_session(
     timeout: std::time::Duration,
     cancellation: &CancellationToken,
 ) -> Result<FilesystemSession, FilesystemError> {
-    // 1. Inspect image → get immutable ID, architecture, OS.
-    let inspect = tokio::time::timeout(
-        timeout,
-        client.inspect_image(image_id),
-    )
-    .await
-    .map_err(|_| FilesystemError::Timeout)?
-    .map_err(|error| {
-        let text = error.to_string().to_ascii_lowercase();
-        if text.contains("not found") || text.contains("no such image") {
-            FilesystemError::ImageNotFound(image_id.to_string())
-        } else {
-            FilesystemError::ExecFailed(error.to_string())
-        }
-    })?;
+    // 1. Inspect image → get architecture and OS.
+    let inspect = tokio::time::timeout(timeout, client.inspect_image(image_id))
+        .await
+        .map_err(|_| FilesystemError::Timeout)?
+        .map_err(|error| {
+            let text = error.to_string().to_ascii_lowercase();
+            if text.contains("not found") || text.contains("no such image") {
+                FilesystemError::ImageNotFound(image_id.to_string())
+            } else {
+                FilesystemError::ExecFailed(error.to_string())
+            }
+        })?;
 
-    let immutable_id = inspect
-        .id
-        .clone()
-        .unwrap_or_else(|| image_id.to_string());
     let os = inspect.os.as_deref().unwrap_or("linux");
     if os != "linux" {
         return Err(FilesystemError::UnsupportedPlatform(format!(
@@ -66,10 +56,11 @@ pub async fn create_session(
     let platform = format!("{os}/{arch}");
 
     // 2. Select the correct helper binary for this architecture.
-    let (helper_bytes, helper_arch) = helper_bytes_for_arch(&arch)
-        .ok_or_else(|| FilesystemError::HelperBinaryUnavailable(format!(
+    let helper_bytes = helper_bytes_for_arch(&arch).ok_or_else(|| {
+        FilesystemError::HelperBinaryUnavailable(format!(
             "no helper binary for architecture {arch}"
-        )))?;
+        ))
+    })?;
 
     // 3. Build the tar archive with the helper binary.
     let tar = build_helper_archive(helper_bytes);
@@ -145,13 +136,10 @@ pub async fn create_session(
         .map_err(|error| FilesystemError::HelperImageLoadFailed(error.to_string()))?;
 
     // 6. Start the container.
-    tokio::time::timeout(
-        timeout,
-        client.start_container(&response.id, None),
-    )
-    .await
-    .map_err(|_| FilesystemError::Timeout)?
-    .map_err(|error| FilesystemError::HelperContainerStartFailed(error.to_string()))?;
+    tokio::time::timeout(timeout, client.start_container(&response.id, None))
+        .await
+        .map_err(|_| FilesystemError::Timeout)?
+        .map_err(|error| FilesystemError::HelperContainerStartFailed(error.to_string()))?;
 
     // 7. Hello handshake.
     let session = FilesystemSession {
@@ -169,22 +157,16 @@ pub async fn create_session(
         created_at: Utc::now(),
     };
 
-    let helper_version = client::hello(
-        client,
-        &session,
-        timeout,
-        cancellation,
-    )
-    .await
-    .map_err(|error| {
-        // Handshake failed → invalidate the session.
-        let client_clone = client.clone();
-        let session_clone = session.clone();
-        tokio::spawn(async move {
-            let _ = session::invalidate_session(&client_clone, &session_clone).await;
-        });
-        error
-    })?;
+    let helper_version = client::hello(client, &session, timeout, cancellation)
+        .await
+        .inspect_err(|_| {
+            // Handshake failed → invalidate the session.
+            let client_clone = client.clone();
+            let session_clone = session.clone();
+            tokio::spawn(async move {
+                let _ = session::invalidate_session(&client_clone, &session_clone).await;
+            });
+        })?;
 
     Ok(FilesystemSession {
         helper_version,
@@ -202,24 +184,12 @@ const HELPER_X86_64_BYTES: &[u8] = include_bytes!(env!("IMAGEFS_HELPER_X86_64"))
 #[cfg(helper_aarch64)]
 const HELPER_AARCH64_BYTES: &[u8] = include_bytes!(env!("IMAGEFS_HELPER_AARCH64"));
 
-fn helper_bytes_for_arch(arch: &str) -> Option<(&'static [u8], &'static str)> {
+fn helper_bytes_for_arch(arch: &str) -> Option<&'static [u8]> {
     match arch {
-        "x86_64" | "amd64" => {
-            #[cfg(helper_x86_64)]
-            {
-                return Some((HELPER_X86_64_BYTES, "x86_64"));
-            }
-            #[cfg(not(helper_x86_64))]
-            return None;
-        }
-        "aarch64" | "arm64" => {
-            #[cfg(helper_aarch64)]
-            {
-                return Some((HELPER_AARCH64_BYTES, "aarch64"));
-            }
-            #[cfg(not(helper_aarch64))]
-            return None;
-        }
+        #[cfg(helper_x86_64)]
+        "x86_64" | "amd64" => Some(HELPER_X86_64_BYTES),
+        #[cfg(helper_aarch64)]
+        "aarch64" | "arm64" => Some(HELPER_AARCH64_BYTES),
         _ => None,
     }
 }
@@ -247,10 +217,10 @@ fn build_helper_archive(helper_binary: &[u8]) -> Vec<u8> {
     out.extend_from_slice(helper_binary);
     // Pad to 512-byte boundary.
     let padding = (512 - (helper_binary.len() % 512)) % 512;
-    out.extend(std::iter::repeat(0u8).take(padding));
+    out.extend(std::iter::repeat_n(0u8, padding));
 
     // End-of-archive: two 512-byte zero blocks.
-    out.extend(std::iter::repeat(0u8).take(1024));
+    out.extend(std::iter::repeat_n(0u8, 1024));
     out
 }
 

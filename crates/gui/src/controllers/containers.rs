@@ -99,10 +99,6 @@ impl GroupOperationResult {
         self.targets.len().saturating_sub(self.success_count())
     }
 
-    pub fn partial(&self) -> bool {
-        self.success_count() > 0 && self.failure_count() > 0
-    }
-
     pub fn message(&self) -> String {
         let verb = match self.operation {
             GroupOperationState::Starting => "Started",
@@ -625,20 +621,6 @@ impl ContainersState {
     pub fn stopped_count(&self) -> usize {
         self.total_count()
             .saturating_sub(self.running_count() + self.paused_count())
-    }
-
-    pub fn selected_container_summary(&self) -> Option<&ContainerSummary> {
-        let ContainerSelection::Container { container_id } = &self.selection else {
-            return None;
-        };
-        self.source_rows.iter().find(|row| &row.id == container_id)
-    }
-
-    pub fn selected_group_summary(&self) -> Option<&ContainerGroupSummary> {
-        let ContainerSelection::Group { group_id } = &self.selection else {
-            return None;
-        };
-        self.groups.iter().find(|group| &group.id == group_id)
     }
 
     fn replace_source(&mut self, summaries: &[ContainerSummary]) {
@@ -1582,7 +1564,8 @@ mod tests {
                 },
             ],
         };
-        assert!(result.partial());
+        assert_eq!(result.success_count(), 1);
+        assert_eq!(result.failure_count(), 1);
         assert!(result.message().contains("db — port already in use"));
         assert!(state.finish_group_operation(&group_id, generation, result));
         assert!(state.group_operations.is_empty());

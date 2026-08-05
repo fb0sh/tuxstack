@@ -6,9 +6,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    println!("cargo::rustc-check-cfg=cfg(helper_x86_64)");
+    println!("cargo::rustc-check-cfg=cfg(helper_aarch64)");
+
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap().to_path_buf();
+    let workspace_root = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let target_dir = PathBuf::from(&out_dir).join("tuxstack-fs-helper-build");
 
@@ -27,14 +35,24 @@ fn main() {
     // Host-architecture helper (always built).
     match host_arch.as_str() {
         "x86_64" => {
-            if build_for_triple(&cargo, &workspace_root, &target_dir, "x86_64-unknown-linux-musl") {
+            if build_for_triple(
+                &cargo,
+                &workspace_root,
+                &target_dir,
+                "x86_64-unknown-linux-musl",
+            ) {
                 let bin = target_dir.join("x86_64-unknown-linux-musl/release/tuxstack-fs-helper");
                 println!("cargo:rustc-env=IMAGEFS_HELPER_X86_64={}", bin.display());
                 println!("cargo:rustc-cfg=helper_x86_64");
             }
         }
         "aarch64" => {
-            if build_for_triple(&cargo, &workspace_root, &target_dir, "aarch64-unknown-linux-musl") {
+            if build_for_triple(
+                &cargo,
+                &workspace_root,
+                &target_dir,
+                "aarch64-unknown-linux-musl",
+            ) {
                 let bin = target_dir.join("aarch64-unknown-linux-musl/release/tuxstack-fs-helper");
                 println!("cargo:rustc-env=IMAGEFS_HELPER_AARCH64={}", bin.display());
                 println!("cargo:rustc-cfg=helper_aarch64");
@@ -71,12 +89,7 @@ fn main() {
     }
 }
 
-fn build_for_triple(
-    cargo: &str,
-    workspace: &Path,
-    target_dir: &Path,
-    triple: &str,
-) -> bool {
+fn build_for_triple(cargo: &str, workspace: &Path, target_dir: &Path, triple: &str) -> bool {
     Command::new(cargo)
         .current_dir(workspace)
         .args([

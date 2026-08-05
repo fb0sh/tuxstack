@@ -526,6 +526,7 @@ mod tests {
                     status: Some(HealthStatusEnum::UNHEALTHY),
                     failing_streak: Some(2),
                     log: Some(vec![HealthcheckResult {
+                        start: None,
                         end: Some(
                             DateTime::parse_from_rfc3339("2024-01-01T00:00:01Z")
                                 .unwrap()
@@ -533,9 +534,7 @@ mod tests {
                         ),
                         exit_code: Some(1),
                         output: Some("failed".into()),
-                        ..Default::default()
                     }]),
-                    ..Default::default()
                 }),
                 ..Default::default()
             }),

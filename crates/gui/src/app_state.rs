@@ -147,11 +147,6 @@ pub fn set_settings(settings: GuiSettings) {
     let _ = SETTINGS.set(settings);
 }
 
-/// Access GUI settings.
-pub fn settings() -> &'static GuiSettings {
-    SETTINGS.get().expect("settings must be initialized")
-}
-
 /// Generic load state used across pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)] // referenced by docs/architecture as the shared load-state type

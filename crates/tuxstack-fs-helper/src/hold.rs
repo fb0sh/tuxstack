@@ -16,8 +16,14 @@ extern "C" fn on_signal(_signal: libc::c_int) {
 
 pub fn run() -> ! {
     unsafe {
-        libc::signal(libc::SIGTERM, on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t);
-        libc::signal(libc::SIGINT, on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t);
+        libc::signal(
+            libc::SIGTERM,
+            on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+        );
+        libc::signal(
+            libc::SIGINT,
+            on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+        );
     }
     loop {
         if STOPPING.load(Ordering::SeqCst) {

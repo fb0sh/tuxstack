@@ -7,10 +7,10 @@ use std::os::unix::ffi::OsStrExt;
 
 use tuxstack_fs_protocol::HelperMessage;
 
+use crate::emit;
 use crate::error::{HelperError, Result};
 use crate::metadata::entry_message;
 use crate::path::{self, decode_token, resolve_token};
-use crate::emit;
 
 /// Runtime-injected directories at the container root that are not part of
 /// the image (mounted by the Docker runtime): always hidden.
@@ -37,9 +37,14 @@ pub fn run(args: &[String]) -> Result<()> {
 
     let reader = std::fs::read_dir(&dir).map_err(|error| HelperError::from_io(&dir, &error))?;
     let cursor_raw: Option<Vec<u8>> = match flags.cursor.as_deref() {
-        Some(cursor) => Some(tuxstack_fs_protocol::decode_base64(cursor).map_err(|message| {
-            HelperError::new(crate::HelperErrorCode::InvalidToken, format!("invalid cursor: {message}"))
-        })?),
+        Some(cursor) => Some(
+            tuxstack_fs_protocol::decode_base64(cursor).map_err(|message| {
+                HelperError::new(
+                    crate::HelperErrorCode::InvalidToken,
+                    format!("invalid cursor: {message}"),
+                )
+            })?,
+        ),
         None => None,
     };
     let mut names: Vec<Vec<u8>> = Vec::new();
@@ -57,7 +62,10 @@ pub fn run(args: &[String]) -> Result<()> {
         if !flags.show_hidden && raw.first() == Some(&b'.') {
             continue;
         }
-        if cursor_raw.as_ref().is_some_and(|c| raw.as_slice() <= c.as_slice()) {
+        if cursor_raw
+            .as_ref()
+            .is_some_and(|c| raw.as_slice() <= c.as_slice())
+        {
             continue;
         }
         names.push(raw);

@@ -27,8 +27,12 @@ pub trait PoolKey {
 impl PoolKey for FilesystemSession {
     fn pool_key(&self) -> &str {
         match &self.source {
-            crate::services::filesystem::types::FilesystemSource::Image { image_id, .. } => image_id,
-            crate::services::filesystem::types::FilesystemSource::Volume { volume_name } => volume_name,
+            crate::services::filesystem::types::FilesystemSource::Image { image_id, .. } => {
+                image_id
+            }
+            crate::services::filesystem::types::FilesystemSource::Volume { volume_name } => {
+                volume_name
+            }
         }
     }
 }
@@ -305,7 +309,7 @@ impl<S> PreviewSessionPool<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::filesystem::types::{FilesystemSource, FilesystemSession};
+    use crate::services::filesystem::types::{FilesystemSession, FilesystemSource};
     use chrono::Utc;
 
     fn session(name: &str, id: u32) -> FilesystemSession {

@@ -1,6 +1,8 @@
 //! Pure controller state for read-only image file browsing.
 
-use tuxstack_docker_core::{FilesystemEntry, FilesystemEntryType, FilesystemPathToken, VolumePath};
+#[cfg(test)]
+use tuxstack_docker_core::FilesystemEntryType;
+use tuxstack_docker_core::{FilesystemEntry, FilesystemPathToken, VolumePath};
 
 use crate::controllers::volume_files::{VolumeFileSortColumn, sort_entries};
 
@@ -459,7 +461,10 @@ mod tests {
     #[test]
     fn search_filters_current_directory_only() {
         let mut state = ImageFilesControllerState {
-            entries: vec![entry("readme.txt", false, Some(1)), entry("data", true, None)],
+            entries: vec![
+                entry("readme.txt", false, Some(1)),
+                entry("data", true, None),
+            ],
             state: ImageFilesState::Ready,
             ..Default::default()
         };

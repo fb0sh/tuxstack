@@ -3,11 +3,11 @@
 use std::fs::File;
 use std::io::Read;
 
-use tuxstack_fs_protocol::{HelperMessage, HelperErrorCode};
+use tuxstack_fs_protocol::{HelperErrorCode, HelperMessage};
 
+use crate::emit;
 use crate::error::{HelperError, Result};
 use crate::path::{self, confine_to_root, resolve_token};
-use crate::emit;
 
 const READ_CHUNK: usize = 64 * 1024;
 

@@ -12,12 +12,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Component, Path, PathBuf};
 
-use tuxstack_fs_protocol::{
-    FilesystemPathToken, HelperErrorCode, HelperMessage,
-};
+use tuxstack_fs_protocol::{FilesystemPathToken, HelperErrorCode, HelperMessage};
 
-use crate::error::{HelperError, Result};
 use crate::emit;
+use crate::error::{HelperError, Result};
 
 const MAX_SYMLINK_HOPS: usize = 40;
 
@@ -220,9 +218,12 @@ pub fn parse_flags(args: &[String]) -> Result<Flags> {
     let mut seen_token = false;
     while let Some(arg) = iter.next() {
         let value = |iter: &mut std::slice::Iter<'_, String>| {
-            iter.next()
-                .cloned()
-                .ok_or_else(|| HelperError::new(HelperErrorCode::InvalidArgs, format!("missing value for {arg}")))
+            iter.next().cloned().ok_or_else(|| {
+                HelperError::new(
+                    HelperErrorCode::InvalidArgs,
+                    format!("missing value for {arg}"),
+                )
+            })
         };
         match arg.as_str() {
             "--root" => flags.root = PathBuf::from(value(&mut iter)?),
@@ -234,20 +235,29 @@ pub fn parse_flags(args: &[String]) -> Result<Flags> {
             "--limit" => {
                 let raw = value(&mut iter)?;
                 flags.limit = Some(raw.parse().map_err(|_| {
-                    HelperError::new(HelperErrorCode::InvalidArgs, format!("invalid --limit: {raw}"))
+                    HelperError::new(
+                        HelperErrorCode::InvalidArgs,
+                        format!("invalid --limit: {raw}"),
+                    )
                 })?);
             }
             "--cursor" => flags.cursor = Some(value(&mut iter)?),
             "--offset" => {
                 let raw = value(&mut iter)?;
                 flags.offset = raw.parse().map_err(|_| {
-                    HelperError::new(HelperErrorCode::InvalidArgs, format!("invalid --offset: {raw}"))
+                    HelperError::new(
+                        HelperErrorCode::InvalidArgs,
+                        format!("invalid --offset: {raw}"),
+                    )
                 })?;
             }
             "--limit-bytes" => {
                 let raw = value(&mut iter)?;
                 flags.read_limit = raw.parse().map_err(|_| {
-                    HelperError::new(HelperErrorCode::InvalidArgs, format!("invalid --limit-bytes: {raw}"))
+                    HelperError::new(
+                        HelperErrorCode::InvalidArgs,
+                        format!("invalid --limit-bytes: {raw}"),
+                    )
                 })?;
             }
             "--algorithm" => flags.algorithm = value(&mut iter)?,
@@ -255,7 +265,7 @@ pub fn parse_flags(args: &[String]) -> Result<Flags> {
                 return Err(HelperError::new(
                     HelperErrorCode::InvalidArgs,
                     format!("unknown flag: {other}"),
-                ))
+                ));
             }
         }
     }

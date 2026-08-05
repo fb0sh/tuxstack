@@ -6,11 +6,11 @@
 //! filesystem operations, with `image_provider` and `volume_provider`
 //! handling the session creation differences.
 
-pub mod types;
-pub mod error;
 pub mod client;
-pub mod session;
+pub mod error;
 pub mod image_provider;
+pub mod session;
+pub mod types;
 pub mod volume_provider;
 
 use std::sync::Arc;
@@ -21,7 +21,10 @@ use crate::client::DockerClient;
 
 use self::types::*;
 use error::FilesystemError;
-use types::{FilesystemSession, ListDirectoryRequest, ListDirectoryResult, StatRequest, PreviewRequest, HashRequest, FilesystemEntry};
+use types::{
+    FilesystemEntry, FilesystemSession, HashRequest, ListDirectoryRequest, ListDirectoryResult,
+    PreviewRequest, StatRequest,
+};
 
 /// The unified filesystem browsing service. Delegates session creation to
 /// the image/volume providers and all filesystem operations to the client.

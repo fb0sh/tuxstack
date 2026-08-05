@@ -11,13 +11,9 @@ use super::error::FilesystemError;
 use super::types::*;
 use tuxstack_fs_protocol::FilesystemPathToken;
 
-use super::session::invalidate_session;
-
 /// Maximum bytes collected per exec call (8 MiB stdout, 32 MiB for preview).
 const MAX_EXEC_STDOUT: usize = 8 * 1024 * 1024;
 const MAX_EXEC_PREVIEW: usize = 32 * 1024 * 1024;
-
-/// The helper binary path inside the container.
 
 // ---------------------------------------------------------------------------
 // Hello handshake
@@ -42,16 +38,18 @@ pub async fn hello(
     .await?;
 
     for line in &output {
-        if let Ok(message) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line) {
-            if let tuxstack_fs_protocol::HelperMessage::Hello { protocol, helper_version } = message {
-                if protocol != tuxstack_fs_protocol::FS_HELPER_PROTOCOL_VERSION {
-                    return Err(FilesystemError::HelperProtocolMismatch {
-                        expected: tuxstack_fs_protocol::FS_HELPER_PROTOCOL_VERSION,
-                        got: protocol,
-                    });
-                }
-                return Ok(helper_version);
+        if let Ok(tuxstack_fs_protocol::HelperMessage::Hello {
+            protocol,
+            helper_version,
+        }) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line)
+        {
+            if protocol != tuxstack_fs_protocol::FS_HELPER_PROTOCOL_VERSION {
+                return Err(FilesystemError::HelperProtocolMismatch {
+                    expected: tuxstack_fs_protocol::FS_HELPER_PROTOCOL_VERSION,
+                    got: protocol,
+                });
             }
+            return Ok(helper_version);
         }
     }
     Err(FilesystemError::HelperHandshakeFailed(
@@ -109,15 +107,20 @@ fn parse_list_output(lines: &[String]) -> Result<ListDirectoryResult, Filesystem
     let mut next_cursor = None;
 
     for line in lines {
-        let message: tuxstack_fs_protocol::HelperMessage = serde_json::from_str(line)
-            .map_err(|error| FilesystemError::HelperProtocolError(format!("JSON parse: {error}")))?;
+        let message: tuxstack_fs_protocol::HelperMessage =
+            serde_json::from_str(line).map_err(|error| {
+                FilesystemError::HelperProtocolError(format!("JSON parse: {error}"))
+            })?;
         match message {
             tuxstack_fs_protocol::HelperMessage::Entry { .. } => {
                 if let Some(entry) = FilesystemEntry::from_protocol_entry(&message) {
                     entries.push(entry);
                 }
             }
-            tuxstack_fs_protocol::HelperMessage::End { truncated: t, next_cursor: c } => {
+            tuxstack_fs_protocol::HelperMessage::End {
+                truncated: t,
+                next_cursor: c,
+            } => {
                 truncated = t;
                 next_cursor = c;
             }
@@ -127,7 +130,11 @@ fn parse_list_output(lines: &[String]) -> Result<ListDirectoryResult, Filesystem
             _ => {}
         }
     }
-    Ok(ListDirectoryResult { entries, truncated, next_cursor })
+    Ok(ListDirectoryResult {
+        entries,
+        truncated,
+        next_cursor,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +156,15 @@ pub async fn stat(
         "--path-token".into(),
         request.path_token.0.clone(),
     ];
-    let output = exec_lines(client, session, args, timeout, MAX_EXEC_STDOUT, cancellation).await?;
+    let output = exec_lines(
+        client,
+        session,
+        args,
+        timeout,
+        MAX_EXEC_STDOUT,
+        cancellation,
+    )
+    .await?;
 
     for line in &output {
         if let Ok(message) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line) {
@@ -158,13 +173,18 @@ pub async fn stat(
                     // Stat messages share the same fields as Entry without name_b64;
                     // reconstruct an Entry-compatible view by synthesizing name_b64.
                     if let tuxstack_fs_protocol::HelperMessage::Stat {
-                        path_token, file_type, size, mtime, mode, uid, gid,
-                        symlink_target_b64, readable,
+                        path_token,
+                        file_type,
+                        size,
+                        mtime,
+                        mode,
+                        uid,
+                        gid,
+                        symlink_target_b64,
+                        readable,
                     } = &message
                     {
-                        let name_b64 = tuxstack_fs_protocol::encode_base64(
-                            &path_token.as_bytes(),
-                        );
+                        let name_b64 = tuxstack_fs_protocol::encode_base64(path_token.as_bytes());
                         let synthetic = tuxstack_fs_protocol::HelperMessage::Entry {
                             name_b64,
                             path_token: path_token.clone(),
@@ -235,11 +255,19 @@ pub async fn preview(
         if let Ok(message) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line) {
             match message {
                 tuxstack_fs_protocol::HelperMessage::PreviewChunk {
-                    data_b64, offset, eof, truncated: t,
+                    data_b64,
+                    offset,
+                    eof,
+                    truncated: t,
                 } => {
                     total_length = offset + data_b64.len() as u64; // approximate
                     truncated = t;
-                    chunks.push(PreviewChunk { data_b64, offset, eof, truncated: t });
+                    chunks.push(PreviewChunk {
+                        data_b64,
+                        offset,
+                        eof,
+                        truncated: t,
+                    });
                 }
                 tuxstack_fs_protocol::HelperMessage::Error { code, message } => {
                     return Err(map_helper_error(code, &message));
@@ -248,7 +276,11 @@ pub async fn preview(
             }
         }
     }
-    Ok(PreviewResult { chunks, total_length, truncated })
+    Ok(PreviewResult {
+        chunks,
+        total_length,
+        truncated,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +304,15 @@ pub async fn hash(
         "--algorithm".into(),
         request.algorithm.clone(),
     ];
-    let output = exec_lines(client, session, args, timeout, MAX_EXEC_STDOUT, cancellation).await?;
+    let output = exec_lines(
+        client,
+        session,
+        args,
+        timeout,
+        MAX_EXEC_STDOUT,
+        cancellation,
+    )
+    .await?;
 
     for line in &output {
         if let Ok(message) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line) {
@@ -311,7 +351,15 @@ pub async fn readlink(
         "--path-token".into(),
         request.path_token.0.clone(),
     ];
-    let output = exec_lines(client, session, args, timeout, MAX_EXEC_STDOUT, cancellation).await?;
+    let output = exec_lines(
+        client,
+        session,
+        args,
+        timeout,
+        MAX_EXEC_STDOUT,
+        cancellation,
+    )
+    .await?;
 
     for line in &output {
         if let Ok(message) = serde_json::from_str::<tuxstack_fs_protocol::HelperMessage>(line) {
@@ -358,7 +406,7 @@ async fn exec_lines(
             },
         )
         .await
-        .map_err(|error| map_exec_error(error, session))?;
+        .map_err(map_exec_error)?;
 
     let start = tokio::time::timeout(
         timeout,
@@ -373,7 +421,7 @@ async fn exec_lines(
     )
     .await
     .map_err(|_| FilesystemError::Timeout)?
-    .map_err(|error| map_exec_error(error, session))?;
+    .map_err(map_exec_error)?;
 
     let StartExecResults::Attached { mut output, .. } = start else {
         return Err(FilesystemError::ExecFailed("exec started detached".into()));
@@ -418,7 +466,11 @@ async fn exec_lines(
 
     // Split stdout into lines, filtering empty lines.
     let text = String::from_utf8_lossy(&stdout);
-    Ok(text.lines().filter(|l| !l.trim().is_empty()).map(String::from).collect())
+    Ok(text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Stream raw bytes from the helper (for download or direct file reads).
@@ -446,7 +498,7 @@ where
             },
         )
         .await
-        .map_err(|error| map_exec_error(error, session))?;
+        .map_err(map_exec_error)?;
 
     let start = tokio::time::timeout(
         timeout,
@@ -455,13 +507,13 @@ where
             Some(StartExecOptions {
                 detach: false,
                 tty: false,
-                output_capacity: Some(MAX_EXEC_PREVIEW as usize),
+                output_capacity: Some(MAX_EXEC_PREVIEW),
             }),
         ),
     )
     .await
     .map_err(|_| FilesystemError::Timeout)?
-    .map_err(|error| map_exec_error(error, session))?;
+    .map_err(map_exec_error)?;
 
     let StartExecResults::Attached { mut output, .. } = start else {
         return Err(FilesystemError::ExecFailed("exec started detached".into()));
@@ -490,8 +542,12 @@ where
                         header_buf.extend_from_slice(&bytes[..pos]);
                         header_done = true;
                         let header_text = String::from_utf8_lossy(&header_buf);
-                        let _message: tuxstack_fs_protocol::HelperMessage = serde_json::from_str(&header_text)
-                            .map_err(|error| FilesystemError::HelperProtocolError(format!("header parse: {error}")))?;
+                        let _message: tuxstack_fs_protocol::HelperMessage =
+                            serde_json::from_str(&header_text).map_err(|error| {
+                                FilesystemError::HelperProtocolError(format!(
+                                    "header parse: {error}"
+                                ))
+                            })?;
                         // Forward remaining bytes after the newline.
                         let rest = &bytes[pos + 1..];
                         if !rest.is_empty() {
@@ -527,10 +583,7 @@ fn check_cancel(token: &CancellationToken) -> Result<(), FilesystemError> {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-fn map_helper_error(
-    code: tuxstack_fs_protocol::HelperErrorCode,
-    message: &str,
-) -> FilesystemError {
+fn map_helper_error(code: tuxstack_fs_protocol::HelperErrorCode, message: &str) -> FilesystemError {
     use tuxstack_fs_protocol::HelperErrorCode;
     match code {
         HelperErrorCode::NotFound => FilesystemError::PathNotFound(message.into()),
@@ -540,16 +593,15 @@ fn map_helper_error(
         HelperErrorCode::InvalidToken => FilesystemError::InvalidPathToken(message.into()),
         HelperErrorCode::PathEscapeRejected => FilesystemError::PathEscapeRejected(message.into()),
         HelperErrorCode::SymlinkLoop => FilesystemError::UnsupportedFileType(message.into()),
-        HelperErrorCode::UnsupportedFileType => FilesystemError::UnsupportedFileType(message.into()),
+        HelperErrorCode::UnsupportedFileType => {
+            FilesystemError::UnsupportedFileType(message.into())
+        }
         HelperErrorCode::Io => FilesystemError::ExecFailed(message.into()),
         HelperErrorCode::InvalidArgs => FilesystemError::HelperProtocolError(message.into()),
     }
 }
 
-fn map_exec_error(
-    error: bollard::errors::Error,
-    session: &FilesystemSession,
-) -> FilesystemError {
+fn map_exec_error(error: bollard::errors::Error) -> FilesystemError {
     let text = error.to_string();
     let lower = text.to_ascii_lowercase();
     if lower.contains("no such container") || lower.contains("is not running") {

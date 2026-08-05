@@ -84,16 +84,11 @@ impl LogTail {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum LogSince {
+    #[default]
     All,
     Timestamp(DateTime<Utc>),
-}
-
-impl Default for LogSince {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 impl LogSince {
