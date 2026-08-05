@@ -1734,6 +1734,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tuxstack-cli"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tuxstack-client",
+ "tuxstack-protocol",
+]
+
+[[package]]
 name = "tuxstack-client"
 version = "0.3.0"
 dependencies = [

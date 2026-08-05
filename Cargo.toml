@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/docker-core",
     "crates/gui",
+    "crates/tuxstack-cli",
     "crates/tuxstack-client",
     "crates/tuxstack-daemon",
     "crates/tuxstack-domain",

@@ -1,0 +1,18 @@
+[package]
+name = "tuxstack-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Typed command-line client for tuxstackd"
+publish = false
+
+[[bin]]
+name = "tuxstackctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tuxstack-client = { path = "../tuxstack-client" }
+tuxstack-protocol = { path = "../tuxstack-protocol" }
