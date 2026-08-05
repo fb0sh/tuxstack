@@ -261,8 +261,9 @@ impl DaemonState {
     }
 
     pub async fn resource_path(&self, resource: DockerResourceRef) -> Result<ResourceFusePath> {
-        let registries = read(&self.providers);
         let namespace_path = resource_namespace_path(&resource)?;
+        self.ensure_container_snapshot(&resource, true).await?;
+        let registries = read(&self.providers);
         let resolved = self
             .namespace
             .provider_at(&namespace_path)?
@@ -286,11 +287,13 @@ impl DaemonState {
     }
 
     pub async fn provider_descriptor(&self, path: ResourcePath) -> Result<WireDescriptor> {
-        let registries = read(&self.providers);
+        self.ensure_container_snapshot(&path.resource, path.components.is_empty())
+            .await?;
         let mut namespace_path = resource_namespace_path(&path.resource)?;
         for component in path.components {
             namespace_path = namespace_path.join(&VirtualFileName::new(component.as_bytes())?)?;
         }
+        let registries = read(&self.providers);
         let resolved = self
             .namespace
             .provider_at(&namespace_path)?
@@ -302,6 +305,30 @@ impl DaemonState {
             &resolved.provider,
         )?;
         Ok(wire_descriptor(descriptor))
+    }
+
+    async fn ensure_container_snapshot(
+        &self,
+        resource: &DockerResourceRef,
+        root_path: bool,
+    ) -> Result<()> {
+        if !root_path {
+            return Ok(());
+        }
+        let DockerResourceRef::Container { container_id } = resource else {
+            return Ok(());
+        };
+        let rootfs = read(&self.providers).rootfs.get(container_id).cloned();
+        let Some(rootfs) = rootfs else {
+            bail!("container rootfs provider is not attached: {container_id}");
+        };
+        if rootfs.captured_at().await.is_none() {
+            rootfs
+                .capture()
+                .await
+                .with_context(|| format!("capture container filesystem snapshot {container_id}"))?;
+        }
+        Ok(())
     }
 
     pub async fn stop(&self) -> Result<()> {
