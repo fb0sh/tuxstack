@@ -22,7 +22,19 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::DockerClient;
 
-const DEFAULT_SHELLS: [&str; 5] = ["/bin/bash", "/bin/sh", "/bin/ash", "/bin/zsh", "/bin/dash"];
+const DEFAULT_SHELLS: [&str; 11] = [
+    "/bin/bash",
+    "/usr/bin/bash",
+    "/bin/zsh",
+    "/usr/bin/zsh",
+    "/bin/fish",
+    "/usr/bin/fish",
+    "/bin/ash",
+    "/usr/bin/ash",
+    "/bin/sh",
+    "/usr/bin/sh",
+    "/busybox/sh",
+];
 const OUTPUT_CHANNEL_CAPACITY: usize = 128;
 const INPUT_CHANNEL_CAPACITY: usize = 64;
 const EXEC_START_PROBE_DELAY: Duration = Duration::from_millis(100);
@@ -101,6 +113,9 @@ pub struct ContainerTerminalOptions {
     /// Exec user. When absent, the container configuration is used. An empty
     /// value leaves Docker's container-default user unchanged.
     pub user: Option<String>,
+    /// Initial TTY height and width. Zero values are rejected.
+    pub rows: u16,
+    pub cols: u16,
     /// Optional override for this session's Docker operation timeout.
     pub operation_timeout: Option<Duration>,
 }
@@ -132,6 +147,8 @@ impl ContainerTerminalService {
         }
         if container_id.trim().is_empty()
             || container_id.as_bytes().contains(&0)
+            || options.rows == 0
+            || options.cols == 0
             || options
                 .working_dir
                 .as_deref()
@@ -184,7 +201,23 @@ impl ContainerTerminalService {
         let (state_tx, _) = watch::channel(ContainerTerminalState::Idle);
         transition_state(&state_tx, ContainerTerminalState::Connecting);
 
-        for shell in shell_candidates(options.shell.as_deref()) {
+        let configured_shell = inspect
+            .config
+            .as_ref()
+            .and_then(|config| config.labels.as_ref())
+            .and_then(|labels| labels.get("io.tuxstack.shell").cloned());
+        let environment_shell = inspect.config.as_ref().and_then(|config| {
+            config.env.as_ref().and_then(|environment| {
+                environment
+                    .iter()
+                    .find_map(|value| value.strip_prefix("SHELL=").map(str::to_owned))
+            })
+        });
+        for shell in shell_candidates(
+            options.shell.as_deref(),
+            configured_shell.as_deref(),
+            environment_shell.as_deref(),
+        ) {
             if cancellation.is_cancelled() {
                 transition_state(&state_tx, ContainerTerminalState::Error);
                 return Err(ContainerTerminalError::Cancelled);
@@ -199,7 +232,7 @@ impl ContainerTerminalService {
                     "TERM=xterm-256color".to_owned(),
                     "COLORTERM=truecolor".to_owned(),
                 ]),
-                cmd: Some(vec![shell.clone()]),
+                cmd: Some(vec![shell.clone(), "-i".to_owned()]),
                 user: user.clone(),
                 working_dir: Some(working_dir.clone()),
                 ..Default::default()
@@ -277,6 +310,23 @@ impl ContainerTerminalService {
                 // configured shell that exits successfully without interacting.
                 drop(started);
                 continue;
+            }
+            if let Err(error) = operation(
+                timeout,
+                &cancellation,
+                docker.resize_exec(
+                    &created.id,
+                    ResizeExecOptions {
+                        height: options.rows,
+                        width: options.cols,
+                    },
+                ),
+            )
+            .await
+            {
+                let error = classify_bollard_error(&error, ContainerTerminalError::ResizeFailed);
+                transition_state(&state_tx, ContainerTerminalState::Error);
+                return Err(error);
             }
 
             let session_cancel = cancellation.child_token();
@@ -620,14 +670,23 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn shell_candidates(configured: Option<&str>) -> Vec<String> {
+fn shell_candidates(
+    explicit: Option<&str>,
+    configured: Option<&str>,
+    environment: Option<&str>,
+) -> Vec<String> {
     let mut seen = HashSet::new();
-    let configured = configured
+    let candidates: Box<dyn Iterator<Item = &str>> = match explicit {
+        Some(shell) => Box::new(std::iter::once(shell)),
+        None => Box::new(
+            configured
+                .into_iter()
+                .chain(environment)
+                .chain(DEFAULT_SHELLS.iter().copied()),
+        ),
+    };
+    candidates
         .filter(|shell| is_safe_absolute_shell(shell))
-        .filter(|shell| !DEFAULT_SHELLS.contains(shell));
-    configured
-        .into_iter()
-        .chain(DEFAULT_SHELLS)
         .filter_map(|shell| {
             let shell = shell.to_owned();
             seen.insert(shell.clone()).then_some(shell)
@@ -752,17 +811,20 @@ mod tests {
     #[test]
     fn shell_candidates_validate_and_deduplicate() {
         assert_eq!(
-            shell_candidates(Some("/usr/local/bin/fish")),
-            vec![
-                "/usr/local/bin/fish",
-                "/bin/bash",
-                "/bin/sh",
-                "/bin/ash",
-                "/bin/zsh",
-                "/bin/dash",
-            ]
+            shell_candidates(Some("/usr/local/bin/fish"), None, None),
+            vec!["/usr/local/bin/fish"]
         );
-        assert_eq!(shell_candidates(Some("/bin/sh")), DEFAULT_SHELLS);
+        assert_eq!(
+            shell_candidates(Some("/bin/sh"), None, None),
+            vec!["/bin/sh"]
+        );
+        assert_eq!(
+            shell_candidates(None, Some("relative"), None),
+            DEFAULT_SHELLS
+                .iter()
+                .map(|shell| (*shell).to_owned())
+                .collect::<Vec<_>>()
+        );
 
         for unsafe_shell in [
             "sh",
@@ -772,8 +834,25 @@ mod tests {
             "/bin/$SHELL",
             "/",
         ] {
-            assert_eq!(shell_candidates(Some(unsafe_shell)), DEFAULT_SHELLS);
+            assert!(shell_candidates(Some(unsafe_shell), None, None).is_empty());
         }
+        assert_eq!(
+            shell_candidates(None, Some("/custom/shell"), None),
+            vec![
+                "/custom/shell",
+                "/bin/bash",
+                "/usr/bin/bash",
+                "/bin/zsh",
+                "/usr/bin/zsh",
+                "/bin/fish",
+                "/usr/bin/fish",
+                "/bin/ash",
+                "/usr/bin/ash",
+                "/bin/sh",
+                "/usr/bin/sh",
+                "/busybox/sh",
+            ]
+        );
         assert!(is_safe_working_directory("/"));
         assert!(is_safe_working_directory("/workspace/src"));
         assert!(!is_safe_working_directory("relative"));

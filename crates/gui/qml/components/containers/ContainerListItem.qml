@@ -35,12 +35,15 @@ QQC2.ItemDelegate {
     signal restartRequested(string id)
     signal logsRequested(string id)
     signal terminalRequested(string id)
+    signal inAppTerminalRequested(string id)
     signal filesRequested(string id)
     signal browserRequested(string url)
     signal mountRequested(string type, string source, string destination, string volumeName)
+    signal notificationRequested(string message)
 
     readonly property bool busy: root.operation.length > 0
-    readonly property bool running: root.state === "running" || root.state === "restarting"
+    readonly property bool running: root.state === "running"
+    readonly property bool restarting: root.state === "restarting"
     readonly property bool paused: root.state === "paused"
 
     width: ListView.view ? ListView.view.width : implicitWidth
@@ -50,6 +53,19 @@ QQC2.ItemDelegate {
     rightPadding: Kirigami.Units.smallSpacing
     enabled: !root.busy
     onClicked: root.selectedRequested(root.containerId)
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onDoubleTapped: {
+            if (root.running)
+                root.terminalRequested(root.containerId)
+            else if (root.paused)
+                root.notificationRequested("Resume the container before opening a terminal.")
+            else if (root.restarting)
+                root.notificationRequested("The container is currently restarting.")
+            else
+                root.notificationRequested("Start the container before opening a terminal.")
+        }
+    }
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {
@@ -162,6 +178,7 @@ QQC2.ItemDelegate {
         onRenameRequested: id => root.renameRequested(id)
         onLogsRequested: id => root.logsRequested(id)
         onTerminalRequested: id => root.terminalRequested(id)
+        onInAppTerminalRequested: id => root.inAppTerminalRequested(id)
         onFilesRequested: id => root.filesRequested(id)
         onBrowserRequested: url => root.browserRequested(url)
         onMountRequested: (type, source, destination, volumeName) => root.mountRequested(type, source, destination, volumeName)

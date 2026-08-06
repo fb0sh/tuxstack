@@ -27,5 +27,8 @@ serde_json = { workspace = true }
 futures-util = { workspace = true }
 vt100 = "0.16.2"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [build-dependencies]
 cxx-qt-build = "0.9"

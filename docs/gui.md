@@ -30,11 +30,11 @@ Kirigami.ApplicationWindow (Main.qml)
     ├── ActivityMonitorPage   future phase placeholder
     ├── CommandsPage          future phase placeholder
     ├── DevicesPage           future phase placeholder
-    └── SettingsPage          future phase placeholder
+    └── SettingsPage          terminal detection and default terminal selection
 ```
 
-The Images detail panel starts directly with image metadata. It does not
-contain Info, Terminal, or Files tabs.
+The Images detail panel starts directly with image metadata and has the
+Info/Files tabs described above.
 
 Image workflows use `PullImageDialog`, `RemoveImageDialog`, and
 `ExportImageDialog`. The save location is selected through Qt's native
@@ -121,6 +121,23 @@ the In Use/Unused grouping.
 
 The total shown by the page is the logical sum of unique image IDs. It is not
 presented as exclusive on-disk layer usage.
+
+## External container terminal
+
+The GUI detects installed terminal applications by walking `PATH` without
+executing shell discovery commands. Settings persists only the stable terminal
+ID in `$XDG_CONFIG_HOME/tuxstack/config.toml`; executable paths are resolved
+again on every launch. The Container context menu's **Open Terminal** action
+and a running-container double-click share `AppController.openContainerTerminal()`.
+The original in-app **Terminal** detail tab remains available separately and
+uses the Rust `vt100` renderer for an embedded Docker TTY.
+
+The launcher passes argv directly to the selected terminal adapter:
+`<terminal> <adapter arguments> tuxstack-cli container shell <full-id>`. It
+never builds a shell command string. `tuxstack-cli` owns the local TTY raw mode,
+stdin/stdout byte forwarding, SIGWINCH resize, and restoration guard; it talks
+to `tuxstackd` through the typed IPC client. The daemon remains the sole Docker
+Engine client and creates the Docker Exec TTY.
 
 ## Runtime and security
 

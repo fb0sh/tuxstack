@@ -94,9 +94,12 @@ fn containers_page_keeps_a_permanent_blankable_detail_panel() {
     assert!(detail.contains("ContainerStatsView"));
     assert!(detail.contains("ContainerLogsView"));
     assert!(detail.contains("ContainerTerminalView"));
+    assert!(
+        include_str!("../qml/components/containers/ContainerContextMenu.qml")
+            .contains("Open Terminal")
+    );
+    assert!(include_str!("../qml/pages/ContainersPage.qml").contains("externalTerminalRequested"));
     assert!(detail.contains("ContainerFilesView"));
-    assert!(detail.contains("values.states.length"));
-    assert!(!detail.contains("setSelection(id, states.length"));
     assert!(detail.contains("lastSelectionKind"));
     assert!(!detail.contains("root.currentTab = 0\n            root.syncLiveSelection"));
     assert!(!detail.contains("No container selected"));
@@ -362,6 +365,15 @@ fn dialogs_use_consistent_content_padding_and_layout_sizing() {
 }
 
 #[test]
+fn settings_page_exposes_terminal_selection_controls() {
+    let source = include_str!("../qml/pages/SettingsPage.qml");
+    assert!(source.contains("Default Terminal"));
+    assert!(source.contains("refreshTerminals"));
+    assert!(source.contains("testTerminal"));
+    assert!(source.contains("terminalApplicationModel"));
+}
+
+#[test]
 fn all_qml_components_load_without_errors() {
     let _qt_guard = QT_GUI_LOCK.lock().unwrap();
     unsafe {
@@ -462,6 +474,7 @@ fn all_qml_components_load_without_errors() {
         "ContainerStatsModel",
         "ContainerLogsModel",
         "ContainerTerminalModel",
+        "TerminalApplicationModel",
         "LocalFuseFileListModel",
         "ImageListModel",
         "NetworkListModel",

@@ -28,6 +28,7 @@ Kirigami.Page {
     signal startServiceRequested()
     signal volumeNavigationRequested(string volumeName)
     signal networkNavigationRequested(string networkId, string networkName)
+    signal externalTerminalRequested(string containerId)
 
     title: I18n.i18nd("tuxstack", "Containers")
     padding: 0
@@ -89,7 +90,9 @@ Kirigami.Page {
                 killDialog.prepare(id, currentName)
             }
             onLogsRequested: id => detailPanel.openContainerTab(id, "logs")
-            onTerminalRequested: id => detailPanel.openContainerTab(id, "terminal")
+            onTerminalRequested: id => root.externalTerminalRequested(id)
+            onInAppTerminalRequested: id => detailPanel.openContainerTab(id, "terminal")
+            onNotificationRequested: message => root.notificationRequested(message)
             onFilesRequested: id => detailPanel.openContainerTab(id, "files")
         }
 

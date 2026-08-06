@@ -613,7 +613,25 @@ pub enum SubscriptionRequest {
         container_id: String,
         rows: u16,
         cols: u16,
+        /// Shell selection. Missing on frames from older clients means auto.
+        #[serde(default)]
+        shell: ShellSelection,
+        /// Optional exec user override.
+        #[serde(default)]
+        user: Option<String>,
+        /// Optional exec working-directory override.
+        #[serde(default)]
+        workdir: Option<String>,
     },
+}
+
+/// Shell selection for an interactive container terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum ShellSelection {
+    #[default]
+    Auto,
+    ExactPath(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

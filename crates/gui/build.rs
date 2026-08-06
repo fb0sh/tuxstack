@@ -103,6 +103,7 @@ fn main() {
         "src/bridge/containers_bridge.rs",
         "src/bridge/local_fuse_files_bridge.rs",
         "src/bridge/resource_bridges.rs",
+        "src/bridge/terminal_settings_bridge.rs",
     ])
     .build();
 }

@@ -11,6 +11,7 @@ mod controllers;
 mod error;
 mod models;
 mod runtime;
+pub mod terminal;
 
 #[cfg(test)]
 mod smoke_test;

@@ -19,7 +19,7 @@ use tuxstack_domain::*;
 use tuxstack_protocol::{
     ComposeAction, DockerRequest, DockerResponse, ProtocolError, ProtocolErrorCode,
     PullImageRequest, RegistryAuthRequest, Request, ResourceKind, Response, ServerEvent,
-    SubscriptionEndReason, SubscriptionRequest, TerminalState,
+    ShellSelection, SubscriptionEndReason, SubscriptionRequest, TerminalState,
 };
 
 use crate::{Client, ClientError, Subscription};
@@ -1000,8 +1000,37 @@ fn subscription_end_error(reason: SubscriptionEndReason) -> Option<DaemonError> 
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ContainerTerminalOptions;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerTerminalOptions {
+    pub shell: ShellSelection,
+    pub user: Option<String>,
+    pub workdir: Option<String>,
+    pub rows: u16,
+    pub cols: u16,
+}
+
+impl Default for ContainerTerminalOptions {
+    fn default() -> Self {
+        Self {
+            shell: ShellSelection::Auto,
+            user: None,
+            workdir: None,
+            rows: 24,
+            cols: 80,
+        }
+    }
+}
+
+// Keep the historical unit-like call site (`ContainerTerminalOptions`) valid
+// for GUI consumers while allowing new clients to use struct fields.
+#[allow(non_upper_case_globals)]
+pub const ContainerTerminalOptions: ContainerTerminalOptions = ContainerTerminalOptions {
+    shell: ShellSelection::Auto,
+    user: None,
+    workdir: None,
+    rows: 24,
+    cols: 80,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerTerminalState {
@@ -1096,15 +1125,18 @@ impl ContainerTerminalService {
     pub async fn connect(
         &self,
         container_id: &str,
-        _options: ContainerTerminalOptions,
+        options: ContainerTerminalOptions,
         cancellation: CancellationToken,
     ) -> Result<ContainerTerminalSession, ContainerTerminalError> {
         let mut subscription = self
             .0
             .subscribe(SubscriptionRequest::ContainerTerminal {
                 container_id: container_id.into(),
-                rows: 24,
-                cols: 80,
+                rows: options.rows,
+                cols: options.cols,
+                shell: options.shell,
+                user: options.user,
+                workdir: options.workdir,
             })
             .await
             .map_err(|error| terminal_error(error.into()))?;

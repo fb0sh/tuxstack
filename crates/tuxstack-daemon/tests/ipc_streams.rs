@@ -53,6 +53,9 @@ fn typed_stream_messages_round_trip_through_cbor() {
                 container_id: "alpha".into(),
                 rows: 24,
                 cols: 80,
+                shell: tuxstack_protocol::ShellSelection::Auto,
+                user: None,
+                workdir: None,
             }),
         ),
         ProtocolEnvelope::new(

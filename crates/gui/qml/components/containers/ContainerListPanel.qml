@@ -21,9 +21,11 @@ Item {
     signal removeGroupRequested(string id)
     signal logsRequested(string id)
     signal terminalRequested(string id)
+    signal inAppTerminalRequested(string id)
     signal filesRequested(string id)
     signal browserRequested(string url)
     signal mountRequested(string type, string source, string destination, string volumeName)
+    signal notificationRequested(string message)
 
     function sortIs(value) {
         return root.containersModel && String(root.containersModel.sortMode) === value
@@ -219,6 +221,8 @@ Item {
             onRenameRequested: id => root.renameContainerRequested(id)
             onLogsRequested: id => root.logsRequested(id)
             onTerminalRequested: id => root.terminalRequested(id)
+            onInAppTerminalRequested: id => root.inAppTerminalRequested(id)
+            onNotificationRequested: message => root.notificationRequested(message)
             onFilesRequested: id => root.filesRequested(id)
             onBrowserRequested: url => root.containersModel.requestBrowserUrl(url)
             onMountRequested: function(type, source, destination, volumeName) {

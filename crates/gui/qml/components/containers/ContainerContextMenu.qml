@@ -28,12 +28,14 @@ QQC2.Menu {
     signal renameRequested(string id)
     signal logsRequested(string id)
     signal terminalRequested(string id)
+    signal inAppTerminalRequested(string id)
     signal filesRequested(string id)
     signal browserRequested(string url)
     signal mountRequested(string type, string source, string destination, string volumeName)
     signal copyRequested(string value)
 
-    readonly property bool running: root.state === "running" || root.state === "restarting"
+    readonly property bool running: root.state === "running"
+    readonly property bool restarting: root.state === "restarting"
     readonly property bool paused: root.state === "paused"
     readonly property bool stopped: !root.running && !root.paused
 
@@ -96,10 +98,21 @@ QQC2.Menu {
     QQC2.MenuItem {
         visible: root.terminalCapability
         enabled: root.running
-        text: I18n.i18nd("tuxstack", "Terminal")
+        text: I18n.i18nd("tuxstack", "Open Terminal")
         icon.name: "utilities-terminal"
         onTriggered: root.terminalRequested(root.containerId)
-        QQC2.ToolTip.text: root.running ? "" : I18n.i18nd("tuxstack", "Start or resume the container to open a terminal.")
+        QQC2.ToolTip.text: root.running ? "" : root.paused
+                                      ? I18n.i18nd("tuxstack", "Resume the container before opening a terminal.")
+                                      : root.restarting
+                                      ? I18n.i18nd("tuxstack", "The container is currently restarting.")
+                                      : I18n.i18nd("tuxstack", "Start the container before opening a terminal.")
+    }
+    QQC2.MenuItem {
+        visible: root.terminalCapability
+        enabled: root.running
+        text: I18n.i18nd("tuxstack", "Terminal")
+        icon.name: "utilities-terminal"
+        onTriggered: root.inAppTerminalRequested(root.containerId)
     }
     QQC2.MenuItem {
         visible: root.filesCapability

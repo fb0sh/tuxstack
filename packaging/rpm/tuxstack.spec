@@ -1,5 +1,5 @@
 Name:           tuxstack
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Docker and Incus desktop manager for Linux
 
@@ -74,6 +74,8 @@ install -Dpm0755 target/release/tuxstackd \
     %{buildroot}%{_bindir}/tuxstackd
 install -Dpm0755 target/release/tuxstackctl \
     %{buildroot}%{_bindir}/tuxstackctl
+install -Dpm0755 target/release/tuxstack-cli \
+    %{buildroot}%{_bindir}/tuxstack-cli
 
 install -Dpm0644 packaging/systemd/tuxstackd.service \
     %{buildroot}%{_userunitdir}/tuxstackd.service
@@ -116,11 +118,12 @@ fi
 %{_bindir}/tuxstack
 %{_bindir}/tuxstackd
 %{_bindir}/tuxstackctl
+%{_bindir}/tuxstack-cli
 %{_userunitdir}/tuxstackd.service
 %{_datadir}/applications/io.github.tuxstack.TuxStack.desktop
 %{_datadir}/metainfo/io.github.tuxstack.TuxStack.metainfo.xml
 %{_datadir}/icons/hicolor/*/apps/io.github.tuxstack.TuxStack.png
 
 %changelog
-* Thu Aug 06 2026 TuxStack Maintainers <maintainers@tuxstack.internal> - 0.3.1-1
+* Thu Aug 06 2026 TuxStack Maintainers <maintainers@tuxstack.internal> - 0.3.2-1
 - Package the Docker/Incus desktop application, daemon, CLI, icons, and user service.

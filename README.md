@@ -17,7 +17,7 @@ TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux�
 | 容器列表 / 结构化详情 / 生命周期操作 | ✅ 已实现 |
 | Compose 标签分组 / 批量操作 | ✅ 已实现 |
 | 容器日志 / 实时监控 / Docker Events | ✅ 已实现 |
-| 容器终端（真实 Docker TTY + VT100） | ✅ 已实现 |
+| 外部容器终端（系统终端 → tuxstack-cli → tuxstackd） | ✅ 已实现 |
 | 统一只读文件浏览（FUSE，容器/镜像/卷） | ✅ 已实现 |
 | 创建容器（端口、挂载、网络、资源） | ✅ 已实现 |
 | 镜像管理 / 拉取 / 导出 | ✅ 已实现 |
@@ -33,7 +33,6 @@ TuxStack 是一个原生的容器和虚拟机桌面管理应用，专为 Linux�
 | 虚拟机 / 容器列表 | 🔮 未来实现 |
 | 网络 / 存储管理 | 🔮 未来实现 |
 | 镜像管理 | 🔮 未来实现 |
-| 终端 / 文件浏览 | 🔮 未来实现 |
 
 ## 架构
 
@@ -161,7 +160,7 @@ Engine 不可用时显示明确状态并提供重试/启动服务操作。开发
 
 生成的 RPM 位于 `packaging/rpm/RPMS/`。安装后可使用上面的
 `systemctl --user enable --now tuxstackd.service` 启动 daemon。RPM 构建会同时安装
-`tuxstack` GUI、`tuxstackd` daemon、`tuxstackctl` CLI、桌面文件、AppStream 元数据、
+`tuxstack` GUI、`tuxstackd` daemon、`tuxstackctl`/`tuxstack-cli` CLI、桌面文件、AppStream 元数据、
 hicolor 图标和 systemd 用户服务。
 
 ## 配置
@@ -261,7 +260,7 @@ TuxStack is a native container and virtual machine desktop management applicatio
 | Container list/structured details/lifecycle actions | ✅ Implemented |
 | Compose label grouping/group actions | ✅ Implemented |
 | Container logs/live stats/Docker Events | ✅ Implemented |
-| Container terminal (real Docker TTY + VT100) | ✅ Implemented |
+| External container terminal (system terminal → tuxstack-cli → tuxstackd) | ✅ Implemented |
 | Unified read-only Files browsing (FUSE, container/image/volume) | ✅ Implemented |
 | Create container (ports, mounts, networks, resources) | ✅ Implemented |
 | Image management/pull/export | ✅ Implemented |
@@ -277,7 +276,6 @@ TuxStack is a native container and virtual machine desktop management applicatio
 | VM/container list | 🔮 Future |
 | Network/storage management | 🔮 Future |
 | Image management | 🔮 Future |
-| Terminal/file browsing | 🔮 Future |
 
 ## Architecture
 
@@ -408,7 +406,7 @@ build tools, then run from the repository root:
 ```
 
 The resulting RPM is written to `packaging/rpm/RPMS/`. It contains the
-`tuxstack` GUI, `tuxstackd` daemon, `tuxstackctl` CLI, desktop file, AppStream
+`tuxstack` GUI, `tuxstackd` daemon, `tuxstackctl`/`tuxstack-cli` CLI, desktop file, AppStream
 metadata, hicolor icons, and the systemd user service.
 
 ## Configuration

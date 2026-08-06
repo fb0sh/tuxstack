@@ -135,7 +135,14 @@ Kirigami.ApplicationWindow {
         id: imageFilesModel
     }
 
-    Component.onCompleted: appController.startup()
+    TerminalApplicationModel {
+        id: terminalApplicationModel
+    }
+
+    Component.onCompleted: {
+        terminalApplicationModel.refreshTerminals()
+        appController.startup()
+    }
     onClosing: {
         containersModel.shutdown()
         containerStatsModel.shutdown()
@@ -204,6 +211,10 @@ Kirigami.ApplicationWindow {
             }
         }
 
+        function onTerminalLaunchFailed(message) {
+            root.showPassiveNotification(message)
+        }
+
         function onContainerChanged(actorId, action) {
             if (appController.dockerStatus !== 1)
                 return
@@ -228,9 +239,9 @@ Kirigami.ApplicationWindow {
                 root.scheduleSelectedDetail(actorId, false)
                 if (root.rootfsSnapshotAffected(action))
                     containerFilesModel.invalidateSnapshot(actorId)
+                if (root.terminalAffected(action))
+                    containerTerminalModel.invalidateContainer(actorId)
             }
-            if (root.terminalAffected(action))
-                containerTerminalModel.invalidateContainer(actorId)
         }
     }
 
@@ -338,6 +349,11 @@ Kirigami.ApplicationWindow {
                 }
                 onRetryConnectionRequested: appController.startup()
                 onStartServiceRequested: appController.requestStartService()
+                onExternalTerminalRequested: function(containerId) {
+                    const name = containersModel.selectionId === containerId
+                                 ? containersModel.detailName : containerId
+                    appController.openContainerTerminal(containerId, name)
+                }
                 onVolumeNavigationRequested: function(volumeName) {
                     root.currentPage = "volumes"
                     volumesModel.selectVolume(volumeName)
@@ -391,7 +407,9 @@ Kirigami.ApplicationWindow {
             ActivityMonitorPage { }
             CommandsPage { }
             DevicesPage { }
-            SettingsPage { }
+            SettingsPage {
+                terminalApplicationModel: terminalApplicationModel
+            }
         }
     }
 }

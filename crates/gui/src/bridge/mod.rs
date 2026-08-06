@@ -12,4 +12,5 @@ pub mod image_bridge;
 pub mod local_fuse_files_bridge;
 pub mod network_bridge;
 pub mod resource_bridges;
+pub mod terminal_settings_bridge;
 pub mod volume_bridge;

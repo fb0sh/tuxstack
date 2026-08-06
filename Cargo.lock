@@ -1716,7 +1716,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuxstack"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "cxx",
@@ -1725,6 +1725,7 @@ dependencies = [
  "cxx-qt-lib",
  "futures-util",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
@@ -1737,17 +1738,20 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
+ "futures-util",
+ "libc",
  "tokio",
+ "tokio-util",
  "tuxstack-client",
  "tuxstack-protocol",
 ]
 
 [[package]]
 name = "tuxstack-client"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "futures-util",
  "libc",
@@ -1761,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-daemon"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "fuser",
@@ -1783,7 +1787,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-docker-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1811,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-domain"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "serde",
@@ -1821,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-fs-helper"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "libc",
  "serde_json",
@@ -1830,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-fs-protocol"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1838,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-protocol"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ciborium",
  "serde",
@@ -1848,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "tuxstack-vfs"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "bytes",

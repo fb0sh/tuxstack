@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
+use tuxstack_domain::ContainerRuntimeState;
 use tuxstack_protocol::{
     DaemonStatus, DockerConnectionStatus, DockerResourceRef, MountState, Request, ResourceChange,
     ResourceKind, Response, ServerEvent, SubscriptionRequest,
@@ -12,6 +13,10 @@ use tuxstack_protocol::{
 
 use crate::app_state;
 use crate::error::AppError;
+use crate::terminal::{
+    LaunchContainerShellRequest, SystemTerminalLauncher, TerminalConfigStore, TerminalDetector,
+    TuxStackCliResolver,
+};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -42,6 +47,13 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "requestStartService"]
         fn request_start_service(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "openContainerTerminal"]
+        fn open_container_terminal(
+            self: Pin<&mut Self>,
+            container_id: &QString,
+            container_name: &QString,
+        );
 
         #[qsignal]
         #[cxx_name = "dockerChanged"]
@@ -49,6 +61,9 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "containerChanged"]
         fn container_changed(self: Pin<&mut Self>, actor_id: QString, action: QString);
+        #[qsignal]
+        #[cxx_name = "terminalLaunchFailed"]
+        fn terminal_launch_failed(self: Pin<&mut Self>, message: QString);
     }
 }
 
@@ -243,6 +258,79 @@ impl qobject::AppController {
                     Err(error) => {
                         tracing::debug!(%error, "overview refresh failed");
                         controller.as_mut().set_overview_json(QString::from("{}"));
+                    }
+                }
+            })
+            .ok();
+        });
+    }
+
+    pub fn open_container_terminal(
+        self: Pin<&mut Self>,
+        container_id: &QString,
+        _container_name: &QString,
+    ) {
+        let Some(services) = app_state::daemon_services() else {
+            self.terminal_launch_failed(QString::from("TuxStack service is not connected."));
+            return;
+        };
+        let id = container_id.to_string();
+        if id.trim().is_empty() {
+            self.terminal_launch_failed(QString::from("A container must be selected first."));
+            return;
+        }
+        let generation = self.rust().connection_generation;
+        let qt = self.qt_thread();
+        crate::runtime::spawn(async move {
+            let result = services.containers.inspect_container(&id).await;
+            qt.queue(move |mut controller| {
+                if controller.connection_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(detail) if detail.summary.state == ContainerRuntimeState::Running => {
+                        let Some(config_path) = TerminalConfigStore::default_path() else {
+                            controller.as_mut().terminal_launch_failed(QString::from(
+                                "Could not determine the terminal settings directory.",
+                            ));
+                            return;
+                        };
+                        let launcher = SystemTerminalLauncher {
+                            detector: TerminalDetector,
+                            settings: TerminalConfigStore::new(config_path),
+                            cli_resolver: TuxStackCliResolver,
+                        };
+                        let result = launcher.launch_container_shell(LaunchContainerShellRequest {
+                            container_id: detail.summary.id,
+                            container_name: detail.summary.name,
+                        });
+                        if let Err(error) = result {
+                            controller
+                                .as_mut()
+                                .terminal_launch_failed(QString::from(error.to_string()));
+                        }
+                    }
+                    Ok(detail) => {
+                        let message = match detail.summary.state {
+                            ContainerRuntimeState::Paused => {
+                                "Resume the container before opening a terminal."
+                            }
+                            ContainerRuntimeState::Restarting => {
+                                "The container is currently restarting."
+                            }
+                            ContainerRuntimeState::Removing => "The container is being removed.",
+                            _ => "Start the container before opening a terminal.",
+                        };
+                        controller
+                            .as_mut()
+                            .terminal_launch_failed(QString::from(message));
+                    }
+                    Err(error) => {
+                        controller
+                            .as_mut()
+                            .terminal_launch_failed(QString::from(format!(
+                                "Could not inspect the container: {error}"
+                            )));
                     }
                 }
             })

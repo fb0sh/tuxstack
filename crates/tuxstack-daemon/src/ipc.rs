@@ -25,9 +25,9 @@ use tuxstack_protocol::{
     ComposeAction, DockerRequest, DockerResponse, FeatureFlags, FrameError, HandshakeRejection,
     HandshakeRejectionCode, MAX_FRAME_SIZE, MountAction, PROTOCOL_VERSION, ProtocolBody,
     ProtocolEnvelope, ProtocolError, ProtocolErrorCode, PullImageRequest, Request, RequestId,
-    Response, ServerEvent, ServerHello, SubscriptionAccepted, SubscriptionEndReason,
-    SubscriptionId, SubscriptionRequest, TerminalState, VolumeEnrichment, decode_payload,
-    encode_frame_with_limit, validate_frame_length,
+    Response, ServerEvent, ServerHello, ShellSelection, SubscriptionAccepted,
+    SubscriptionEndReason, SubscriptionId, SubscriptionRequest, TerminalState, VolumeEnrichment,
+    decode_payload, encode_frame_with_limit, validate_frame_length,
 };
 
 use crate::state::{DaemonEvent, DaemonState};
@@ -41,6 +41,8 @@ const MAX_CLIENT_STREAM_TASKS: usize = 32;
 const MAX_SUBSCRIPTION_MEMBERS: usize = 16;
 const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 const MAX_TERMINAL_DIMENSION: u16 = 4096;
+const MAX_TERMINAL_SESSIONS_TOTAL: usize = 32;
+const MAX_TERMINAL_SESSIONS_PER_CONTAINER: usize = 8;
 const OUTBOUND_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_EXPORT_FILE: AtomicU64 = AtomicU64::new(1);
@@ -805,12 +807,18 @@ fn spawn_subscription(
                 container_id,
                 rows,
                 cols,
+                shell,
+                user,
+                workdir,
             } => {
                 run_terminal_subscription(
                     id,
                     container_id,
                     rows,
                     cols,
+                    shell,
+                    user,
+                    workdir,
                     &state,
                     &tx,
                     &cancellation,
@@ -1048,6 +1056,9 @@ async fn run_terminal_subscription(
     container_id: String,
     rows: u16,
     cols: u16,
+    shell: ShellSelection,
+    user: Option<String>,
+    workdir: Option<String>,
     state: &DaemonState,
     tx: &mpsc::Sender<ProtocolEnvelope>,
     cancellation: &CancellationToken,
@@ -1065,12 +1076,42 @@ async fn run_terminal_subscription(
     {
         return SubscriptionEndReason::Unsubscribed;
     }
+    if !terminal_capacity_available(terminals, &container_id).await {
+        let reason = "Too many terminal sessions are already open.".to_owned();
+        let _ = send_event(
+            tx,
+            ServerEvent::TerminalState {
+                subscription_id: id,
+                state: TerminalState::Failed {
+                    reason: reason.clone(),
+                },
+            },
+            Some(cancellation),
+        )
+        .await;
+        return SubscriptionEndReason::Error(protocol_error(
+            ProtocolErrorCode::Conflict,
+            &reason,
+            false,
+        ));
+    }
     let session = match state
         .services
         .container_terminal
         .connect(
             &container_id,
-            ContainerTerminalOptions::default(),
+            ContainerTerminalOptions {
+                shell: match shell {
+                    ShellSelection::Auto => None,
+                    ShellSelection::ExactPath(path) => Some(path),
+                    _ => None,
+                },
+                user,
+                working_dir: workdir,
+                rows,
+                cols,
+                ..Default::default()
+            },
             cancellation.child_token(),
         )
         .await
@@ -1230,6 +1271,9 @@ fn subscription_task_cost(subscription: &SubscriptionRequest) -> Result<usize, P
             container_id,
             rows,
             cols,
+            shell: _,
+            user,
+            workdir,
         } => {
             if container_id.trim().is_empty() {
                 return Err(protocol_error(
@@ -1239,11 +1283,30 @@ fn subscription_task_cost(subscription: &SubscriptionRequest) -> Result<usize, P
                 ));
             }
             validate_terminal_size(*rows, *cols)?;
+            validate_terminal_option(user.as_deref(), workdir.as_deref())?;
             1
         }
         _ => 1,
     };
     Ok(members)
+}
+
+fn validate_terminal_option(
+    user: Option<&str>,
+    workdir: Option<&str>,
+) -> Result<(), ProtocolError> {
+    if user.is_some_and(|value| value.is_empty() || value.as_bytes().contains(&0))
+        || workdir.is_some_and(|value| {
+            value.is_empty() || value.as_bytes().contains(&0) || !value.starts_with('/')
+        })
+    {
+        return Err(protocol_error(
+            ProtocolErrorCode::InvalidRequest,
+            "terminal user and workdir options are invalid",
+            false,
+        ));
+    }
+    Ok(())
 }
 
 fn validate_terminal_size(rows: u16, cols: u16) -> Result<(), ProtocolError> {
@@ -1255,6 +1318,16 @@ fn validate_terminal_size(rows: u16, cols: u16) -> Result<(), ProtocolError> {
         ));
     }
     Ok(())
+}
+
+async fn terminal_capacity_available(terminals: &TerminalRegistry, container_id: &str) -> bool {
+    let sessions = terminals.lock().await;
+    sessions.len() < MAX_TERMINAL_SESSIONS_TOTAL
+        && sessions
+            .values()
+            .filter(|session| session.container_id() == container_id)
+            .count()
+            < MAX_TERMINAL_SESSIONS_PER_CONTAINER
 }
 
 async fn terminal_session(

@@ -1,11 +1,12 @@
 # RPM packaging
 
-The RPM package installs the three product binaries, desktop integration, icons,
+The RPM package installs the product binaries, desktop integration, icons,
 and the per-user daemon unit:
 
 - `/usr/bin/tuxstack`
 - `/usr/bin/tuxstackd`
 - `/usr/bin/tuxstackctl`
+- `/usr/bin/tuxstack-cli` (external container-shell client)
 - `/usr/lib/systemd/user/tuxstackd.service` (the path follows `%{_userunitdir}`)
 - hicolor icons, desktop entry, and AppStream metadata
 
@@ -42,7 +43,7 @@ it needs the user's `HOME`, `XDG_RUNTIME_DIR`, Docker-group access, and permissi
 to own the user's FUSE mount at `~/TuxStack/docker`.
 
 ```bash
-sudo dnf install ./packaging/rpm/RPMS/tuxstack-0.3.1-1.*.rpm
+sudo dnf install ./packaging/rpm/RPMS/tuxstack-0.3.2-1.*.rpm
 systemctl --user daemon-reload
 systemctl --user enable --now tuxstackd.service
 systemctl --user status tuxstackd.service
